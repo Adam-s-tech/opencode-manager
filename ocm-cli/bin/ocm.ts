@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from 'child_process'
-import { basename } from 'path'
-import { readState, writeState, clearState, getStatePath, type OcmState } from '../src/state.js'
+import { basename, dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
+import { readState, writeState, clearState, getStatePath, writeInstallNotice, type OcmState } from '../src/state.js'
+import { installVendoredOcm, resolveOpenCodeConfigDir, InstallError, OCM_PLUGIN_SPEC } from '../src/vendor-install.js'
 import { getToken, setToken, deleteToken, hasStoredToken, describeTokenStore, describeTokenWriteTarget, envToken, TOKEN_ENV, TokenStoreError } from '../src/internal-token-store.js'
 import { ManagerApi, ManagerApiError } from '../src/manager-api.js'
 import { mirrorUp, mirrorDown, mirrorUpFast, mirrorDownFast, prepareMirror, MirrorAbort, checkPushDivergence, checkPullDivergence, describePushDivergence } from '../src/mirror.js'
@@ -9,11 +11,9 @@ import { createProgressReporter } from '../src/progress.js'
 import { getBranchName, getOriginUrl } from '../src/local-repo.js'
 import { resolveOpenCodeProjectId } from '@opencode-manager/shared/project-id'
 import { resolveTarget, formatRepoIdentities, parseRepoIdPositional, restrictMatchesToRequestedRepo } from '../src/resolve-target.js'
-import { buildRemoteAttachEnv } from '../src/remote-context.js'
+import { buildAttachInvocation } from '../src/warp.js'
 import { type ManagerRepo, fetchRepos, toRemoteRepoSummaries } from '../src/manager-repos.js'
-import packageJson from '../package.json' with { type: 'json' }
-
-const VERSION = packageJson.version
+import { OCM_VERSION as VERSION, warmRepoProxy } from '../src/repo-proxy.js'
 
 const USAGE = `ocm v${VERSION} - OpenCode Manager workspace launcher
 
@@ -30,6 +30,8 @@ Usage:
                                                   Mirror $PWD to the matching Manager repo (fast patch sync by default)
   ocm pull [repoId] [--force] [--full]
                                                   Mirror the matching Manager repo over $PWD (fast patch sync by default)
+  ocm install [--dir <path>] [--force] [--no-link]
+                                                  Vendor the CLI + TUI plugin into the OpenCode config dir
   ocm --version             Show the installed ocm version
   ocm --help                Show this help
 `
@@ -117,39 +119,20 @@ async function requireToken(state: OcmState): Promise<string> {
   return token
 }
 
-async function warmUpInstance(managerUrl: string, token: string, directory: string): Promise<void> {
-  const url = `${managerUrl}/api/opencode-proxy/session?directory=${encodeURIComponent(directory)}`
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      if (res.ok) {
-        await res.text()
-        return
-      }
-    } catch {
-      /* retry */
-    }
-    await new Promise((resolve) => setTimeout(resolve, attempt * 500))
+async function attach(managerUrl: string, token: string, repo: ManagerRepo, cwd: string): Promise<never> {
+  try {
+    await warmRepoProxy(managerUrl, token, repo.repoId)
+  } catch (err) {
+    die(err instanceof Error ? err.message : String(err))
   }
-}
-
-async function attach(managerUrl: string, token: string, repo: ManagerRepo): Promise<never> {
-  await warmUpInstance(managerUrl, token, repo.directory)
-  const proxyUrl = `${managerUrl}/api/opencode-proxy`
-  const args = [
-    'attach',
-    proxyUrl,
-    '--dir', repo.directory,
-    '--password', token,
-    '--username', 'opencode',
-  ]
+  const { args, env } = buildAttachInvocation({ managerUrl, token, repoId: repo.repoId, repoName: repo.name })
   const child = spawn('opencode', args, {
     stdio: 'inherit',
-    env: { ...process.env, ...buildRemoteAttachEnv(managerUrl, repo.name) },
+    cwd,
+    env,
   })
   child.on('close', (code) => process.exit(code ?? 0))
   child.on('error', (err) => die(`failed to spawn opencode: ${err.message}`))
-  // hand control to child
   return undefined as never
 }
 
@@ -306,7 +289,7 @@ async function cmdUse(args: string[]): Promise<void> {
     lastRepoBranch: repo.branch,
   })
 
-  await attach(state.managerUrl, token, repo)
+  await attach(state.managerUrl, token, repo, process.cwd())
 }
 
 async function cmdDefault(): Promise<void> {
@@ -339,13 +322,13 @@ async function cmdDefault(): Promise<void> {
         lastRepoDir: repo.directory,
         lastRepoBranch: repo.branch,
       })
-      await attach(state.managerUrl, token, toManagerRepo(repo))
+      await attach(state.managerUrl, token, toManagerRepo(repo), result.repoRoot)
       return
     }
     case 'last': {
       const repo = result.repo
       info(`attaching to ${repo.name} (last used)`)
-      await attach(state.managerUrl, token, toManagerRepo(repo))
+      await attach(state.managerUrl, token, toManagerRepo(repo), process.cwd())
       return
     }
     case 'cwd-ambiguous': {
@@ -536,6 +519,51 @@ async function cmdPull(args: string[]): Promise<void> {
   info(`pulled ${plan.matched[0]!.name} -> ${plan.repoRoot}`)
 }
 
+function getSourceDistDir(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
+}
+
+export async function cmdInstall(args: string[]): Promise<void> {
+  let configDir: string | undefined
+  let force = false
+  let link = true
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!
+    if (arg === '--force') force = true
+    else if (arg === '--no-link') link = false
+    else if (arg === '--dir') {
+      configDir = args[++i]
+      if (!configDir) die('usage: ocm install [--dir <path>] [--force] [--no-link]')
+    } else if (arg.startsWith('--dir=')) {
+      configDir = arg.slice('--dir='.length)
+    } else {
+      die(`unknown option: ${arg}. run \`ocm --help\``)
+    }
+  }
+
+  const resolvedConfigDir = configDir ?? resolveOpenCodeConfigDir()
+
+  let result
+  try {
+    result = installVendoredOcm({ sourceDistDir: getSourceDistDir(), configDir: resolvedConfigDir, force, link })
+  } catch (err) {
+    if (err instanceof InstallError) die(err.message)
+    throw err
+  }
+
+  info(`vendored ocm into ${result.pluginDir}`)
+  info(result.copied.length > 0 ? `copied: ${result.copied.join(', ')}` : 'package files already up to date')
+  info(result.configChanged ? `registered ${OCM_PLUGIN_SPEC} in ${result.configFile}` : `plugin already registered in ${result.configFile}`)
+  if (result.binLink === null) {
+    info('skipped the ocm symlink (--no-link)')
+  } else {
+    writeInstallNotice({ link: result.binLink, binDir: dirname(result.binLink), pathMissing: result.pathMissing })
+    info(result.binLinkChanged ? `linked ${result.binLink}` : `already linked at ${result.binLink}`)
+    if (result.pathMissing) info('note: add export PATH="$HOME/.local/bin:$PATH" to your shell rc')
+  }
+}
+
 async function main(): Promise<void> {
   const [, , cmd, ...rest] = process.argv
 
@@ -576,6 +604,9 @@ async function main(): Promise<void> {
         break
       case 'pull':
         await cmdPull(rest)
+        break
+      case 'install':
+        await cmdInstall(rest)
         break
       default:
         die(`unknown command: ${cmd}. run \`ocm --help\``)

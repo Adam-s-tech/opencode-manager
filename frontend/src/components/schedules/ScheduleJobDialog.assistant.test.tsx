@@ -10,6 +10,7 @@ Element.prototype.scrollIntoView = vi.fn()
 const mocks = vi.hoisted(() => ({
   templates: [] as Array<{ id: number; title: string; description: string; category: string; cadenceHint: string; suggestedName: string; suggestedDescription: string; prompt: string }>,
   useDeletePromptTemplateMutate: vi.fn(),
+  useAgents: vi.fn((..._args: unknown[]) => ({ data: [] })),
 }))
 
 vi.mock('@/hooks/usePromptTemplates', () => ({
@@ -23,11 +24,8 @@ vi.mock('@/api/providers', () => ({
   getProvidersWithModels: () => Promise.resolve([]),
 }))
 
-vi.mock('@/api/opencode', () => ({
-  createOpenCodeClient: () => ({
-    listAgents: () => Promise.resolve([]),
-    getConfig: () => Promise.resolve(null),
-  }),
+vi.mock('@/hooks/useOpenCode', () => ({
+  useAgents: mocks.useAgents,
 }))
 
 vi.mock('@/api/settings', () => ({
@@ -39,6 +37,9 @@ vi.mock('@/api/settings', () => ({
 vi.mock('@/api/repos', () => ({
   listRepos: () => Promise.resolve([]),
   listBranches: () => Promise.resolve({ branches: [], status: { ahead: 0, behind: 0 } }),
+  getRepo: () => Promise.reject(new Error('not used')),
+  getAssistantModeStatus: () => Promise.resolve({ directory: '/workspace/repos/assistant' }),
+  initializeAssistantMode: () => Promise.resolve(),
 }))
 
 function createWrapper() {
@@ -145,5 +146,75 @@ describe('ScheduleJobDialog — assistant create guard', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Create schedule/i })).not.toBeDisabled()
     })
+  })
+
+  it('lists agents from the selected repo directory instead of the default workspace', async () => {
+    render(
+      <ScheduleJobDialog
+        open
+        onOpenChange={vi.fn()}
+        showRepoSelector
+        repoId={0}
+        onRepoChange={vi.fn()}
+        onSubmit={vi.fn()}
+        isSaving={false}
+      />,
+      { wrapper: createWrapper() },
+    )
+
+    expect(mocks.useAgents).not.toHaveBeenCalledWith(undefined, { enabled: true })
+    await waitFor(() => {
+      expect(mocks.useAgents).toHaveBeenLastCalledWith('/workspace/repos/assistant', { enabled: true })
+    })
+  })
+
+  it.each([
+    { storedAgent: 'assistant', savedAgent: undefined },
+    { storedAgent: 'build', savedAgent: 'build' },
+  ])('saves agent $savedAgent when the stored agent is $storedAgent', async ({ storedAgent, savedAgent }) => {
+    mocks.useAgents.mockImplementation((...args: unknown[]) => (
+      args[0] ? { data: [{ id: 'build', name: 'Build', mode: 'primary' }], isSuccess: true } : { data: [] }
+    ) as never)
+    const user = userEvent.setup()
+    const onSubmit = vi.fn()
+
+    render(
+      <ScheduleJobDialog
+        open
+        onOpenChange={vi.fn()}
+        job={{
+          id: 1,
+          repoId: 0,
+          name: 'Assistant job',
+          description: null,
+          enabled: true,
+          scheduleMode: 'interval',
+          intervalMinutes: 60,
+          cronExpression: null,
+          timezone: null,
+          agentSlug: storedAgent,
+          prompt: 'Run a test analysis',
+          model: null,
+          skillMetadata: null,
+          permissionConfig: null,
+          branch: null,
+          createdAt: 1,
+          updatedAt: 1,
+          lastRunAt: null,
+          nextRunAt: null,
+        }}
+        repoId={0}
+        onSubmit={onSubmit}
+        isSaving={false}
+      />,
+      { wrapper: createWrapper() },
+    )
+
+    await waitFor(() => {
+      expect(mocks.useAgents).toHaveBeenLastCalledWith('/workspace/repos/assistant', { enabled: true })
+    })
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ agentSlug: savedAgent }))
   })
 })
