@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Bell, ChevronDown, ChevronRight, HelpCircle, Pin, Plus, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Bell, ChevronDown, ChevronRight, HelpCircle, Loader2, Pin, Plus, X } from 'lucide-react'
 import { SessionStatusIndicator } from '@/components/ui/session-status-indicator'
 import { useForms, usePermissions } from '@/contexts/EventContext'
 import { useCreateSession } from '@/hooks/useOpenCode'
@@ -49,18 +48,33 @@ export function RepoNavGroup({
   return (
     <div className="relative">
       <div
+        data-current={isCurrent}
         className={cn(
-          'relative flex h-[52px] items-stretch border-b border-border bg-card',
+          'group/repo relative flex h-[52px] items-stretch border-b border-border bg-card',
           isOpen && 'sticky top-0 z-10',
         )}
         style={isOpen ? OPEN_REPO_HEADER_STYLE : undefined}
       >
         {isOpen && <OpenRepoRail />}
+        {onToggle && (
+          <button
+            type="button"
+            aria-expanded={isOpen}
+            aria-label={`Show sessions in ${name}`}
+            onClick={onToggle}
+            className="flex w-9 shrink-0 items-center justify-center pl-1 text-muted-foreground"
+          >
+            {isOpen ? <ChevronDown className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenRepo}
           aria-current={isCurrent ? 'page' : undefined}
-          className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 pl-4 pr-2 text-left hover:bg-white/[0.03]"
+          className={cn(
+            'flex min-w-0 flex-1 flex-col justify-center gap-0.5 pr-2 text-left hover:bg-white/[0.03]',
+            onToggle ? 'pl-0' : 'pl-4',
+          )}
         >
           <span className="truncate text-[15px] font-bold tracking-tight text-orange-600 dark:text-orange-400">
             {name}
@@ -76,18 +90,7 @@ export function RepoNavGroup({
             </span>
           )}
         </button>
-        {actions && <div className="flex shrink-0 items-center pr-2">{actions}</div>}
-        {onToggle && (
-          <button
-            type="button"
-            aria-expanded={isOpen}
-            aria-label={`Show sessions in ${name}`}
-            onClick={onToggle}
-            className="flex w-11 shrink-0 items-center justify-center border-l border-border/60 text-muted-foreground"
-          >
-            {isOpen ? <ChevronDown className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4" />}
-          </button>
-        )}
+        {actions && <div className="flex shrink-0 items-stretch">{actions}</div>}
       </div>
       {isOpen && children && (
         <div className="relative">
@@ -266,14 +269,30 @@ export function NewSessionButton({
     onOpenSession(getSessionPath(repo.id, session.id))
   })
 
+  const isCreating = createSession.isPending
+
   return (
-    <Button
+    <button
       type="button"
-      size="icon-sm"
+      title="New session"
       aria-label={`New session in ${getRepoDisplayName(repo)}`}
+      aria-busy={isCreating}
+      disabled={isCreating}
       onClick={() => createSession.mutate({ agent: undefined })}
+      className="group/new flex w-11 shrink-0 cursor-pointer items-center justify-center outline-none disabled:cursor-default"
     >
-      <Plus className="h-3.5 w-3.5" />
-    </Button>
+      <span
+        className={cn(
+          'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors',
+          'group-hover/new:bg-accent group-hover/new:text-primary',
+          'group-focus-visible/new:ring-[3px] group-focus-visible/new:ring-ring/50',
+          'group-data-[current=true]/repo:bg-primary group-data-[current=true]/repo:text-primary-foreground',
+          'group-data-[current=true]/repo:group-hover/new:bg-primary/90 group-data-[current=true]/repo:group-hover/new:text-primary-foreground',
+          'group-disabled/new:opacity-60',
+        )}
+      >
+        {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+      </span>
+    </button>
   )
 }
