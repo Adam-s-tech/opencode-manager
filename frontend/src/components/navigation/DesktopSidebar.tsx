@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useDesktop } from '@/hooks/useDesktop'
-import { useSidebarCollapsed, useSidebarSectionCollapsed } from '@/hooks/useSidebarCollapsed'
+import { useSidebarCollapsed, useSidebarSections } from '@/hooks/useSidebarCollapsed'
 import { emitSidebarAction } from '@/hooks/useSidebarAction'
 import { useAuth } from '@/hooks/useAuth'
 import { useUrlParams } from '@/hooks/useUrlParams'
@@ -24,8 +24,7 @@ export function DesktopSidebar() {
   const navigate = useNavigate()
   const { updateParams } = useUrlParams()
   const [collapsed, toggle] = useSidebarCollapsed()
-  const [sessionsCollapsed, toggleSessionsCollapsed] = useSidebarSectionCollapsed('sessions')
-  const [menuCollapsed, toggleMenuCollapsed] = useSidebarSectionCollapsed('menu')
+  const { openSection, toggleSection } = useSidebarSections(['sessions', 'menu'] as const, 'sessions')
   const [repoSwitcherOpen, setRepoSwitcherOpen] = useState(false)
   const { isAuthenticated, isLoading, logout } = useAuth()
 
@@ -118,8 +117,8 @@ export function DesktopSidebar() {
           <>
             <SidebarCollapsibleSection
               label="Sessions"
-              collapsed={sessionsCollapsed}
-              onToggle={toggleSessionsCollapsed}
+              collapsed={openSection !== 'sessions'}
+              onToggle={() => toggleSection('sessions')}
               className="border-t border-border"
             >
               <DesktopSessionTree />
@@ -127,8 +126,8 @@ export function DesktopSidebar() {
 
             <SidebarCollapsibleSection
               label="Menu"
-              collapsed={menuCollapsed}
-              onToggle={toggleMenuCollapsed}
+              collapsed={openSection !== 'menu'}
+              onToggle={() => toggleSection('menu')}
               className="flex-1 min-h-fit border-t border-border"
               contentClassName="overflow-y-auto"
             >
