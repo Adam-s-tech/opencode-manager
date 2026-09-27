@@ -25,7 +25,7 @@ import { showToast } from "../lib/toast";
 import { useSendErrorStore } from "../stores/sendErrorStore";
 import { useSessionStatus } from "../stores/sessionStatusStore";
 import { invalidateSessionListCaches, sessionTranscriptQueryKey } from "../lib/queryInvalidation";
-import { buildSessionKey } from "../lib/sessionKey";
+import { buildPinnedSessionKeys, buildSessionKey } from "../lib/sessionKey";
 import { toggleSessionPin } from "../api/sessionPins";
 import { SESSION_PINS_QUERY_KEY } from "./useSessionPins";
 import { admitInboxItem, type TranscriptCache } from "../lib/session-projection";
@@ -38,6 +38,8 @@ const isSameModelRef = (left: ModelRef, right: ModelRef | undefined) =>
   left.variant === right.variant;
 
 const SESSION_LIST_PAGE_SIZE = 25
+
+const EMPTY_SESSIONS: SessionInfo[] = []
 
 interface UseSessionsAcrossDirectoriesOptions {
   search?: string
@@ -110,8 +112,13 @@ export const useSessionsAcrossDirectories = (
     refetchOnReconnect: true,
   });
 
+  const data = useMemo(
+    () => query.data?.pages.flatMap((page) => page.items) ?? EMPTY_SESSIONS,
+    [query.data],
+  );
+
   return {
-    data: query.data?.pages.flatMap((page) => page.items) ?? [],
+    data,
     isLoading: query.isLoading,
     isError: query.isError,
     fetchNextPage: query.fetchNextPage,
@@ -122,16 +129,22 @@ export const useSessionsAcrossDirectories = (
   };
 };
 
+const sessionQueryKey = (sessionID: string | undefined, directory?: string) =>
+  ["opencode", "session", sessionID, directory] as const;
+
+export const sessionQueryOptions = (sessionID: string | undefined, directory?: string) => ({
+  queryKey: sessionQueryKey(sessionID, directory),
+  queryFn: () => getSession(sessionID!),
+  enabled: !!sessionID,
+  refetchOnWindowFocus: true,
+  refetchOnReconnect: true,
+  staleTime: 15000,
+  retry: (failureCount: number, error: unknown) =>
+    !(error instanceof FetchError && error.statusCode === 404) && failureCount < 3,
+});
+
 export const useSession = (sessionID: string | undefined, directory?: string) => {
-  return useQuery({
-    queryKey: ["opencode", "session", sessionID, directory],
-    queryFn: () => getSession(sessionID!),
-    enabled: !!sessionID,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-    staleTime: 15000,
-    retry: (failureCount, error) => !(error instanceof FetchError && error.statusCode === 404) && failureCount < 3,
-  });
+  return useQuery(sessionQueryOptions(sessionID, directory));
 };
 
 export const useCreateSession = (
@@ -232,7 +245,7 @@ const cleanupSessionPins = (
 ) => {
   const pins = queryClient.getQueryData<SessionPin[]>(SESSION_PINS_QUERY_KEY) ?? [];
   if (pins.length === 0) return;
-  const pinnedKeys = new Set(pins.map((p) => buildSessionKey(p.directory, p.sessionId)));
+  const pinnedKeys = buildPinnedSessionKeys(pins);
   const targets = (Array.isArray(variables) ? variables : [variables])
     .map((target) => ({
       sessionId: getDeleteSessionTargetId(target),
@@ -256,14 +269,11 @@ export const useUpdateSession = (directory?: string) => {
     },
     onSuccess: (_, variables) => {
       const { sessionID } = variables;
-      queryClient.invalidateQueries({ queryKey: ["opencode", "session", sessionID, directory] });
+      queryClient.invalidateQueries({ queryKey: sessionQueryKey(sessionID, directory) });
       invalidateSessionListCaches(queryClient);
     },
   });
 };
-
-const sessionQueryKey = (sessionID: string, directory?: string) =>
-  ["opencode", "session", sessionID, directory] as const;
 
 const patchCachedSessionSelection = (
   queryClient: ReturnType<typeof useQueryClient>,
@@ -459,7 +469,7 @@ export const useSendShell = (directory?: string) => {
       const { sessionID } = variables;
 
       queryClient.invalidateQueries({
-        queryKey: ["opencode", "session", sessionID, directory],
+        queryKey: sessionQueryKey(sessionID, directory),
       });
     },
   });

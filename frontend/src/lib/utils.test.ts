@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { getRepoDisplayName, sanitizeForTTS, randomId } from './utils'
+import {
+  getRepoDisplayName,
+  getRepoBranchLabel,
+  sanitizeForTTS,
+  randomId,
+  formatShortRelativeTime,
+} from './utils'
 
 describe('sanitizeForTTS', () => {
   it('should handle headers', () => {
@@ -145,5 +151,33 @@ describe('getRepoDisplayName', () => {
 
   it('handles null values properly', () => {
     expect(getRepoDisplayName({ repoUrl: null, localPath: null, sourcePath: null })).toBe('Repository')
+  })
+})
+
+describe('getRepoBranchLabel', () => {
+  it('prefers currentBranch', () => {
+    expect(getRepoBranchLabel({ currentBranch: 'feature/x', branch: 'main' })).toBe('feature/x')
+  })
+
+  it('falls back to branch', () => {
+    expect(getRepoBranchLabel({ branch: 'main' })).toBe('main')
+  })
+
+  it('returns null when neither is present', () => {
+    expect(getRepoBranchLabel({})).toBeNull()
+  })
+})
+
+describe('formatShortRelativeTime', () => {
+  const now = new Date('2026-01-01T12:00:00.000Z')
+  const at = (offsetMs: number) => new Date(now.getTime() - offsetMs)
+
+  it('formats each threshold boundary', () => {
+    expect(formatShortRelativeTime(at(30_000), now)).toBe('just now')
+    expect(formatShortRelativeTime(at(5 * 60_000), now)).toBe('5m ago')
+    expect(formatShortRelativeTime(at(3 * 60 * 60_000), now)).toBe('3h ago')
+    expect(formatShortRelativeTime(at(2 * 24 * 60 * 60_000), now)).toBe('2d ago')
+    expect(formatShortRelativeTime(at(14 * 24 * 60 * 60_000), now)).toBe('2w ago')
+    expect(formatShortRelativeTime(at(60 * 24 * 60 * 60_000), now)).toBe('2mo ago')
   })
 })
