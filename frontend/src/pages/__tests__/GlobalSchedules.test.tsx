@@ -205,6 +205,20 @@ describe('GlobalSchedules run history', () => {
     expect(selectRun).toHaveBeenCalledWith(null)
   })
 
+  it('renders the cached selected run when a background refetch fails', () => {
+    selectedRunResult = { data: [makeRun({ id: 999, sessionTitle: 'Deep linked run' })], isLoading: false, isError: true }
+    mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'runs', runId: 999 }))
+
+    renderGlobalSchedules()
+
+    expect(screen.queryByText('Failed to load run')).not.toBeInTheDocument()
+    expect(screen.queryByText('Run not found')).not.toBeInTheDocument()
+    expect(mocks.RunHistoryCards).toHaveBeenCalled()
+    const props = runHistoryProps()
+    expect(props.selectedRunId).toBe(999)
+    expect(props.runs.filter((run) => run.id === 999)).toHaveLength(1)
+  })
+
   it('re-queries when the selected run id changes', () => {
     mainRunsResult = { data: [], isLoading: false }
     selectedRunResult = { data: [makeRun({ id: 999 })], isLoading: false, isError: false }

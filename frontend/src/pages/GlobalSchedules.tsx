@@ -342,7 +342,7 @@ export function GlobalSchedules() {
 
   const selectedRunMissing = runId !== null && selectedRunInHistory === null
   const selectedRunLookupLoading = selectedRunMissing && selectedRunLoading
-  const selectedRunLookupError = selectedRunMissing && selectedRunError
+  const selectedRunLookupError = selectedRunMissing && selectedRunError && selectedRun === null
   const selectedRunLookupNotFound = selectedRunMissing && !selectedRunLoading && !selectedRunError && selectedRun === null
 
   return (
