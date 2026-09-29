@@ -1,0 +1,23 @@
+import type { Migration } from '../migration-runner'
+
+interface ColumnInfo {
+  name: string
+}
+
+const migration: Migration = {
+  version: 23,
+  name: 'schedule-mcp-servers',
+
+  up(db) {
+    const columns = db.prepare('PRAGMA table_info(schedule_jobs)').all() as ColumnInfo[]
+    if (!columns.some((column) => column.name === 'mcp_servers')) {
+      db.run('ALTER TABLE schedule_jobs ADD COLUMN mcp_servers TEXT')
+    }
+  },
+
+  down(db) {
+    db.run('ALTER TABLE schedule_jobs DROP COLUMN mcp_servers')
+  },
+}
+
+export default migration

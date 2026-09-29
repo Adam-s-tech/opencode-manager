@@ -7,7 +7,7 @@ import {
   type ScheduleRunTriggerSource,
   type UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
-import { assistantText, openCodeLocation, sessionIDFromEvent, type SessionMessageAssistant, type SessionMessageInfo } from '@opencode-manager/shared/opencode'
+import { assistantText, mcpStatusByName, openCodeLocation, sessionIDFromEvent, type SessionMessageAssistant, type SessionMessageInfo } from '@opencode-manager/shared/opencode'
 import { buildSchedulePermissionRuleset } from '@opencode-manager/shared/schemas'
 import { getRepoById } from '../db/queries'
 import type { ScheduleJobWithRepo } from '../db/schedules'
@@ -582,6 +582,12 @@ export class ScheduleService {
         preferredModel: job.model,
         signal: abort.signal,
       })
+
+      if (abort.signal.aborted) {
+        return this.abandonCancelledStartup(repoId, jobId, run, job, repo)
+      }
+
+      await this.connectMcpServers(runDirectory, job.mcpServers)
 
       if (abort.signal.aborted) {
         return this.abandonCancelledStartup(repoId, jobId, run, job, repo)
@@ -1262,6 +1268,53 @@ export class ScheduleService {
         `Agent "${agentSlug}" is not available in ${directory}. Choose an agent defined for this repo in the schedule settings, or clear the agent to use the default.`,
         400,
       )
+    }
+  }
+
+  /**
+   * Makes every MCP server attached to the job available at the run's location before the
+   * session starts. Schedule-only servers are added to that location, and configured servers
+   * are connected even when their config disables them; both last until OpenCode restarts.
+   */
+  private async connectMcpServers(directory: string, servers: ScheduleJob['mcpServers']): Promise<void> {
+    if (servers.length === 0) {
+      return
+    }
+
+    const api = this.openCodeClient.api
+    const location = openCodeLocation(directory)
+    const readStatuses = async () => mcpStatusByName((await api.mcp.list(location)).data)
+
+    try {
+      await Promise.all(servers.flatMap((server) =>
+        server.config ? [api.mcp.add({ server: server.name, config: server.config, ...location })] : [],
+      ))
+
+      const statuses = await readStatuses()
+      const missing = servers.filter((server) => !statuses[server.name]).map((server) => server.name)
+      if (missing.length > 0) {
+        throw new ScheduleServiceError(`MCP servers are not configured for this location: ${missing.join(', ')}`, 400)
+      }
+
+      await Promise.all(servers
+        .filter((server) => statuses[server.name]?.status !== 'connected')
+        .map((server) => api.mcp.connect({ server: server.name, ...location })))
+
+      const connected = await readStatuses()
+      const failed = servers.flatMap((server) => {
+        const status = connected[server.name]
+        if (status?.status === 'connected') return []
+        const reason = status && 'error' in status ? status.error : status?.status ?? 'missing'
+        return [`${server.name} (${reason})`]
+      })
+      if (failed.length > 0) {
+        throw new ScheduleServiceError(`MCP servers failed to connect: ${failed.join(', ')}`, 502)
+      }
+    } catch (error) {
+      if (error instanceof ScheduleServiceError) {
+        throw error
+      }
+      throw new ScheduleServiceError(getErrorMessage(error) || 'Failed to connect MCP servers', 502)
     }
   }
 

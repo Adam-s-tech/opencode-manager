@@ -125,6 +125,8 @@ export type {
   ScheduleRunTriggerSource,
   ScheduleRunStatus,
   ScheduleSkillMetadata,
+  ScheduleMcpServer,
+  ScheduleMcpServerConfig,
   ScheduleJob,
   ScheduleRun,
   CreateScheduleJobRequest,

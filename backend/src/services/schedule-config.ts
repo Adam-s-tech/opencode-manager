@@ -2,6 +2,7 @@ import { Cron } from 'croner'
 import type {
   CreateScheduleJobRequest,
   ScheduleJob,
+  ScheduleMcpServer,
   ScheduleMode,
   SchedulePermissionConfig,
   ScheduleSkillMetadata,
@@ -23,6 +24,7 @@ export interface ScheduleJobPersistenceInput {
   model: string | null
   skillMetadata: ScheduleSkillMetadata | null | undefined
   permissionConfig: SchedulePermissionConfig | null
+  mcpServers: ScheduleMcpServer[]
   branch: string | null
   nextRunAt: number | null
 }
@@ -109,6 +111,7 @@ export function buildCreateSchedulePersistenceInput(input: CreateScheduleJobRequ
     ...base,
     ...scheduleConfig,
     permissionConfig: input.permissionConfig ?? null,
+    mcpServers: input.mcpServers ?? [],
     nextRunAt: base.enabled ? scheduleConfig.nextRunAt : null,
   }
 }
@@ -157,6 +160,7 @@ export function buildUpdatedSchedulePersistenceInput(
     model: input.model === undefined ? existing.model : (input.model?.trim() || null),
     skillMetadata: input.skillMetadata !== undefined ? input.skillMetadata : existing.skillMetadata,
     permissionConfig: input.permissionConfig === undefined ? existing.permissionConfig : (input.permissionConfig ?? null),
+    mcpServers: input.mcpServers ?? existing.mcpServers,
     branch: input.branch === undefined ? existing.branch : (input.branch?.trim() || null),
     nextRunAt,
   }

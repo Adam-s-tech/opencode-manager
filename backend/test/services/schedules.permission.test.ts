@@ -121,6 +121,7 @@ const baseJob: ScheduleJob = {
   model: null,
   skillMetadata: null,
   permissionConfig: null,
+  mcpServers: [],
   branch: null,
   nextRunAt: Date.UTC(2026, 2, 9, 13, 0, 0),
   lastRunAt: Date.UTC(2026, 2, 9, 12, 0, 0),
