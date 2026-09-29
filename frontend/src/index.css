@@ -34,6 +34,16 @@
   --color-agent-build: #89b5ff;
   --color-agent-docs: #ffb224;
   --color-agent-ask: #0091ff;
+  --color-syntax-comment: #8b949e;
+  --color-syntax-keyword: #ff7b72;
+  --color-syntax-string: #a5d6ff;
+  --color-syntax-primitive: #d2a8ff;
+  --color-syntax-property: #79c0ff;
+  --color-syntax-type: #ffa657;
+  --color-syntax-constant: #79c0ff;
+  --color-syntax-variable: #ffa657;
+  --color-syntax-operator: #79c0ff;
+  --color-syntax-punctuation: #d4d4d8;
 }
 
 :root:not(.dark) {
@@ -70,6 +80,16 @@
   --color-agent-build: #034cff;
   --color-agent-docs: #ffb224;
   --color-agent-ask: #0091ff;
+  --color-syntax-comment: #6a737d;
+  --color-syntax-keyword: #d73a49;
+  --color-syntax-string: #032f62;
+  --color-syntax-primitive: #6f42c1;
+  --color-syntax-property: #005cc5;
+  --color-syntax-type: #e36209;
+  --color-syntax-constant: #005cc5;
+  --color-syntax-variable: #e36209;
+  --color-syntax-operator: #005cc5;
+  --color-syntax-punctuation: #6b7280;
 }
 
 html {
@@ -357,28 +377,105 @@ input:-webkit-autofill:active {
 }
 
 /* Syntax highlighting for markdown code blocks */
-@import 'highlight.js/styles/github.css' layer(highlight-light);
-@import 'highlight.js/styles/github-dark.css' layer(highlight-dark);
-
-@layer highlight-light {
-  :root:not(.dark) .hljs {
-    display: block;
-    overflow-x: auto;
-    padding: 0.5em;
-    background: var(--color-accent);
-    color: var(--color-foreground);
-  }
+.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0.5em;
+  background: var(--color-accent);
+  color: var(--color-foreground);
 }
 
-@layer highlight-dark {
-  .dark .hljs {
-    display: block;
-    overflow-x: auto;
-    padding: 0.5em;
-    background: var(--color-accent);
-    color: var(--color-foreground);
+.hljs-comment,
+.hljs-quote,
+.hljs-code,
+.hljs-formula,
+.hljs-meta {
+  color: var(--color-syntax-comment);
 }
- }
+
+.hljs-keyword,
+.hljs-doctag,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-selector-tag,
+.hljs-name {
+  color: var(--color-syntax-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string,
+.hljs-char.escape_ {
+  color: var(--color-syntax-string);
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-built_in,
+.hljs-section {
+  color: var(--color-syntax-primitive);
+}
+
+.hljs-type,
+.hljs-title.class_,
+.hljs-title.class_.inherited__ {
+  color: var(--color-syntax-type);
+}
+
+.hljs-literal,
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-variable.language_,
+.hljs-variable.constant_ {
+  color: var(--color-syntax-constant);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-selector-pseudo {
+  color: var(--color-syntax-property);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params,
+.hljs-subst {
+  color: var(--color-syntax-variable);
+}
+
+.hljs-operator {
+  color: var(--color-syntax-operator);
+}
+
+.hljs-punctuation,
+.hljs-tag {
+  color: var(--color-syntax-punctuation);
+}
+
+.hljs-section,
+.hljs-strong {
+  font-weight: 600;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-addition {
+  color: var(--color-diff-add);
+  background-color: color-mix(in oklab, var(--color-diff-add) 15%, transparent);
+}
+
+.hljs-deletion {
+  color: var(--color-diff-delete);
+  background-color: color-mix(in oklab, var(--color-diff-delete) 15%, transparent);
+}
 
 /* Custom scrollbar styling */
 .scrollbar-thin {

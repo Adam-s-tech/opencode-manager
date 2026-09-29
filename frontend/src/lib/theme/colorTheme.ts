@@ -35,6 +35,16 @@ const MANAGER_THEME_TOKENS = [
   'agent-build',
   'agent-docs',
   'agent-ask',
+  'syntax-comment',
+  'syntax-keyword',
+  'syntax-string',
+  'syntax-primitive',
+  'syntax-property',
+  'syntax-type',
+  'syntax-constant',
+  'syntax-variable',
+  'syntax-operator',
+  'syntax-punctuation',
 ] as const
 
 type ManagerThemeToken = (typeof MANAGER_THEME_TOKENS)[number]
@@ -98,9 +108,12 @@ export function resolveColorThemeTokens(
     diffAdd,
     diffDelete,
     textWeak,
+    syntax,
   } = isDark ? theme.dark : theme.light
   const mix = (percent: number) => `color-mix(in oklab, ${ink} ${percent}%, ${neutral})`
   const highlight = paletteAccent ?? primary
+  const mutedForeground = textWeak ?? mix(62)
+  const syntaxFallback = isDark ? mutedForeground : ink
 
   return {
     background: neutral,
@@ -114,7 +127,7 @@ export function resolveColorThemeTokens(
     secondary: mix(10),
     border: mix(14),
     input: mix(16),
-    'muted-foreground': textWeak ?? mix(62),
+    'muted-foreground': mutedForeground,
     primary,
     'primary-hover': `color-mix(in oklab, ${primary} 85%, ${ink})`,
     'primary-foreground': readableTextColor(primary),
@@ -136,6 +149,16 @@ export function resolveColorThemeTokens(
     'agent-build': primary,
     'agent-docs': warning,
     'agent-ask': info,
+    'syntax-comment': syntax?.comment ?? mutedForeground,
+    'syntax-keyword': syntax?.keyword ?? highlight,
+    'syntax-string': syntax?.string ?? success,
+    'syntax-primitive': syntax?.primitive ?? primary,
+    'syntax-property': syntax?.property ?? info,
+    'syntax-type': syntax?.type ?? warning,
+    'syntax-constant': syntax?.constant ?? highlight,
+    'syntax-variable': syntax?.variable ?? ink,
+    'syntax-operator': syntax?.operator ?? syntaxFallback,
+    'syntax-punctuation': syntax?.punctuation ?? syntaxFallback,
   }
 }
 

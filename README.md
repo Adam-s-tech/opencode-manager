@@ -32,6 +32,12 @@
   <img src="docs/images/mobile-repo-session-sheet.webp" alt="Mobile repository and session switcher" height="400" style="border: 1px solid rgba(128,128,128,0.4); margin-left: 12px" />
 </p>
 
+## Theme Showcase
+
+Explore all 37 themes, including matching syntax highlighting for Markdown code blocks.
+
+https://github.com/user-attachments/assets/4f155632-4b03-412e-976f-2a02045caf22
+
 ## Requirements
 
 OpenCode Manager requires **OpenCode 2.x at 2.0.15 or newer** (bundled 2.0.15); OpenCode 1.x is not supported. Upgrading from 1.x? See the [v1 → v2 migration guide](https://opencode.ai/v2/docs/migrate-v1). OpenCode 2 migrates V1 session history in the background on first start, so older sessions can be incomplete until it finishes; progress is reported at `GET /api/experimental/migration/v1`.
