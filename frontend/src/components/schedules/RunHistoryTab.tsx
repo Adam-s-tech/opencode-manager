@@ -71,17 +71,19 @@ export function RunHistoryTab({
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden pt-2 xl:gap-4 xl:grid xl:grid-cols-[320px_minmax(0,1fr)] xl:grid-rows-1">
-        <RunHistoryCards
-          runs={runs}
-          runsLoading={runsLoading}
-          onSelectRun={onSelectRun}
-          onCancelRun={onCancelRun}
-          cancelRunPending={cancelRunPending}
-          onDeleteRun={onDeleteRun}
-          deleteRunPending={deleteRunPending}
-        />
+        <div className="min-h-0 h-full overflow-y-auto pb-2 xl:pr-1">
+          <RunHistoryCards
+            runs={runs}
+            runsLoading={runsLoading}
+            onSelectRun={onSelectRun}
+            onCancelRun={onCancelRun}
+            cancelRunPending={cancelRunPending}
+            onDeleteRun={onDeleteRun}
+            deleteRunPending={deleteRunPending}
+          />
+        </div>
 
-        <div className="hidden xl:flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 p-4">
+        <div className="hidden xl:flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 py-3">
           <RunDetailPanel
             repoId={repoId}
             activeRun={activeRun}

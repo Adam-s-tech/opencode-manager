@@ -19,6 +19,23 @@ function parseRunListLimit(value: string | undefined): number {
   return Math.min(parsed, 100)
 }
 
+function parseRunIdFilter(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (!/^\d+$/.test(value)) {
+    throw new ScheduleServiceError('Invalid run id', 400)
+  }
+
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new ScheduleServiceError('Run id must be a positive integer', 400)
+  }
+
+  return parsed
+}
+
 export function createScheduleRoutes(scheduleService: ScheduleService) {
   const app = new Hono()
 
@@ -48,7 +65,8 @@ export function createScheduleRoutes(scheduleService: ScheduleService) {
         return Number.isNaN(parsed) ? undefined : parsed
       })() : undefined
       const triggerSource = c.req.query('triggerSource') || undefined
-      const runs = scheduleService.listAllRuns({ limit, offset, status, repoId, jobId, triggerSource })
+      const runId = parseRunIdFilter(c.req.query('runId'))
+      const runs = scheduleService.listAllRuns({ limit, offset, status, repoId, jobId, triggerSource, runId })
       return c.json({ runs })
     } catch (error) {
       return handleServiceError(c, error, 'Failed to list all schedule runs', ScheduleServiceError)
