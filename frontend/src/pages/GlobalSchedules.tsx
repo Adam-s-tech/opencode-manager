@@ -355,7 +355,7 @@ export function GlobalSchedules() {
         </div>
 
         <TabsContent value="jobs" className="mt-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="px-4 pt-1 space-y-2">
+          <div className="px-2 sm:px-4 pt-1 space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline">Filter by repo:</span>
               <Combobox
@@ -504,7 +504,7 @@ export function GlobalSchedules() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
             {!hasJobs ? (
               <div className="flex min-h-full items-center justify-center">
                 <Card className="max-w-md border-dashed border-border/70">
@@ -667,7 +667,7 @@ export function GlobalSchedules() {
         </TabsContent>
 
         <TabsContent value="runs" className="mt-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="px-4 pt-1 space-y-2">
+          <div className="px-2 sm:px-4 pt-1 space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline">Filter by repo:</span>
               <Combobox
@@ -816,7 +816,7 @@ export function GlobalSchedules() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
             {runsLoading && allRuns.length === 0 ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

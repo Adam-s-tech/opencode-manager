@@ -76,20 +76,17 @@ export function RunHistoryCards({
   }
 
   return (
-    <div className="flex flex-col min-h-0 flex-1 h-full">
-      <div className="min-h-0 flex-1 overflow-y-auto pt-4 px-2 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
-        {runs.map((run, index) => {
-          const isExpanded = expandedRunId === run.id
-          const displayRun = isExpanded && runDetail ? runDetail : run
+    <div className="flex flex-col gap-2">
+      {runs.map((run) => {
+        const isExpanded = expandedRunId === run.id
+        const displayRun = isExpanded && runDetail ? runDetail : run
 
-          return (
-            <div
-              key={run.id}
-              className={`rounded-xl border overflow-hidden transition-all bg-card ${
-                isExpanded ? 'border-border/70' : 'border-border/70'
-              } ${index === 0 ? 'mt-0' : 'mt-2'}`}
-            >
-              <div className="flex items-stretch">
+        return (
+          <div
+            key={run.id}
+            className="rounded-xl border border-border/70 overflow-hidden transition-all bg-card"
+          >
+            <div className="flex items-stretch">
               <button
                 type="button"
                 onClick={() => handleCardClick(run.id, run.repoId, run.jobId)}
@@ -139,24 +136,21 @@ export function RunHistoryCards({
                   <Trash2 className="h-4 w-4" />
                 </button>
               )}
-              </div>
-              {isExpanded && (
-                <div className="border-t border-border/60 flex flex-col" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-                  <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
-                    <RunDetailPanel
-                      repoId={run.repoId}
-                      activeRun={displayRun}
-                      selectedRunLoading={isExpanded && isLoading}
-                      onCancelRun={onCancelRun}
-                      cancelRunPending={cancelRunPending}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
-          )
-        })}
-      </div>
+            {isExpanded && (
+              <div className="border-t border-border/60 flex flex-col xl:max-h-[calc(100vh-200px)] xl:overflow-hidden">
+                <RunDetailPanel
+                  repoId={run.repoId}
+                  activeRun={displayRun}
+                  selectedRunLoading={isExpanded && isLoading}
+                  onCancelRun={onCancelRun}
+                  cancelRunPending={cancelRunPending}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
