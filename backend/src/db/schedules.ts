@@ -460,6 +460,12 @@ export function getScheduleRunById(db: Database, repoId: number, jobId: number, 
   return row ? rowToScheduleRun(row) : null
 }
 
+export function getScheduleRunBySessionId(db: Database, sessionId: string): ScheduleRun | null {
+  const stmt = db.prepare('SELECT * FROM schedule_runs WHERE session_id = ? ORDER BY started_at DESC LIMIT 1')
+  const row = stmt.get(sessionId) as ScheduleRunRow | undefined
+  return row ? rowToScheduleRun(row) : null
+}
+
 export function getRunningScheduleRunByJob(db: Database, repoId: number, jobId: number): ScheduleRun | null {
   const stmt = db.prepare(`
     SELECT * FROM schedule_runs

@@ -16,6 +16,7 @@ export const AssistantNotificationRequestSchema = z.object({
   url: z.string().min(1).max(ASSISTANT_NOTIFICATION_LIMITS.URL_MAX).optional(),
   tag: z.string().max(ASSISTANT_NOTIFICATION_LIMITS.TAG_MAX).optional(),
   priority: AssistantNotificationPrioritySchema.default('normal'),
+  sessionId: z.string().min(1).optional(),
 })
 
 export const AssistantNotificationResponseSchema = z.object({

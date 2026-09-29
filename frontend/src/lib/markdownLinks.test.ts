@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getLocalLinkPath, resolvePathFromFile, isExternalLink } from './markdownLinks'
+import { getLocalLinkPath, getWorkspaceFilePath, resolvePathFromFile, isExternalLink } from './markdownLinks'
 
 const FROM = 'opencode-manager/ocm-link-test/index.md'
 
@@ -41,6 +41,22 @@ describe('resolvePathFromFile', () => {
 
   it('returns absolute paths unchanged', () => {
     expect(resolvePathFromFile(FROM, '/workspace/repos/app/report.html')).toBe('/workspace/repos/app/report.html')
+  })
+})
+
+describe('getWorkspaceFilePath', () => {
+  const workspace = { directory: '/workspace/repos/assistant', repoFullPath: '/workspace/repos/assistant', repoLocalPath: 'assistant' }
+
+  it('maps relative and repo-absolute paths to repo-local workspace paths', () => {
+    expect(getWorkspaceFilePath('recaps/daily.html', workspace)).toBe('assistant/recaps/daily.html')
+    expect(getWorkspaceFilePath('./recaps/daily.html', workspace)).toBe('assistant/recaps/daily.html')
+    expect(getWorkspaceFilePath('/workspace/repos/assistant/recaps/daily.html', workspace)).toBe('assistant/recaps/daily.html')
+  })
+
+  it('resolves against a separate working directory and leaves outside paths absolute', () => {
+    const worktree = { ...workspace, directory: '/workspace/worktrees/job-1-run-2' }
+    expect(getWorkspaceFilePath('out.md', worktree)).toBe('/workspace/worktrees/job-1-run-2/out.md')
+    expect(getWorkspaceFilePath('/etc/hosts', workspace)).toBe('/etc/hosts')
   })
 })
 

@@ -40,7 +40,7 @@ export function createInternalNotificationRoutes(notificationService: Notificati
       timestamp: Date.now(),
       data: {
         eventType: 'assistant.message',
-        url: parsed.data.url ?? '/',
+        url: notificationService.getScheduleRunReportUrl(parsed.data.sessionId) ?? parsed.data.url ?? '/',
         priority: parsed.data.priority,
       },
     }

@@ -9,6 +9,7 @@ import { useRepoScheduleRun } from '@/hooks/useSchedules'
 interface RunHistoryCardsProps {
   runs: ScheduleRun[] | undefined
   runsLoading: boolean
+  selectedRunId?: number | null
   onSelectRun: (id: number) => void
   onCancelRun: () => void
   cancelRunPending: boolean
@@ -19,20 +20,25 @@ interface RunHistoryCardsProps {
 export function RunHistoryCards({
   runs,
   runsLoading,
+  selectedRunId = null,
   onSelectRun,
   onCancelRun,
   cancelRunPending,
   onDeleteRun,
   deleteRunPending,
 }: RunHistoryCardsProps) {
-  const [expandedRunId, setExpandedRunId] = useState<number | null>(null)
-  const [expandedRunRepoId, setExpandedRunRepoId] = useState<number | null>(null)
-  const [expandedRunJobId, setExpandedRunJobId] = useState<number | null>(null)
+  const [expandedRunId, setExpandedRunId] = useState<number | null>(selectedRunId)
+  const [syncedSelectedRunId, setSyncedSelectedRunId] = useState<number | null>(selectedRunId)
+  if (selectedRunId !== syncedSelectedRunId) {
+    setSyncedSelectedRunId(selectedRunId)
+    setExpandedRunId(selectedRunId)
+  }
+  const expandedRun = runs?.find((run) => run.id === expandedRunId)
 
   const { data: runDetail, isLoading } = useRepoScheduleRun(
-    expandedRunRepoId ?? undefined,
-    expandedRunJobId,
-    expandedRunId
+    expandedRun?.repoId,
+    expandedRun?.jobId ?? null,
+    expandedRun?.id ?? null
   )
 
   function getRunStatusIcon(status: ScheduleRun['status']) {
@@ -42,15 +48,11 @@ export function RunHistoryCards({
     return <Ban className="h-3.5 w-3.5 text-muted-foreground" />
   }
 
-  function handleCardClick(runId: number, repoId: number, jobId: number) {
+  function handleCardClick(runId: number) {
     if (expandedRunId === runId) {
       setExpandedRunId(null)
-      setExpandedRunRepoId(null)
-      setExpandedRunJobId(null)
     } else {
       setExpandedRunId(runId)
-      setExpandedRunRepoId(repoId)
-      setExpandedRunJobId(jobId)
       onSelectRun(runId)
     }
   }
@@ -89,7 +91,7 @@ export function RunHistoryCards({
             <div className="flex items-stretch">
               <button
                 type="button"
-                onClick={() => handleCardClick(run.id, run.repoId, run.jobId)}
+                onClick={() => handleCardClick(run.id)}
                 className="min-w-0 flex-1 px-3 py-2 text-left flex items-center justify-between gap-2"
               >
                 <div className="min-w-0 flex-1">

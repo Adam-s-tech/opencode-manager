@@ -506,7 +506,12 @@ describe.skipIf(SHIPPED_OPENCODE_BIN === null)('ocm-manager plugin against the s
       expect(apiRequests).toHaveLength(1)
       const request = JSON.parse(apiRequests[0] as string) as { auth: string; body: string }
       expect(request.auth).toBe('Bearer test-token')
-      expect(JSON.parse(request.body)).toEqual({ title: 'Storm watch', body: 'Formation odds crossed 40%', priority: 'high' })
+      expect(JSON.parse(request.body)).toEqual({
+        title: 'Storm watch',
+        body: 'Formation odds crossed 40%',
+        priority: 'high',
+        sessionId: expect.stringMatching(/^ses_/),
+      })
       expect(toolResults.some((output) => output.includes('Notification sent: 1 delivered, 0 failed.'))).toBe(true)
     } finally {
       api.server.close()

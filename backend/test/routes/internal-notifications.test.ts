@@ -9,6 +9,7 @@ import { createOpenCodeClient } from '../../src/services/opencode/client'
 import { allMigrations } from '../../src/db/migrations'
 import { getOrCreateInternalToken } from '../../src/services/internal-token'
 import { migrate } from '../../src/db/migration-runner'
+import { createScheduleRun, updateScheduleRunMetadata } from '../../src/db/schedules'
 import type { ScheduleWorktreeManager } from '../../src/services/schedule-worktree'
 
 describe('internal/notifications routes', () => {
@@ -140,6 +141,42 @@ describe('internal/notifications routes', () => {
       },
     })
     expect(res.status).toBe(400)
+  })
+
+  describe('notification url', () => {
+    const send = (payload: Record<string, unknown>) =>
+      app.request('/api/internal/notifications/send', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Test', body: 'Body', ...payload }),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      })
+
+    const sentUrl = (sendToUser: ReturnType<typeof vi.spyOn>) =>
+      (sendToUser.mock.calls[0]?.[1] as { data: { url: string } }).data.url
+
+    beforeEach(() => {
+      vi.spyOn(notificationService, 'isConfigured').mockReturnValue(true)
+    })
+
+    it('links a scheduled run session to its run report, even when the agent passes a url', async () => {
+      db.exec('PRAGMA foreign_keys = OFF')
+      const run = createScheduleRun(db, { jobId: 7, repoId: 0, triggerSource: 'schedule', status: 'running', startedAt: 1, createdAt: 1 })
+      updateScheduleRunMetadata(db, 0, 7, run.id, { sessionId: 'ses_scheduled' })
+      const sendToUser = vi.spyOn(notificationService, 'sendToUser').mockResolvedValue({ delivered: 1, expired: 0, failed: 0, total: 1 })
+
+      const res = await send({ sessionId: 'ses_scheduled', url: '/repos/my-repo' })
+
+      expect(res.status).toBe(200)
+      expect(sentUrl(sendToUser)).toBe(`/schedules?scheduleTab=runs&runId=${run.id}`)
+    })
+
+    it('keeps the agent url for sessions that are not scheduled runs', async () => {
+      const sendToUser = vi.spyOn(notificationService, 'sendToUser').mockResolvedValue({ delivered: 1, expired: 0, failed: 0, total: 1 })
+
+      await send({ sessionId: 'ses_manual', url: '/repos/3' })
+
+      expect(sentUrl(sendToUser)).toBe('/repos/3')
+    })
   })
 
   it('POST /api/internal/notifications/send returns 429 after 10 calls within rate window', async () => {
