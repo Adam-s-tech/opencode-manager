@@ -169,7 +169,7 @@ describe('EventProvider permissions and forms', () => {
     mocks.replyForm.mockResolvedValue(undefined)
     mocks.cancelForm.mockResolvedValue(undefined)
     mocks.getHealth.mockReturnValue({ isConnected: false, isHealthy: false, lastEventAt: null, isStalled: false })
-    useSessionStatus.setState({ statuses: new Map(), statusCache: new Map(), statusRevisions: new Map(), revision: 0 })
+    useSessionStatus.setState({ statuses: new Map(), statusCache: new Map(), statusRevisions: new Map(), knownSessions: new Set(), outcomes: new Map(), revision: 0 })
     mocks.subscribeGlobalMonitor.mockReturnValue({
       dispose: vi.fn(),
       updateDirectories: vi.fn(),
@@ -1012,6 +1012,209 @@ describe('EventProvider permissions and forms', () => {
       onEvent({ type: 'session.idle', data: { sessionID: 'session-9' }, directory: '/repo' })
     })
     expect(useSessionStatus.getState().getStatus('session-9')).toEqual({ type: 'idle' })
+  })
+
+  it('marks a child session as known from its execution lifecycle events', async () => {
+    render(<Harness />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+
+    act(() => {
+      onEvent({ type: 'session.execution.started', data: { sessionID: 'child-1' }, directory: '/repo' })
+    })
+
+    expect(useSessionStatus.getState().knownSessions.has('child-1')).toBe(true)
+    expect(useSessionStatus.getState().knownSessions.has('child-unknown')).toBe(false)
+  })
+
+  it('does not treat a child omitted from a global snapshot as finished', async () => {
+    mocks.listRepos.mockResolvedValue([{ id: 123, fullPath: '/repo' }])
+    mocks.listActiveSessions.mockResolvedValue({})
+
+    render(<Harness />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+    const onResync = lastSubscribeCall[0].onResync as (() => void) | undefined
+
+    act(() => {
+      onEvent({ type: 'session.execution.started', data: { sessionID: 'child-1' }, directory: '/repo' })
+    })
+    expect(useSessionStatus.getState().getStatus('child-1')).toEqual({ type: 'busy' })
+
+    act(() => {
+      onResync?.()
+    })
+
+    await waitFor(() => {
+      expect(useSessionStatus.getState().knownSessions.has('child-1')).toBe(false)
+    })
+  })
+
+  it('records a failed child outcome and preserves it when the child goes idle', async () => {
+    render(<Harness />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+
+    act(() => {
+      onEvent({ type: 'session.execution.started', data: { sessionID: 'child-1' }, directory: '/repo' })
+      onEvent({ type: 'session.execution.failed', data: { sessionID: 'child-1', error: { message: 'boom' } }, directory: '/repo' })
+    })
+
+    expect(useSessionStatus.getState().outcomes.get('child-1')).toBe('failed')
+    expect(useSessionStatus.getState().getStatus('child-1')).toEqual({ type: 'idle' })
+
+    act(() => {
+      onEvent({ type: 'session.idle', data: { sessionID: 'child-1' }, directory: '/repo' })
+    })
+
+    expect(useSessionStatus.getState().outcomes.get('child-1')).toBe('failed')
+  })
+
+  it('records an interrupted child outcome', async () => {
+    render(<Harness />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+
+    act(() => {
+      onEvent({ type: 'session.execution.interrupted', data: { sessionID: 'child-1', reason: 'user' }, directory: '/repo' })
+    })
+
+    expect(useSessionStatus.getState().outcomes.get('child-1')).toBe('interrupted')
+    expect(useSessionStatus.getState().getStatus('child-1')).toEqual({ type: 'idle' })
+  })
+
+  it('does not turn a failed child into completed across a reconnect snapshot', async () => {
+    mocks.listRepos.mockResolvedValue([{ id: 123, fullPath: '/repo' }])
+    mocks.listActiveSessions.mockResolvedValue({})
+
+    render(<Harness />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+    const handleStatusChange = lastSubscribeCall[0].onStatusChange as (connected: boolean) => void
+
+    act(() => {
+      onEvent({ type: 'session.execution.failed', data: { sessionID: 'child-1', error: { message: 'boom' } }, directory: '/repo' })
+    })
+    expect(useSessionStatus.getState().outcomes.get('child-1')).toBe('failed')
+
+    act(() => {
+      handleStatusChange(true)
+    })
+
+    await waitFor(() => {
+      expect(useSessionStatus.getState().outcomes.get('child-1')).toBe('failed')
+      expect(useSessionStatus.getState().getStatus('child-1')).toEqual({ type: 'idle' })
+      expect(useSessionStatus.getState().knownSessions.has('child-1')).toBe(true)
+    })
+  })
+
+  it('clears a previous child outcome when a new execution starts', async () => {
+    render(<Harness />, { wrapper: createWrapper() })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+
+    act(() => {
+      onEvent({ type: 'session.execution.failed', data: { sessionID: 'child-1', error: { message: 'boom' } }, directory: '/repo' })
+      onEvent({ type: 'session.execution.started', data: { sessionID: 'child-1' }, directory: '/repo' })
+    })
+
+    expect(useSessionStatus.getState().outcomes.get('child-1')).toBeUndefined()
+  })
+
+  it('forgets a deleted session status, knowledge, and outcome while keeping the list invalidation', async () => {
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['opencode', 'sessions', '/repo'], { pages: [], pageParams: [] })
+
+    render(<Harness />, { wrapper: createWrapper(queryClient) })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+
+    act(() => {
+      onEvent({ type: 'session.execution.failed', data: { sessionID: 'child-1', error: { message: 'boom' } }, directory: '/repo' })
+    })
+    expect(useSessionStatus.getState().outcomes.get('child-1')).toBe('failed')
+    expect(useSessionStatus.getState().knownSessions.has('child-1')).toBe(true)
+
+    act(() => {
+      onEvent({ type: 'session.deleted', data: { sessionID: 'child-1' }, directory: '/repo' })
+    })
+
+    const after = useSessionStatus.getState()
+    expect(after.statuses.has('child-1')).toBe(false)
+    expect(after.knownSessions.has('child-1')).toBe(false)
+    expect(after.outcomes.has('child-1')).toBe(false)
+
+    await waitFor(() => {
+      expect(queryClient.getQueryState(['opencode', 'sessions', '/repo'])?.isInvalidated).toBe(true)
+    })
+  })
+
+  it('invalidates only the reconciliation of children that moved from busy to unknown during a poll', async () => {
+    mocks.listRepos.mockResolvedValue([{ id: 123, fullPath: '/repo' }])
+    mocks.listActiveSessions
+      .mockResolvedValueOnce({ 'child-1': { type: 'running' }, 'child-2': { type: 'running' } })
+      .mockResolvedValue({ 'child-2': { type: 'running' } })
+
+    const queryClient = createTestQueryClient()
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries')
+    queryClient.setQueryData(['opencode', 'session-reconcile', 'child-1'], { id: 'child-1' })
+    queryClient.setQueryData(['opencode', 'session-reconcile', 'child-2'], { id: 'child-2' })
+
+    render(<Harness />, { wrapper: createWrapper(queryClient) })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const handleStatusChange = lastSubscribeCall[0].onStatusChange as (connected: boolean) => void
+
+    vi.useFakeTimers()
+    try {
+      act(() => {
+        handleStatusChange(true)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(useSessionStatus.getState().knownSessions.has('child-1')).toBe(true)
+      invalidateQueries.mockClear()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['opencode', 'session-reconcile', 'child-1'],
+      })
+      expect(invalidateQueries).not.toHaveBeenCalledWith({
+        queryKey: ['opencode', 'session-reconcile', 'child-2'],
+      })
+      expect(invalidateQueries).not.toHaveBeenCalledWith({
+        queryKey: ['opencode', 'session-reconcile'],
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reconciles the global active snapshot on reconnect and clears omitted sessions', async () => {

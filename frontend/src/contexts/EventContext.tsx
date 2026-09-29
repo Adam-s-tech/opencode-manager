@@ -18,6 +18,7 @@ import { openCodeEventStream, type EventStreamHealthState } from '@/lib/opencode
 import { addToSessionKeyedState, removeFromSessionKeyedState } from '@/lib/sessionKeyedState'
 import { busyStatusesFromActiveSessions, useSessionStatus } from '@/stores/sessionStatusStore'
 import {
+  invalidateChildSessionCaches,
   invalidateProviderCachesDebounced,
   invalidateQueryKeysDebounced,
   invalidateRepoGitCachesDebounced,
@@ -392,17 +393,28 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         useSessionStatus.getState().endStatusSnapshot(snapshotToken)
         return
       }
+      const busyBeforeSnapshot = new Set<string>()
+      for (const [sessionID, status] of useSessionStatus.getState().statuses.entries()) {
+        if (status.type !== 'idle') busyBeforeSnapshot.add(sessionID)
+      }
       useSessionStatus.getState().replaceStatuses(
         busyStatusesFromActiveSessions(active),
         snapshotToken,
       )
+      const knownAfterSnapshot = useSessionStatus.getState().knownSessions
+      const becameUnknown = [...busyBeforeSnapshot].filter(
+        (sessionID) => !knownAfterSnapshot.has(sessionID),
+      )
+      if (becameUnknown.length > 0) {
+        invalidateChildSessionCaches(queryClient, becameUnknown)
+      }
     } catch (error) {
       useSessionStatus.getState().endStatusSnapshot(snapshotToken)
       if (import.meta.env.DEV) {
         console.warn('Failed to fetch active sessions:', error)
       }
     }
-  }, [])
+  }, [queryClient])
 
   const stopStatusPoll = useCallback(() => {
     if (statusPollIntervalRef.current === null) return
@@ -469,19 +481,35 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
           break
         }
         case 'session.execution.started': {
+          useSessionStatus.getState().clearOutcome(event.data.sessionID)
           useSessionStatus.getState().setStatus(event.data.sessionID, { type: 'busy' })
           break
         }
-        case 'session.execution.succeeded':
-        case 'session.execution.failed':
-        case 'session.execution.interrupted': {
+        case 'session.execution.succeeded': {
+          useSessionStatus.getState().setOutcome(event.data.sessionID, 'succeeded')
           useSessionStatus.getState().setStatus(event.data.sessionID, { type: 'idle' })
+          invalidateSessionListCachesDebounced(queryClient, event.directory)
+          break
+        }
+        case 'session.execution.failed': {
+          useSessionStatus.getState().setOutcome(event.data.sessionID, 'failed')
+          useSessionStatus.getState().setStatus(event.data.sessionID, { type: 'idle' })
+          invalidateSessionListCachesDebounced(queryClient, event.directory)
+          break
+        }
+        case 'session.execution.interrupted': {
+          useSessionStatus.getState().setOutcome(event.data.sessionID, 'interrupted')
+          useSessionStatus.getState().setStatus(event.data.sessionID, { type: 'idle' })
+          invalidateSessionListCachesDebounced(queryClient, event.directory)
+          break
+        }
+        case 'session.deleted': {
+          useSessionStatus.getState().forgetSession(event.data.sessionID)
           invalidateSessionListCachesDebounced(queryClient, event.directory)
           break
         }
         case 'session.created':
         case 'session.renamed':
-        case 'session.deleted':
         case 'session.moved':
         case 'session.metadata.updated':
           invalidateSessionListCachesDebounced(queryClient, event.directory)
@@ -529,6 +557,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         initialFetchDoneRef.current = false
         fetchInitialPendingData()
         fetchInitialSessionStatuses()
+        invalidateChildSessionCaches(queryClient)
         startStatusPoll()
       } else {
         statusSyncVersionRef.current += 1
@@ -538,6 +567,8 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
 
     const handleResync = () => {
       void reconcilePendingActionsForDirectories(collectTrackedDirectories())
+      void fetchInitialSessionStatuses()
+      invalidateChildSessionCaches(queryClient)
     }
 
     const initialDirectories = [...new Set((reposRef.current ?? []).map(r => r.fullPath))]

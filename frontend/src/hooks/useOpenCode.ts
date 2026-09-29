@@ -23,8 +23,9 @@ import type { ModelRef, SessionInfo } from "@opencode-manager/shared/opencode";
 import { parseNetworkError, isGatewayTimeout } from "../lib/opencode-errors";
 import { showToast } from "../lib/toast";
 import { useSendErrorStore } from "../stores/sendErrorStore";
-import { useSessionStatus } from "../stores/sessionStatusStore";
-import { invalidateSessionListCaches, sessionTranscriptQueryKey } from "../lib/queryInvalidation";
+import { useSessionStatus, useChildLifecycleForSession } from "../stores/sessionStatusStore";
+import { isRunningLifecycle } from "../lib/backgroundWork";
+import { childSessionReconciliationQueryKey, invalidateSessionListCaches, sessionTranscriptQueryKey } from "../lib/queryInvalidation";
 import { buildPinnedSessionKeys, buildSessionKey } from "../lib/sessionKey";
 import { toggleSessionPin } from "../api/sessionPins";
 import { SESSION_PINS_QUERY_KEY } from "./useSessionPins";
@@ -145,6 +146,27 @@ export const sessionQueryOptions = (sessionID: string | undefined, directory?: s
 
 export const useSession = (sessionID: string | undefined, directory?: string) => {
   return useQuery(sessionQueryOptions(sessionID, directory));
+};
+
+export const useChildSessionReconciliation = (sessionID: string | undefined) => {
+  const lifecycle = useChildLifecycleForSession(sessionID)
+  useQuery({
+    queryKey: childSessionReconciliationQueryKey(sessionID),
+    queryFn: async () => {
+      const token = useSessionStatus.getState().beginStatusSnapshot();
+      try {
+        const session = await getSession(sessionID!);
+        useSessionStatus.getState().applySessionSnapshot(sessionID!, session, token);
+        return session;
+      } finally {
+        useSessionStatus.getState().endStatusSnapshot(token);
+      }
+    },
+    enabled: !!sessionID && isRunningLifecycle(lifecycle),
+    staleTime: 5_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
 };
 
 export const useCreateSession = (

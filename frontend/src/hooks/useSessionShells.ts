@@ -1,26 +1,54 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { listShells, removeShell, type ShellInfo } from '@/api/opencode'
+import { listShells, removeShell } from '@/api/opencode'
+import { applyShellExit, recordShellExit, reconcileShellList, type ShellRecord } from '@/lib/backgroundWork'
 import { shellsQueryKey } from '@/lib/queryInvalidation'
 import { showToast } from '@/lib/toast'
 
-export function useSessionShells(sessionID: string | undefined, directory: string | undefined) {
-  const query = useQuery({
+function useShellListQuery<TData = ShellRecord[]>(
+  directory: string | undefined,
+  enabled: boolean,
+  select?: (shells: ShellRecord[]) => TData,
+) {
+  const queryClient = useQueryClient()
+
+  return useQuery<ShellRecord[], Error, TData>({
     queryKey: shellsQueryKey(directory),
-    queryFn: () => listShells(directory ?? ''),
-    enabled: Boolean(directory),
+    queryFn: async (): Promise<ShellRecord[]> => {
+      const fetchStartedAt = Date.now()
+      const fetched = await listShells(directory ?? '')
+      const existing = queryClient.getQueryData<ShellRecord[]>(shellsQueryKey(directory)) ?? []
+      return reconcileShellList(existing, fetched, fetchStartedAt, directory ?? '')
+    },
+    enabled,
     staleTime: Infinity,
+    select,
   })
+}
+
+export function useSessionShells(sessionID: string | undefined, directory: string | undefined) {
+  const query = useShellListQuery(directory, Boolean(directory))
 
   const shells = useMemo(
-    () =>
-      (query.data ?? []).filter(
-        (shell) => shell.status === 'running' && shell.metadata.sessionID === sessionID,
-      ),
+    () => (query.data ?? []).filter((shell) => shell.metadata.sessionID === sessionID),
     [query.data, sessionID],
   )
 
-  return shells
+  const listLoaded = query.isSuccess
+
+  return { shells, listLoaded }
+}
+
+export function useShell(shellID: string | undefined, directory: string | undefined) {
+  const query = useShellListQuery<ShellRecord | undefined>(
+    directory,
+    Boolean(directory && shellID),
+    (shells) => shells.find((candidate) => candidate.id === shellID),
+  )
+
+  const listLoaded = query.isSuccess
+
+  return { shell: query.data, listLoaded }
 }
 
 export function useKillShell(directory: string | undefined) {
@@ -29,8 +57,9 @@ export function useKillShell(directory: string | undefined) {
   return useMutation({
     mutationFn: (id: string) => removeShell(id, directory ?? ''),
     onSuccess: (_result, id) => {
-      queryClient.setQueryData<ShellInfo[]>(shellsQueryKey(directory), (current) =>
-        current?.filter((shell) => shell.id !== id),
+      recordShellExit(directory ?? '', { id, status: 'killed' })
+      queryClient.setQueryData<ShellRecord[]>(shellsQueryKey(directory), (current) =>
+        current && applyShellExit(current, { id, status: 'killed' }),
       )
     },
     onError: (error) => {

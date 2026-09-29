@@ -3,12 +3,28 @@ import { unwrapSandboxExecCommand } from '@opencode-manager/shared/utils'
 import { toolContentText, type SessionMessageAssistantTool } from '@opencode-manager/shared/opencode'
 import { useSettings } from '@/hooks/useSettings'
 import { useUserBash } from '@/stores/userBashStore'
-import { useSessionStatusForSession } from '@/stores/sessionStatusStore'
+import { useChildLifecycleForSession } from '@/stores/sessionStatusStore'
 import { useToolCallPermission } from '@/contexts/EventContext'
+import { useChildSessionReconciliation } from '@/hooks/useOpenCode'
+import { useShell } from '@/hooks/useSessionShells'
 import { detectFileReferences } from '@/lib/fileReferences'
 import { ExternalLink, Loader2, Shield } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { CopyButton } from '@/components/ui/copy-button'
+import { BackgroundTaskStatusIcon } from '@/components/session/BackgroundTaskStatusIcon'
+import {
+  backgroundChildSessionID,
+  backgroundShellID,
+  backgroundTaskStatusColor,
+  isRunningLifecycle,
+  lifecycleLabel,
+  shellToolLifecycle,
+  subagentLifecycle,
+  subagentSessionID,
+  toolMetadata,
+  type BackgroundTaskLifecycle,
+  type ShellNoticeOutcome,
+} from '@/lib/backgroundWork'
 import { getToolInputPath, getToolSpecificRender } from './FileToolRender'
 
 const DISPLAY_LIMIT = 30_000
@@ -41,6 +57,8 @@ function BoundedPre({ content, className }: { content: string; className: string
 interface ToolCallPartProps {
   part: SessionMessageAssistantTool
   messageID?: string
+  directory?: string
+  shellOutcome?: ShellNoticeOutcome
   onFileClick?: (filePath: string, lineNumber?: number) => void
   onChildSessionClick?: (sessionId: string) => void
 }
@@ -50,19 +68,9 @@ function toolInput(part: SessionMessageAssistantTool): Record<string, unknown> |
   return part.state.input
 }
 
-function toolMetadata(part: SessionMessageAssistantTool): Record<string, unknown> {
-  if (part.state.status === 'streaming') return {}
-  return part.state.metadata ?? {}
-}
-
 function toolOutputText(part: SessionMessageAssistantTool): string {
   if (part.state.status === 'streaming') return ''
   return toolContentText(part.state.status === 'running' ? undefined : part.state.content)
-}
-
-function getSubagentSessionId(part: SessionMessageAssistantTool): string | undefined {
-  const sessionID = toolMetadata(part).sessionID
-  return typeof sessionID === 'string' ? sessionID : undefined
 }
 
 function ClickableJson({ json, onFileClick }: { json: unknown; onFileClick?: (filePath: string) => void }) {
@@ -105,12 +113,28 @@ function ClickableJson({ json, onFileClick }: { json: unknown; onFileClick?: (fi
   return <pre className="bg-accent p-2 rounded text-xs overflow-x-auto whitespace-pre-wrap break-words">{parts}</pre>
 }
 
-export const ToolCallPart = memo(function ToolCallPart({ part, messageID, onFileClick, onChildSessionClick }: ToolCallPartProps) {
+export const ToolCallPart = memo(function ToolCallPart({ part, messageID, directory, shellOutcome, onFileClick, onChildSessionClick }: ToolCallPartProps) {
   const { preferences } = useSettings()
   const { userBashCommands } = useUserBash()
   const isSubagent = part.name === 'subagent'
-  const subagentSessionId = isSubagent ? getSubagentSessionId(part) : undefined
-  const subagentSessionStatus = useSessionStatusForSession(subagentSessionId)
+  const subagentSessionId = isSubagent ? subagentSessionID(part) : undefined
+  const backgroundSubagent = isSubagent ? backgroundChildSessionID(part) : undefined
+  const subagentSessionLifecycle = useChildLifecycleForSession(subagentSessionId)
+  useChildSessionReconciliation(
+    subagentSessionId && (backgroundSubagent !== undefined || part.state.status === 'running')
+      ? subagentSessionId
+      : undefined,
+  )
+  const subagentStatus = subagentLifecycle(
+    part.state.status,
+    backgroundSubagent !== undefined,
+    subagentSessionLifecycle,
+  )
+  const backgroundShell = part.name === 'shell' ? backgroundShellID(part) : undefined
+  const { shell, listLoaded: shellListLoaded } = useShell(backgroundShell, directory)
+  const shellStatus = shellToolLifecycle(backgroundShell, shell, shellListLoaded, shellOutcome)
+  const isBackgroundShell = backgroundShell !== undefined
+  const isBackgroundShellRunning = isBackgroundShell && isRunningLifecycle(shellStatus)
   const pendingPermission = useToolCallPermission(part.id, messageID)
   const isWaitingPermission = part.state.status === 'running' && pendingPermission !== null
   const outputRef = useRef<HTMLDivElement>(null)
@@ -138,6 +162,7 @@ export const ToolCallPart = memo(function ToolCallPart({ part, messageID, onFile
   }, [expanded, part.name])
 
   const getStatusColor = () => {
+    if (isBackgroundShell) return backgroundTaskStatusColor(shellStatus)
     switch (part.state.status) {
       case 'completed':
         return 'text-success'
@@ -151,7 +176,12 @@ export const ToolCallPart = memo(function ToolCallPart({ part, messageID, onFile
     }
   }
 
+  const renderShellLifecycleIcon = (status: BackgroundTaskLifecycle) => (
+    <BackgroundTaskStatusIcon status={status} className="w-3.5 h-3.5" />
+  )
+
   const getStatusIcon = () => {
+    if (isBackgroundShell) return renderShellLifecycleIcon(shellStatus)
     switch (part.state.status) {
       case 'completed':
         return <span>✓</span>
@@ -193,7 +223,9 @@ export const ToolCallPart = memo(function ToolCallPart({ part, messageID, onFile
 
   const previewText = getPreviewText()
   const isFileTool = ['read', 'write', 'edit', 'patch'].includes(part.name)
-  const isBackgrounded = part.state.status === 'completed' && toolMetadata(part).status === 'running'
+  const isBackgroundSubagent = backgroundSubagent !== undefined
+  const isBackgroundSubagentRunning = isBackgroundSubagent && isRunningLifecycle(subagentStatus)
+  const isBackgrounded = isBackgroundShell ? isBackgroundShellRunning : isBackgroundSubagentRunning
   const backgroundIndicator = isBackgrounded ? (
     <Badge
       variant="outline"
@@ -216,9 +248,9 @@ export const ToolCallPart = memo(function ToolCallPart({ part, messageID, onFile
 
   if (isSubagent) {
     const status = part.state.status
-    const isRunning = (status === 'running' || isBackgrounded) && subagentSessionStatus.type !== 'idle'
-    const isCompleted = !isRunning && (status === 'completed' || (status === 'running' && !!subagentSessionId && subagentSessionStatus.type === 'idle'))
-    const isError = status === 'error'
+    const isRunning = status !== 'streaming' && isRunningLifecycle(subagentStatus)
+    const isCompleted = subagentStatus === 'completed'
+    const isError = subagentStatus === 'failed'
     const description = previewText || 'Sub-agent task'
 
     const content = (
@@ -278,11 +310,7 @@ export const ToolCallPart = memo(function ToolCallPart({ part, messageID, onFile
     return (
       <div className="my-2">
         <div className="flex items-center gap-2 text-sm mb-2">
-          {isBackgrounded ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-warning" />
-          ) : (
-            <span className="text-success">✓</span>
-          )}
+          {isBackgroundShell ? renderShellLifecycleIcon(shellStatus) : <span className="text-success">✓</span>}
           <span className="font-medium">$</span>
           <span className="text-foreground">{command}</span>
           {sandboxIndicator}
@@ -347,7 +375,9 @@ export const ToolCallPart = memo(function ToolCallPart({ part, messageID, onFile
           <span className="text-muted-foreground text-xs truncate">{previewText}</span>
         ) : null}
 
-        <span className="text-muted-foreground text-xs ml-auto">{isWaitingPermission ? 'awaiting permission' : part.state.status}</span>
+        <span className="text-muted-foreground text-xs ml-auto">
+          {isWaitingPermission ? 'awaiting permission' : isBackgroundShell ? lifecycleLabel(shellStatus) : part.state.status}
+        </span>
       </button>
 
       {expanded && (

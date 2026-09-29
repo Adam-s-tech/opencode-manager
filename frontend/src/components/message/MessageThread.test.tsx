@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render as rtlRender, screen, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactElement } from 'react'
 import { MessageThread } from './MessageThread'
 import { useUIState } from '@/stores/uiStateStore'
 import { applySessionEvent, emptySessionTranscript } from '@/lib/session-projection'
@@ -47,6 +49,12 @@ vi.mock('@/hooks/useTTS', () => ({
   }),
 }))
 
+vi.mock('@/api/opencode', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/opencode')>()),
+  getSession: () => new Promise(() => {}),
+  listShells: () => Promise.resolve([]),
+}))
+
 interface MockSettingsReturn {
   preferences: {
     simpleChatMode: boolean
@@ -61,6 +69,11 @@ const setupSettings = (preferences: MockSettingsReturn['preferences']) => {
     updateSettings: vi.fn(),
     isUpdating: false,
   })
+}
+
+const render = (ui: ReactElement) => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
 }
 
 const project = (events: V2Event[]): SessionMessageInfo[] =>
@@ -189,6 +202,43 @@ describe('MessageThread', () => {
 
     fireEvent.click(screen.getByText('↳ Explore finished'))
     expect(onChildSessionClick).toHaveBeenCalledWith('child-1')
+  })
+
+  it('resolves a background shell tool from its completion notice', () => {
+    setupSettings({ simpleChatMode: false, showReasoning: false })
+
+    const messages: SessionMessageInfo[] = [
+      userMessage('1', 'Hello'),
+      assistantMessage('2', [
+        {
+          type: 'tool',
+          id: 'tool_shell',
+          name: 'shell',
+          state: {
+            status: 'completed',
+            input: { command: 'npm run dev' },
+            content: [{ type: 'text', text: 'started in the background' }],
+            metadata: { status: 'running', shellID: 'sh_notice' },
+          },
+          time: { created: Date.now(), completed: Date.now() + 100 },
+        },
+      ]),
+      {
+        id: 'syn-shell',
+        type: 'synthetic',
+        text: '',
+        metadata: { source: 'shell', shellID: 'sh_notice', state: 'completed', exit: 0 },
+        time: { created: Date.now() },
+      },
+    ]
+
+    const { container } = render(
+      <MessageThread sessionID="test-session" messages={messages} pending={[]} />,
+    )
+
+    expect(screen.getByText('completed')).toBeInTheDocument()
+    expect(screen.queryByText('unavailable')).not.toBeInTheDocument()
+    expect(container.querySelector('.animate-spin')).toBeNull()
   })
 
   it('renders a synthetic message that only carries text', () => {
