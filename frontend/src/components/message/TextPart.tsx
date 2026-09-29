@@ -8,7 +8,6 @@ import { Maximize2, X, AlertCircle } from 'lucide-react'
 import { CopyButton } from '@/components/ui/copy-button'
 import { MarkdownLink } from '@/components/ui/markdown-link'
 import { useTheme } from '@/hooks/useTheme'
-import 'highlight.js/styles/github-dark.css'
 
 interface TextPartProps {
   text: string

@@ -90,6 +90,34 @@ describe('applyColorTheme', () => {
     expect(dark?.['destructive-foreground']).toBe(readableTextColor('#ff5555'))
   })
 
+  it('resolves syntax tokens from upstream overrides and palette fallbacks', () => {
+    const dark = resolveColorThemeTokens('dracula', true)
+
+    expect(dark?.['syntax-keyword']).toBe('#ff79c6')
+    expect(dark?.['syntax-string']).toBe('#f1fa8c')
+    expect(dark?.['syntax-comment']).toBe('#6272a4')
+    expect(dark?.['syntax-primitive']).toBe('#50fa7b')
+    expect(dark?.['syntax-property']).toBe('#8be9fd')
+    expect(dark?.['syntax-constant']).toBe('#bd93f9')
+    expect(dark?.['syntax-variable']).toBe('#f8f8f2')
+    expect(dark?.['syntax-type']).toBe('#ffb86c')
+    expect(dark?.['syntax-operator']).toBe(dark?.['muted-foreground'])
+    expect(dark?.['syntax-punctuation']).toBe(dark?.['muted-foreground'])
+  })
+
+  it('resolves light syntax tokens and falls back to ink for operator and punctuation', () => {
+    const light = resolveColorThemeTokens('dracula', false)
+
+    expect(light?.['syntax-keyword']).toBe('#d16090')
+    expect(light?.['syntax-punctuation']).toBe('#1f1f2f')
+  })
+
+  it('applies syntax tokens to the root element', () => {
+    applyColorTheme(document.documentElement, 'dracula', true)
+
+    expect(document.documentElement.style.getPropertyValue('--color-syntax-keyword')).toBe('#ff79c6')
+  })
+
   it('falls back to primary for highlight when the palette has no accent', () => {
     const dark = resolveColorThemeTokens('oc-2', true)
 

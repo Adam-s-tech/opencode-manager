@@ -1,5 +1,22 @@
 export type HexColor = `#${string}`
 
+export const OPENCODE_SYNTAX_TOKENS = [
+  'comment',
+  'keyword',
+  'string',
+  'primitive',
+  'property',
+  'type',
+  'constant',
+  'variable',
+  'operator',
+  'punctuation',
+] as const
+
+export type OpenCodeSyntaxToken = (typeof OPENCODE_SYNTAX_TOKENS)[number]
+
+export type OpenCodeSyntaxPalette = Partial<Record<OpenCodeSyntaxToken, HexColor>>
+
 export interface OpenCodeThemePalette {
   neutral: HexColor
   ink: HexColor
@@ -12,6 +29,7 @@ export interface OpenCodeThemePalette {
   diffAdd?: HexColor
   diffDelete?: HexColor
   textWeak?: HexColor
+  syntax?: OpenCodeSyntaxPalette
 }
 
 export interface OpenCodeThemeDefinition {

@@ -1,7 +1,13 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { OPENCODE_PINNED_VERSION } from '../shared/src/opencode/release'
-import type { HexColor, OpenCodeThemeDefinition, OpenCodeThemePalette } from '../shared/src/themes/types'
+import { OPENCODE_SYNTAX_TOKENS } from '../shared/src/themes/types'
+import type {
+  HexColor,
+  OpenCodeSyntaxPalette,
+  OpenCodeThemeDefinition,
+  OpenCodeThemePalette,
+} from '../shared/src/themes/types'
 
 const OPENCODE_THEME_TAG = `v${OPENCODE_PINNED_VERSION}`
 
@@ -75,6 +81,16 @@ function readOptionalHex(value: unknown, field: string): HexColor | undefined {
   return value === undefined ? undefined : readHex(value, field)
 }
 
+function readSyntax(overrides: Record<string, unknown> | undefined): OpenCodeSyntaxPalette | undefined {
+  if (!overrides) return undefined
+  const syntax: OpenCodeSyntaxPalette = {}
+  for (const token of OPENCODE_SYNTAX_TOKENS) {
+    const value = overrides[`syntax-${token}`]
+    if (isHexColor(value)) syntax[token] = value
+  }
+  return Object.keys(syntax).length === 0 ? undefined : syntax
+}
+
 function readPalette(raw: RawVariant | undefined, field: string): OpenCodeThemePalette {
   if (!raw || typeof raw !== 'object' || !raw.palette || typeof raw.palette !== 'object') {
     throw new Error(`Missing palette for ${field}`)
@@ -85,6 +101,7 @@ function readPalette(raw: RawVariant | undefined, field: string): OpenCodeThemeP
   const diffDelete = readOptionalHex(palette.diffDelete, `${field}.diffDelete`)
   const textWeakValue = raw.overrides?.['text-weak']
   const textWeak = isHexColor(textWeakValue) ? textWeakValue : undefined
+  const syntax = readSyntax(raw.overrides)
   return {
     neutral: readHex(palette.neutral, `${field}.neutral`),
     ink: readHex(palette.ink, `${field}.ink`),
@@ -97,6 +114,7 @@ function readPalette(raw: RawVariant | undefined, field: string): OpenCodeThemeP
     ...(diffAdd === undefined ? {} : { diffAdd }),
     ...(diffDelete === undefined ? {} : { diffDelete }),
     ...(textWeak === undefined ? {} : { textWeak }),
+    ...(syntax === undefined ? {} : { syntax }),
   }
 }
 
@@ -127,7 +145,7 @@ function quote(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 }
 
-const PALETTE_FIELD_ORDER: (keyof OpenCodeThemePalette)[] = [
+const PALETTE_FIELD_ORDER: Exclude<keyof OpenCodeThemePalette, 'syntax'>[] = [
   'neutral',
   'ink',
   'primary',
@@ -146,6 +164,14 @@ function serializePalette(palette: OpenCodeThemePalette, indent: string): string
   for (const field of PALETTE_FIELD_ORDER) {
     const value = palette[field]
     if (value !== undefined) lines.push(`${indent}  ${field}: ${quote(value)},`)
+  }
+  if (palette.syntax !== undefined) {
+    lines.push(`${indent}  syntax: {`)
+    for (const token of OPENCODE_SYNTAX_TOKENS) {
+      const value = palette.syntax[token]
+      if (value !== undefined) lines.push(`${indent}    ${token}: ${quote(value)},`)
+    }
+    lines.push(`${indent}  },`)
   }
   lines.push(`${indent}}`)
   return lines.join('\n')
