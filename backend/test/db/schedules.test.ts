@@ -580,6 +580,25 @@ describe('schedule database queries', () => {
     expect(stmt.all).toHaveBeenCalledWith('manual', 50, 0)
   })
 
+  it('applies runId filter', () => {
+    const stmt = { all: vi.fn().mockReturnValue([]) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    schedulesDb.listAllScheduleRuns(mockDb, { runId: 99 })
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('sr.id = ?'))
+    expect(stmt.all).toHaveBeenCalledWith(99, 50, 0)
+  })
+
+  it('applies runId together with other filters', () => {
+    const stmt = { all: vi.fn().mockReturnValue([]) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    schedulesDb.listAllScheduleRuns(mockDb, { runId: 99, repoId: 42, limit: 1 })
+
+    expect(stmt.all).toHaveBeenCalledWith(42, 99, 1, 0)
+  })
+
   it('applies limit and offset', () => {
     const stmt = { all: vi.fn().mockReturnValue([]) }
     mockDb.prepare.mockReturnValue(stmt)

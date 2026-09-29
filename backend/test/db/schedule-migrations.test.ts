@@ -4,6 +4,7 @@ import migration007 from '../../src/db/migrations/007-schedules'
 import migration008 from '../../src/db/migrations/008-schedule-cron-support'
 import migration015 from '../../src/db/migrations/015-schedule-worktree-isolation'
 import migration021 from '../../src/db/migrations/021-drop-schedule-run-workspace-id'
+import migration022 from '../../src/db/migrations/022-schedule-runs-session-index'
 
 describe('schedule migrations', () => {
   it('creates schedule jobs with nullable interval minutes in v7', () => {
@@ -202,6 +203,36 @@ describe('migration 021 - drop schedule run workspace id', () => {
 
     const row = db.prepare('SELECT id, worktree_path FROM schedule_runs WHERE id = 1').get() as { id: number; worktree_path: string }
     expect(row.worktree_path).toBe('/wt/1')
+
+    db.close()
+  })
+})
+
+describe('migration 022 - schedule run session index', () => {
+  it('creates the composite session index on schedule_runs', () => {
+    const db = new Database(':memory:')
+    db.run('CREATE TABLE schedule_runs (id INTEGER PRIMARY KEY, session_id TEXT, started_at INTEGER NOT NULL)')
+
+    migration022.up(db)
+
+    const indexes = (db.prepare('PRAGMA index_list(schedule_runs)').all() as { name: string }[]).map((index) => index.name)
+    expect(indexes).toContain('idx_schedule_runs_session')
+
+    const columns = (db.prepare('PRAGMA index_info(idx_schedule_runs_session)').all() as { name: string }[]).map((column) => column.name)
+    expect(columns).toEqual(['session_id', 'started_at'])
+
+    db.close()
+  })
+
+  it('drops the index on rollback', () => {
+    const db = new Database(':memory:')
+    db.run('CREATE TABLE schedule_runs (id INTEGER PRIMARY KEY, session_id TEXT, started_at INTEGER NOT NULL)')
+
+    migration022.up(db)
+    migration022.down(db)
+
+    const indexes = (db.prepare('PRAGMA index_list(schedule_runs)').all() as { name: string }[]).map((index) => index.name)
+    expect(indexes).not.toContain('idx_schedule_runs_session')
 
     db.close()
   })

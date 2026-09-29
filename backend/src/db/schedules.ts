@@ -598,10 +598,11 @@ export interface ListAllRunsOptions {
   repoId?: number
   jobId?: number
   triggerSource?: string
+  runId?: number
 }
 
 export function listAllScheduleRuns(db: Database, options: ListAllRunsOptions = {}): ScheduleRunWithContext[] {
-  const { limit = 50, offset = 0, status, repoId, jobId, triggerSource } = options
+  const { limit = 50, offset = 0, status, repoId, jobId, triggerSource, runId } = options
   const conditions: string[] = []
   const params: (string | number)[] = []
 
@@ -620,6 +621,10 @@ export function listAllScheduleRuns(db: Database, options: ListAllRunsOptions = 
   if (triggerSource) {
     conditions.push('sr.trigger_source = ?')
     params.push(triggerSource)
+  }
+  if (runId !== undefined) {
+    conditions.push('sr.id = ?')
+    params.push(runId)
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''

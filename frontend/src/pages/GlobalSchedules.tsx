@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DeleteDialog } from '@/components/ui/delete-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CalendarClock, Loader2, Plus, ArrowLeft, Play, Pencil, Trash2, Pause, PlayCircle, Clock3, History, SlidersHorizontal } from 'lucide-react'
+import { CalendarClock, Loader2, Plus, ArrowLeft, Play, Pencil, Trash2, Pause, PlayCircle, Clock3, History, SlidersHorizontal, XCircle, SearchX } from 'lucide-react'
 
 import { useScheduleUrlState } from '@/hooks/useScheduleUrlState'
 import type { ScheduleTab } from '@/hooks/useScheduleUrlState'
@@ -70,6 +70,27 @@ export function GlobalSchedules() {
 
   const { data: runsPage = [], isLoading: runsLoading } = useAllScheduleRuns(runsParams, scheduleTab === 'runs')
 
+  const selectedRunInHistory = useMemo(
+    () => (runId !== null ? allRuns.find((run) => run.id === runId) ?? null : null),
+    [allRuns, runId],
+  )
+
+  const selectedRunParams = useMemo(() => ({ limit: 1, runId: runId ?? undefined }), [runId])
+
+  const {
+    data: selectedRunPage,
+    isLoading: selectedRunLoading,
+    isError: selectedRunError,
+    refetch: refetchSelectedRun,
+  } = useAllScheduleRuns(
+    selectedRunParams,
+    scheduleTab === 'runs' && runId !== null && selectedRunInHistory === null,
+  )
+
+  const selectedRun = runId === null
+    ? null
+    : selectedRunInHistory ?? selectedRunPage?.[0] ?? null
+
   const createMutation = useCreateRepoSchedule()
   const deleteMutation = useDeleteRepoSchedule()
   const runMutation = useRunRepoSchedule()
@@ -96,8 +117,15 @@ export function GlobalSchedules() {
     }
   }, [runsPage])
 
+  const runsForDisplay = useMemo(() => {
+    if (!selectedRun || allRuns.some((run) => run.id === selectedRun.id)) {
+      return allRuns
+    }
+    return [...allRuns, selectedRun]
+  }, [allRuns, selectedRun])
+
   const sortedRuns = useMemo(() => {
-    const sorted = [...allRuns]
+    const sorted = [...runsForDisplay]
     sorted.sort((a, b) => {
       switch (runSortOption) {
         case 'jobName':
@@ -113,7 +141,7 @@ export function GlobalSchedules() {
       }
     })
     return sorted
-  }, [allRuns, runSortOption])
+  }, [runsForDisplay, runSortOption])
 
   const uniqueRepos = useMemo(() => {
     const repoMap = new Map<string, { name: string; url: string }>()
@@ -311,6 +339,11 @@ export function GlobalSchedules() {
   }
 
   const hasJobs = jobs.length > 0
+
+  const selectedRunMissing = runId !== null && selectedRunInHistory === null
+  const selectedRunLookupLoading = selectedRunMissing && selectedRunLoading
+  const selectedRunLookupError = selectedRunMissing && selectedRunError
+  const selectedRunLookupNotFound = selectedRunMissing && !selectedRunLoading && !selectedRunError && selectedRun === null
 
   return (
     <div className="h-dvh max-h-dvh overflow-hidden bg-background flex flex-col">
@@ -821,7 +854,54 @@ export function GlobalSchedules() {
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : allRuns.length === 0 ? (
+            ) : selectedRunLookupLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : selectedRunLookupError ? (
+              <div className="flex items-center justify-center py-12">
+                <Card className="max-w-md border-dashed border-border/70">
+                  <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+                    <div className="rounded-full border border-border bg-muted/40 p-4">
+                      <XCircle className="h-8 w-8 text-destructive" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-lg font-semibold">Failed to load run</p>
+                      <p className="text-sm text-muted-foreground">
+                        The selected run could not be loaded.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => { void refetchSelectedRun() }}>
+                        Retry
+                      </Button>
+                      <Button variant="outline" onClick={() => selectRun(null)}>
+                        Back to run history
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : selectedRunLookupNotFound ? (
+              <div className="flex items-center justify-center py-12">
+                <Card className="max-w-md border-dashed border-border/70">
+                  <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+                    <div className="rounded-full border border-border bg-muted/40 p-4">
+                      <SearchX className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-lg font-semibold">Run not found</p>
+                      <p className="text-sm text-muted-foreground">
+                        The requested run no longer exists.
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={() => selectRun(null)}>
+                      Back to run history
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : sortedRuns.length === 0 ? (
               <div className="flex items-center justify-center py-12">
                 <Card className="max-w-md border-dashed border-border/70">
                   <CardContent className="flex flex-col items-center gap-4 p-8 text-center">

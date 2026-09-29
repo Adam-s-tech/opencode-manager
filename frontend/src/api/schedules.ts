@@ -26,6 +26,7 @@ export interface ListAllRunsParams {
   repoId?: number
   jobId?: number
   triggerSource?: string
+  runId?: number
 }
 
 export interface ScheduleCount {
@@ -45,6 +46,7 @@ export async function listAllScheduleRuns(params: ListAllRunsParams = {}): Promi
   if (params.repoId !== undefined) searchParams.set('repoId', String(params.repoId))
   if (params.jobId !== undefined) searchParams.set('jobId', String(params.jobId))
   if (params.triggerSource) searchParams.set('triggerSource', params.triggerSource)
+  if (params.runId !== undefined) searchParams.set('runId', String(params.runId))
   const qs = searchParams.toString()
   return fetchWrapper(`${API_BASE_URL}/api/schedules/all/runs${qs ? `?${qs}` : ''}`)
 }

@@ -273,4 +273,33 @@ describe('Schedule Routes', () => {
       triggerSource: 'manual',
     })
   })
+
+  it('passes a runId bound to the service for all runs', async () => {
+    scheduleService.listAllRuns.mockReturnValue([])
+
+    const response = await app.request('/repos/42/schedules/all/runs?runId=99')
+    const body = await response.json() as { runs: Array<unknown> }
+
+    expect(response.status).toBe(200)
+    expect(body.runs).toHaveLength(0)
+    expect(scheduleService.listAllRuns).toHaveBeenCalledWith(expect.objectContaining({ runId: 99 }))
+  })
+
+  it.each(['abc', '1abc', '1.5', '-1', ''])('rejects an invalid runId format %s for all runs', async (runId) => {
+    const response = await app.request(`/repos/42/schedules/all/runs?runId=${encodeURIComponent(runId)}`)
+    const body = await response.json() as { error: string }
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Invalid run id')
+    expect(scheduleService.listAllRuns).not.toHaveBeenCalled()
+  })
+
+  it.each(['0', '99999999999999999999'])('rejects a non-positive or unsafe runId %s for all runs', async (runId) => {
+    const response = await app.request(`/repos/42/schedules/all/runs?runId=${runId}`)
+    const body = await response.json() as { error: string }
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Run id must be a positive integer')
+    expect(scheduleService.listAllRuns).not.toHaveBeenCalled()
+  })
 })
