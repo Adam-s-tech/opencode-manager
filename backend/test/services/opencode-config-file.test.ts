@@ -407,6 +407,20 @@ describe('opencode-config-file', () => {
     await expect(readFile(sourcePath('opencode.json'), 'utf8')).resolves.toBe(raw)
   })
 
+  it('rejects a redacted placeholder in raw content and writes nothing', async () => {
+    const raw = '{"theme":"dark"}'
+    await writeFile(sourcePath('opencode.json'), raw, 'utf8')
+
+    const error = await updateOpenCodeConfigFile(
+      `{\n  // comment\n  "instructions": ["keep", "${OPENCODE_CONFIG_REDACTED_VALUE}"],\n}\n`,
+      { source: 'opencode.json' },
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(OpenCodeConfigRedactedValueError)
+    expect((error as OpenCodeConfigRedactedValueError).paths).toEqual(['instructions.1'])
+    await expect(readFile(sourcePath('opencode.json'), 'utf8')).resolves.toBe(raw)
+  })
+
   it('removes an override from the target source only and reveals inherited values', async () => {
     const lower = JSON.stringify({ theme: 'light', model: 'a' })
     await writeFile(sourcePath('opencode.json'), lower, 'utf8')

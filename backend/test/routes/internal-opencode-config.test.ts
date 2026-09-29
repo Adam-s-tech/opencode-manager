@@ -208,6 +208,26 @@ describe('internal/opencode-config routes', () => {
     await expect(readFile(configPath('opencode.jsonc'), 'utf8')).resolves.toBe(before)
   })
 
+  it('PUT /api/internal/opencode-config rejects a redacted placeholder in raw content without writing', async () => {
+    await writeOpenCodeConfigFile(JSON.stringify({ theme: 'dark' }), 'opencode.jsonc')
+    const before = await readFile(configPath('opencode.jsonc'), 'utf8')
+
+    const res = await app.request('/api/internal/opencode-config', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        content: '{\n  // keep\n  "provider": { "example": { "apiKey": "<redacted>" } }\n}\n',
+        source: 'opencode.jsonc',
+      }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string; paths: string[] }
+    expect(body.paths).toEqual(['provider.example.apiKey'])
+    expect(body.error).toContain('redacted placeholder')
+    await expect(readFile(configPath('opencode.jsonc'), 'utf8')).resolves.toBe(before)
+  })
+
   it('PATCH /api/internal/opencode-config reloads for a non-mcp change', async () => {
     await writeOpenCodeConfigFile(JSON.stringify({ theme: 'dark' }), 'opencode.jsonc')
 

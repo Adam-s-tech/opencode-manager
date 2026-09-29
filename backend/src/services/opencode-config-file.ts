@@ -223,6 +223,13 @@ function collectOpenCodeConfigRedactedPaths(value: unknown, basePath: string[] =
   return paths
 }
 
+function assertNoOpenCodeConfigRedactedValues(value: unknown): void {
+  const paths = collectOpenCodeConfigRedactedPaths(value)
+  if (paths.length > 0) {
+    throw new OpenCodeConfigRedactedValueError(paths)
+  }
+}
+
 interface MergeOpenCodeConfigValuesOptions {
   deleteNullValues?: boolean
 }
@@ -501,13 +508,11 @@ export async function updateOpenCodeConfigFile(
     if (targetSource?.rawContent === content) {
       return toOpenCodeConfigFile(snapshot)
     }
+    assertNoOpenCodeConfigRedactedValues(parseJsonc(content))
     return writeOpenCodeConfigFile(content, targetName, snapshot)
   }
 
-  const redactedPaths = collectOpenCodeConfigRedactedPaths(content)
-  if (redactedPaths.length > 0) {
-    throw new OpenCodeConfigRedactedValueError(redactedPaths)
-  }
+  assertNoOpenCodeConfigRedactedValues(content)
 
   const invalidSources = snapshot.sources.filter((source) => !source.isValid).map((source) => source.name)
   if (invalidSources.length > 0) {
