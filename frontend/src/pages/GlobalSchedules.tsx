@@ -856,6 +856,7 @@ export function GlobalSchedules() {
               <RunHistoryCards
                 runs={sortedRuns}
                 runsLoading={runsLoading}
+                selectedRunId={runId}
                 onSelectRun={selectRun}
                 onCancelRun={() => {
                   if (runId) {

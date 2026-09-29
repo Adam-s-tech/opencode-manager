@@ -569,6 +569,7 @@ Sending is rate limited to **10 notifications per minute**. Beyond that the tool
 - Notifications are only sent if the user has registered devices (browser push subscriptions)
 - If VAPID is not configured on the server, the tool fails with a \`503\` status
 - Use \`priority: 'high'\` for urgent notifications that should interrupt the user
+- In a scheduled run, the notification always opens that run's report, so \`url\` is not needed
 - Do not call the internal HTTP API with \`curl\` for notifications; the tool is the supported path
 `
 }

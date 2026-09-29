@@ -1,21 +1,30 @@
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
 import { markdownComponents } from '@/components/file-browser/MarkdownComponents'
+import { MarkdownLink } from '@/components/ui/markdown-link'
 
 type ScheduleRunMarkdownProps = {
   content: string
+  onOpenLocalPath?: (linkPath: string) => void
 }
 
-export function ScheduleRunMarkdown({ content }: ScheduleRunMarkdownProps) {
+export function ScheduleRunMarkdown({ content, onOpenLocalPath }: ScheduleRunMarkdownProps) {
+  const components: Components = {
+    ...markdownComponents,
+    a(props) {
+      return <MarkdownLink {...props} onOpenLocalPath={onOpenLocalPath} />
+    },
+  }
+
   return (
     <div className="overflow-hidden">
       <div className="prose prose-invert prose-enhanced max-w-none break-words text-foreground leading-snug">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeHighlight, rehypeRaw]}
-          components={markdownComponents}
+          components={components}
         >
           {content}
         </ReactMarkdown>
