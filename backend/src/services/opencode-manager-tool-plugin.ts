@@ -198,8 +198,9 @@ async function postInternalApi(routePath, body, signal) {
 
 var ACTIONS = {
   send_notification: {
-    run: async function (params, signal) {
-      var result = await postInternalApi('/notifications/send', params, signal)
+    run: async function (params, context) {
+      var body = Object.assign({}, params, { sessionId: context.sessionID })
+      var result = await postInternalApi('/notifications/send', body, context.signal)
       if (result.noSubscriptions === true) {
         return 'No devices are registered for push notifications, so nothing was delivered.'
       }
@@ -207,9 +208,9 @@ var ACTIONS = {
     },
   },
   request: {
-    run: async function (params, signal) {
+    run: async function (params, context) {
       assertAllowedRoute(params.method, params.path)
-      var text = await requestInternalApi(params.method, params.path, params.body, signal)
+      var text = await requestInternalApi(params.method, params.path, params.body, context.signal)
       return text || 'The request succeeded with an empty response body.'
     },
   },
@@ -229,14 +230,14 @@ function assertParams(actionName, params) {
   }
 }
 
-async function runAction(input, signal) {
+async function runAction(input, context) {
   var actionName = input !== null && typeof input === 'object' ? input.action : undefined
   if (!Object.prototype.hasOwnProperty.call(ACTIONS, actionName)) {
     throw new Error('Unknown OpenCode Manager action: ' + String(actionName) + '. Supported actions: ' + ACTION_NAMES.join(', ') + '.')
   }
   var params = input.params
   assertParams(actionName, params)
-  return await ACTIONS[actionName].run(params, signal)
+  return await ACTIONS[actionName].run(params, context)
 }
 
 export default {
@@ -249,7 +250,7 @@ export default {
         input: INPUT_SCHEMA,
         options: { codemode: false },
         execute: async function (input, context) {
-          return { content: await runAction(input, context.signal) }
+          return { content: await runAction(input, context) }
         },
       })
     })

@@ -1,4 +1,5 @@
 import { useEffect, useState, memo, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { FileBrowser, type FileBrowserHandle } from './FileBrowser'
 import { getRepoRelativeDisplayPath } from './display-path'
 import { Button } from '@/components/ui/button'
@@ -116,7 +117,7 @@ export const FileBrowserSheet = memo(function FileBrowserSheet({ isOpen, onClose
 
   if (!isOpen && !shouldRender) return null
 
-  return (
+  return createPortal(
     <div
       ref={containerRef}
       className="fixed inset-0 z-50"
@@ -200,6 +201,7 @@ export const FileBrowserSheet = memo(function FileBrowserSheet({ isOpen, onClose
         itemName={downloadDialog?.type === 'directory' ? currentPath.split('/').pop() || 'Directory' : repoName || 'Repository'}
         targetPath={downloadDialog?.type === 'directory' ? currentPath : basePath}
       />
-    </div>
+    </div>,
+    document.body,
   )
 })

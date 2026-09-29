@@ -39,6 +39,23 @@ export function resolvePathFromFile(fromFilePath: string, linkPath: string): str
   return segments.join('/') || null
 }
 
+/**
+ * Maps a file path referenced from a working directory to the path the file browser opens.
+ * Relative paths resolve against the directory, and paths inside the repo root become repo-local workspace paths.
+ */
+export function getWorkspaceFilePath(
+  filePath: string,
+  workspace: { directory?: string; repoFullPath?: string; repoLocalPath?: string },
+): string {
+  const { directory, repoFullPath, repoLocalPath } = workspace
+  const absolutePath = filePath.startsWith('/') || !directory
+    ? filePath
+    : `${directory}/${filePath.replace(/^\.\//, '')}`
+  return repoFullPath && repoLocalPath && absolutePath.startsWith(`${repoFullPath}/`)
+    ? `${repoLocalPath}/${absolutePath.slice(repoFullPath.length + 1)}`
+    : absolutePath
+}
+
 /** Returns whether a link targets an external http(s) page. */
 export function isExternalLink(href: string | undefined): boolean {
   return !!href && /^https?:\/\//i.test(href)

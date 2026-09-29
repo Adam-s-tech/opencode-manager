@@ -20,6 +20,7 @@ import {
   getRepoName,
   listRepos,
 } from "../db/queries";
+import { getScheduleRunBySessionId } from "../db/schedules";
 import type { Repo } from "../types/repo";
 import { getReposPath } from "@opencode-manager/shared/config/env";
 import { ASSISTANT_REPO_ID } from "@opencode-manager/shared/utils";
@@ -71,11 +72,20 @@ const EVENT_CONFIG: Record<
 
 const MAX_BODY_LENGTH = 140;
 
+const RUN_OUTCOME_EVENTS = new Set<string>([
+  NotificationEventType.SESSION_IDLE,
+  NotificationEventType.SESSION_FAILED,
+]);
+
 function resolveEventSessionId(event: SSEEvent): string | undefined {
   if (event.type === NotificationEventType.FORM_CREATED) {
     return event.data.form.sessionID;
   }
   return sessionIDFromEvent(event);
+}
+
+export function buildScheduleRunReportUrl(runId: number): string {
+  return `/schedules?scheduleTab=runs&runId=${runId}`;
 }
 
 export function buildNotificationUrl(
@@ -272,6 +282,13 @@ export class NotificationService {
     return rows.map((r) => r.user_id);
   }
 
+  /** Returns the run report URL when the session was started by a scheduled run. */
+  getScheduleRunReportUrl(sessionId: string | undefined): string | null {
+    if (!sessionId) return null;
+    const run = getScheduleRunBySessionId(this.db, sessionId);
+    return run ? buildScheduleRunReportUrl(run.id) : null;
+  }
+
   private async resolveRepoForDirectory(directory: string): Promise<Repo | null> {
     const repo =
       getRepoBySourcePath(this.db, path.resolve(directory)) ??
@@ -312,7 +329,8 @@ export class NotificationService {
     const repo = directory ? await this.resolveRepoForDirectory(directory) : null;
     const repoId = repo?.id;
     const repoName = repo ? getRepoName(repo) : undefined;
-    const url = buildNotificationUrl(repo, sessionId);
+    const reportUrl = RUN_OUTCOME_EVENTS.has(event.type) ? this.getScheduleRunReportUrl(sessionId) : null;
+    const url = reportUrl ?? buildNotificationUrl(repo, sessionId);
 
     const payload = buildEventNotificationPayload(event, {
       repoName,

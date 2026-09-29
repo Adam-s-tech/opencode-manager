@@ -34,6 +34,7 @@ import { MessageSkeleton } from "@/components/message/MessageSkeleton";
 import { exportSession, downloadMarkdown } from "@/lib/exportSession";
 import { getMessagesContentVersion } from "./sessionContentVersion";
 import { showToast } from "@/lib/toast";
+import { getWorkspaceFilePath } from "@/lib/markdownLinks";
 import { getRepoDisplayName } from "@/lib/utils";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
 import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog";
@@ -400,14 +401,11 @@ export function SessionDetail() {
   
 
   const handleFileClick = useCallback((filePath: string) => {
-    const absolutePath = filePath.startsWith('/') || !sessionDirectory
-      ? filePath
-      : `${sessionDirectory}/${filePath.replace(/^\.\//, '')}`
-    const repoRoot = repo?.fullPath
-    const pathToOpen = repoRoot && repo?.localPath && absolutePath.startsWith(`${repoRoot}/`)
-      ? `${repo.localPath}/${absolutePath.slice(repoRoot.length + 1)}`
-      : absolutePath
-    setSelectedFilePath(pathToOpen)
+    setSelectedFilePath(getWorkspaceFilePath(filePath, {
+      directory: sessionDirectory,
+      repoFullPath: repo?.fullPath,
+      repoLocalPath: repo?.localPath,
+    }))
     setFileBrowserOpen(true)
   }, [repo?.fullPath, repo?.localPath, sessionDirectory, setFileBrowserOpen]);
 

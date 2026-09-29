@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite'
 import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
 import { createRepo } from '../../src/db/queries'
+import { createScheduleRun, updateScheduleRunMetadata } from '../../src/db/schedules'
 import { NotificationService } from '../../src/services/notification'
 import { SettingsService } from '../../src/services/settings'
 import { sseAggregator, type SSEEvent } from '../../src/services/sse-aggregator'
@@ -45,8 +46,7 @@ function permissionAskedEvent(sessionID: string): SSEEvent {
   }
 }
 
-function createService(): NotificationService {
-  const db = new Database(':memory:')
+function createService(db = new Database(':memory:')): NotificationService {
   migrate(db, allMigrations)
   createRepo(db, {
     localPath: 'repo-one',
@@ -126,6 +126,27 @@ describe('NotificationService.handleSSEEvent session routing', () => {
     expect(payload.tag).toBe('permission.asked-ses_perm')
     expect(payload.data?.sessionId).toBe('ses_perm')
     expect(payload.data?.url).toBe('/repos/1/sessions/ses_perm')
+  })
+
+  it('opens the run report for a scheduled session that finishes, but the session for its permission prompts', async () => {
+    const db = new Database(':memory:')
+    const service = createService(db)
+    db.exec('PRAGMA foreign_keys = OFF')
+    const run = createScheduleRun(db, { jobId: 5, repoId: 1, triggerSource: 'schedule', status: 'running', startedAt: 1, createdAt: 1 })
+    updateScheduleRunMetadata(db, 1, 5, run.id, { sessionId: 'ses_sched' })
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.handleSSEEvent(DIRECTORY, {
+      id: 'evt_idle_1',
+      created: 1700000000000,
+      type: 'session.idle',
+      location: { directory: DIRECTORY },
+      data: { sessionID: 'ses_sched' },
+    } as SSEEvent)
+    await service.handleSSEEvent(DIRECTORY, permissionAskedEvent('ses_sched'))
+
+    const urls = send.mock.calls.map((call) => (call[1] as PushNotificationPayload).data?.url)
+    expect(urls).toEqual([`/schedules?scheduleTab=runs&runId=${run.id}`, '/repos/1/sessions/ses_sched'])
   })
 
   it('suppresses a permission for a session the user is viewing', async () => {
