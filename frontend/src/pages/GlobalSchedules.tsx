@@ -816,13 +816,13 @@ export function GlobalSchedules() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
+          <div className="flex-1 min-h-0 overflow-y-auto py-4 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
             {runsLoading && allRuns.length === 0 ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : allRuns.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
+              <div className="flex items-center justify-center px-4 py-12">
                 <Card className="max-w-md border-dashed border-border/70">
                   <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
                     <div className="rounded-full border border-border bg-muted/40 p-4">
