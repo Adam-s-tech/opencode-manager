@@ -4,12 +4,16 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeRaw from 'rehype-raw'
 import { markdownComponents } from './MarkdownComponents'
+import { MarkdownLink } from '@/components/ui/markdown-link'
+import { resolvePathFromFile } from '@/lib/markdownLinks'
 import type { Components } from 'react-markdown'
 
 interface MarkdownRendererProps {
   content: string
   className?: string
   onContentChange?: (newContent: string) => void
+  filePath?: string
+  onOpenFile?: (path: string) => void
 }
 
 interface TaskItem {
@@ -29,7 +33,7 @@ function parseTaskItems(content: string): TaskItem[] {
   return items
 }
 
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className = '', onContentChange }: MarkdownRendererProps) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className = '', onContentChange, filePath, onOpenFile }: MarkdownRendererProps) {
   const taskItems = useMemo(() => parseTaskItems(content), [content])
 
   const handleToggle = useCallback((taskItem: TaskItem) => {
@@ -54,6 +58,14 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
     }
   }, [handleToggle, taskItems])
 
+  const handleOpenLocalPath = useMemo(() => {
+    if (!filePath || !onOpenFile) return undefined
+    return (linkPath: string) => {
+      const resolvedPath = resolvePathFromFile(filePath, linkPath)
+      if (resolvedPath) onOpenFile(resolvedPath)
+    }
+  }, [filePath, onOpenFile])
+
   const components: Components = {
     ...markdownComponents,
     input(props) {
@@ -73,6 +85,9 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
       }
 
       return <input type={type} checked={checked} disabled={disabled} {...rest} />
+    },
+    a(props) {
+      return <MarkdownLink {...props} onOpenLocalPath={handleOpenLocalPath} />
     },
   }
 

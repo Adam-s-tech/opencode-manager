@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { FilePreview } from './FilePreview'
 import type { FileInfo } from '@/types/files'
@@ -53,6 +53,56 @@ describe('FilePreview header buttons', () => {
 
     expect(screen.queryByTitle('report.html')).not.toBeInTheDocument()
     expect(screen.getByText('# heading')).toBeInTheDocument()
+  })
+
+  it('enters fullscreen from the header toggle and exits with the small close button', () => {
+    render(<FilePreview file={textFile('Dockerfile', 'text/plain')} />)
+
+    expect(screen.queryByTitle('Exit fullscreen')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Enter fullscreen'))
+
+    expect(screen.queryByTitle('Enter fullscreen')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Exit fullscreen'))
+
+    expect(screen.getByTitle('Enter fullscreen')).toBeInTheDocument()
+  })
+
+  it('closes a mobile preview from the on-top close button without a fullscreen toggle', () => {
+    const onCloseModal = vi.fn()
+    render(<FilePreview file={textFile('Dockerfile', 'text/plain')} isMobileModal onCloseModal={onCloseModal} />)
+
+    expect(screen.queryByTitle('Enter fullscreen')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTitle('Close preview'))
+
+    expect(onCloseModal).toHaveBeenCalled()
+  })
+
+  it('shows an on-top close button for a headerless mobile preview', () => {
+    const onCloseModal = vi.fn()
+    render(<FilePreview file={textFile('Dockerfile', 'text/plain')} hideHeader onCloseModal={onCloseModal} />)
+
+    fireEvent.click(screen.getByTitle('Close preview'))
+
+    expect(onCloseModal).toHaveBeenCalled()
+  })
+
+  it('opens relative markdown links in the file browser and external links in a new tab', () => {
+    const onOpenFile = vi.fn()
+    const file = {
+      ...textFile('index.md', 'text/markdown'),
+      content: btoa('- [ ] [report](sub/report.html)\n\n[site](https://example.com)'),
+    }
+    render(<FilePreview file={file} onOpenFile={onOpenFile} />)
+
+    fireEvent.click(screen.getByRole('link', { name: 'report' }))
+    expect(onOpenFile).toHaveBeenCalledWith('docker/sub/report.html')
+
+    const external = screen.getByRole('link', { name: 'site' })
+    expect(external).toHaveAttribute('target', '_blank')
+    expect(external).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('keeps the success and destructive tints on the edit actions in dark mode', () => {
