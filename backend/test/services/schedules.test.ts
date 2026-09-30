@@ -144,6 +144,7 @@ const job: ScheduleJob = {
   model: null,
   skillMetadata: null,
   permissionConfig: null,
+  mcpServers: [],
   branch: null,
   nextRunAt: Date.UTC(2026, 2, 9, 13, 0, 0),
   lastRunAt: Date.UTC(2026, 2, 9, 12, 0, 0),
@@ -1151,6 +1152,74 @@ describe('ScheduleService', () => {
       })
     })
   })
+
+  describe('MCP servers attached to the job', () => {
+    const runWithSession: ScheduleRun = {
+      ...baseRun,
+      sessionId: 'ses-mcp-1',
+      sessionTitle: 'Scheduled: Weekly engineering summary',
+      logText: 'Run started. Waiting for assistant response...',
+    }
+
+    beforeEach(() => {
+      mocks.updateScheduleRunMetadata.mockReturnValue(runWithSession)
+      mocks.getScheduleRunById.mockReturnValue(runWithSession)
+      mocks.updateScheduleRun.mockReturnValue({ ...baseRun, status: 'failed' })
+    })
+
+    it('adds schedule-only servers and connects configured ones at the run location before the session starts', async () => {
+      const stub = createStubScheduleApi({
+        sessionID: 'ses-mcp-1',
+        messages: [assistantMessage('Done.', { completed: true })],
+        mcp: { github: { status: 'disabled' }, linear: { status: 'connected' } },
+      })
+      const service = makeService(stub.api)
+      const config = { type: 'remote' as const, url: 'https://mcp.example.com/mcp' }
+      mocks.getScheduleJobById.mockReturnValue({
+        ...job,
+        mcpServers: [{ name: 'github' }, { name: 'linear' }, { name: 'custom', config }],
+      })
+
+      await service.runJob(42, 7, 'manual')
+
+      const location = { location: { directory: repo.fullPath } }
+      expect(stub.api.mcp.add).toHaveBeenCalledWith({ server: 'custom', config, ...location })
+      expect(stub.api.mcp.connect).toHaveBeenCalledWith({ server: 'github', ...location })
+      expect(stub.api.mcp.connect).toHaveBeenCalledWith({ server: 'custom', ...location })
+      expect(stub.api.mcp.connect).not.toHaveBeenCalledWith({ server: 'linear', ...location })
+      const [firstConnect] = vi.mocked(stub.api.mcp.connect).mock.invocationCallOrder
+      const [sessionCreate] = vi.mocked(stub.api.session.create).mock.invocationCallOrder
+      expect(firstConnect).toBeLessThan(sessionCreate ?? 0)
+    })
+
+    it('fails the run without creating a session when an attached server cannot connect', async () => {
+      const stub = createStubScheduleApi({
+        mcp: { github: { status: 'disabled' } },
+        mcpConnectResults: { github: { status: 'needs_auth', error: 'Authorization required' } },
+      })
+      const service = makeService(stub.api)
+      mocks.getScheduleJobById.mockReturnValue({ ...job, mcpServers: [{ name: 'github' }] })
+
+      await expect(service.runJob(42, 7, 'manual')).rejects.toThrow('MCP servers failed to connect: github (Authorization required)')
+
+      expect(stub.api.session.create).not.toHaveBeenCalled()
+      expect(mocks.updateScheduleRun).toHaveBeenCalledWith(expect.anything(), 42, 7, baseRun.id, expect.objectContaining({
+        status: 'failed',
+        errorText: 'MCP servers failed to connect: github (Authorization required)',
+      }))
+    })
+
+    it('fails the run when a referenced server is not configured', async () => {
+      const stub = createStubScheduleApi()
+      const service = makeService(stub.api)
+      mocks.getScheduleJobById.mockReturnValue({ ...job, mcpServers: [{ name: 'missing' }] })
+
+      await expect(service.runJob(42, 7, 'manual')).rejects.toThrow('MCP servers are not configured for this location: missing')
+
+      expect(stub.api.mcp.connect).not.toHaveBeenCalled()
+      expect(stub.api.session.create).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('ScheduleService startup cancellation', () => {
@@ -2081,6 +2150,7 @@ describe('ScheduleRunner', () => {
       model: null,
       skillMetadata: null,
       permissionConfig: null,
+      mcpServers: [],
       branch: null,
       nextRunAt: Date.now(),
       lastRunAt: null,
@@ -2118,6 +2188,7 @@ describe('ScheduleRunner', () => {
       model: null,
       skillMetadata: null,
       permissionConfig: null,
+      mcpServers: [],
       branch: null,
       nextRunAt: Date.now(),
       lastRunAt: null,
@@ -2153,6 +2224,7 @@ describe('ScheduleRunner', () => {
       model: null,
       skillMetadata: null,
       permissionConfig: null,
+      mcpServers: [],
       branch: null,
       nextRunAt: Date.now(),
       lastRunAt: null,
@@ -2187,6 +2259,7 @@ describe('ScheduleRunner', () => {
       model: null,
       skillMetadata: null,
       permissionConfig: null,
+      mcpServers: [],
       branch: null,
       nextRunAt: Date.now(),
       lastRunAt: null,
@@ -2221,6 +2294,7 @@ describe('ScheduleRunner', () => {
       model: null,
       skillMetadata: null,
       permissionConfig: null,
+      mcpServers: [],
       branch: null,
       nextRunAt: Date.now(),
       lastRunAt: null,

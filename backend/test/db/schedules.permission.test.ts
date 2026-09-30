@@ -33,6 +33,7 @@ describe('schedule permission config persistence', () => {
     model: null,
     skillMetadata: null,
     permissionConfig: null,
+    mcpServers: [],
     branch: null,
     nextRunAt: Date.now() + 3600000,
     ...overrides,

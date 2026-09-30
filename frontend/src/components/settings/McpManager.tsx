@@ -12,7 +12,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { invalidateConfigCaches } from '@/lib/queryInvalidation'
 import type { McpAuthStartResponse } from '@/api/mcp'
 import { mcpApi } from '@/api/mcp'
-import { mcpServersFromConfig } from '@opencode-manager/shared/opencode'
+import { mcpServersFromConfig, type McpServerConfig } from '@opencode-manager/shared/opencode'
+import { settingsApi } from '@/api/settings'
 import { showToast } from '@/lib/toast'
 import { getOpenCodeApiErrorMessage } from '@/lib/opencode-errors'
 import { formatMcpServerName } from '@/lib/mcp'
@@ -76,6 +77,18 @@ export function McpManager({ config, onUpdate }: McpManagerProps) {
       showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to delete MCP server'))
     },
   })
+
+  const addServer = async (serverId: string, serverConfig: McpServerConfig) => {
+    const latest = await settingsApi.getOpenCodeConfig()
+    const mcp = (latest.content.mcp as Record<string, unknown> | undefined) ?? {}
+    await onUpdate({
+      ...latest.content,
+      mcp: {
+        ...mcp,
+        servers: { ...(mcp.servers as Record<string, unknown> | undefined), [serverId]: serverConfig },
+      },
+    })
+  }
 
   const isAnyOperationPending = deleteServerMutation.isPending || togglingServerId !== null
 
@@ -191,7 +204,7 @@ export function McpManager({ config, onUpdate }: McpManagerProps) {
           <AddMcpServerDialog 
             open={isAddDialogOpen} 
             onOpenChange={setIsAddDialogOpen}
-            onUpdate={onUpdate}
+            onSubmit={addServer}
           />
         </Dialog>
       </div>

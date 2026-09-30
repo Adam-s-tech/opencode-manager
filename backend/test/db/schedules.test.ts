@@ -113,6 +113,7 @@ describe('schedule database queries', () => {
       model: 'openai/gpt-5-mini',
       skillMetadata: { skillSlugs: ['planning'], notes: 'Optional notes' },
       permissionConfig: null,
+      mcpServers: [],
       branch: null,
       nextRunAt: Date.UTC(2026, 2, 9, 13, 0, 0),
     })
@@ -130,6 +131,7 @@ describe('schedule database queries', () => {
       'Generate a weekly summary.',
       'openai/gpt-5-mini',
       JSON.stringify({ skillSlugs: ['planning'], notes: 'Optional notes' }),
+      null,
       null,
       null,
       expect.any(Number),
@@ -169,6 +171,7 @@ describe('schedule database queries', () => {
       model: null,
       skillMetadata: null,
       permissionConfig: null,
+      mcpServers: [],
       branch: null,
       nextRunAt: null,
     })
@@ -183,6 +186,7 @@ describe('schedule database queries', () => {
       null,
       null,
       'Run a new summary.',
+      null,
       null,
       null,
       null,

@@ -15,6 +15,62 @@ export const ScheduleSkillMetadataSchema = z.object({
 })
 export type ScheduleSkillMetadata = z.infer<typeof ScheduleSkillMetadataSchema>
 
+const ScheduleMcpTimeoutSchema = z.object({
+  startup: z.number().int().positive().optional(),
+  catalog: z.number().int().positive().optional(),
+  execution: z.number().int().positive().optional(),
+})
+
+const ScheduleMcpProtocolSchema = z.enum(['legacy', 'auto', '2026-07-28'])
+
+export const ScheduleMcpServerConfigSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('local'),
+    command: z.array(z.string().min(1)).min(1),
+    cwd: z.string().optional(),
+    environment: z.record(z.string(), z.string()).optional(),
+    codemode: z.boolean().optional(),
+    timeout: ScheduleMcpTimeoutSchema.optional(),
+    protocol: ScheduleMcpProtocolSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('remote'),
+    url: z.string().url(),
+    headers: z.record(z.string(), z.string()).optional(),
+    oauth: z.union([
+      z.object({
+        client_id: z.string().optional(),
+        client_secret: z.string().optional(),
+        scope: z.string().optional(),
+        callback_port: z.number().int().min(1).max(65535).optional(),
+        redirect_uri: z.string().optional(),
+        auth_server_metadata_url: z.string().optional(),
+      }),
+      z.literal(false),
+    ]).optional(),
+    codemode: z.boolean().optional(),
+    timeout: ScheduleMcpTimeoutSchema.optional(),
+    protocol: ScheduleMcpProtocolSchema.optional(),
+  }),
+])
+export type ScheduleMcpServerConfig = z.infer<typeof ScheduleMcpServerConfigSchema>
+
+/**
+ * An MCP server attached to a schedule. Without `config` it names a server from
+ * the OpenCode configuration, which is connected for the run even when disabled.
+ * With `config` it is a schedule-only server added to the run's location.
+ */
+export const ScheduleMcpServerSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  config: ScheduleMcpServerConfigSchema.optional(),
+})
+export type ScheduleMcpServer = z.infer<typeof ScheduleMcpServerSchema>
+
+export const ScheduleMcpServersSchema = z.array(ScheduleMcpServerSchema).max(50).refine(
+  (servers) => new Set(servers.map((server) => server.name)).size === servers.length,
+  { message: 'MCP server names must be unique' },
+)
+
 /**
  * Bash commands whose blast radius escapes the throwaway worktree: host-level
  * commands that damage the machine regardless of cwd, plus force-pushes that can
@@ -95,6 +151,7 @@ export const ScheduleJobSchema = z.object({
   model: z.string().nullable(),
   skillMetadata: ScheduleSkillMetadataSchema.nullable(),
   permissionConfig: SchedulePermissionConfigSchema.nullable(),
+  mcpServers: ScheduleMcpServersSchema,
   branch: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -132,6 +189,7 @@ const ScheduleJobBaseRequestSchema = z.object({
   model: z.string().min(1).max(200).optional(),
   skillMetadata: ScheduleSkillMetadataSchema.nullable().optional(),
   permissionConfig: SchedulePermissionConfigSchema.nullable().optional(),
+  mcpServers: ScheduleMcpServersSchema.optional(),
   branch: z.string().min(1).max(200).nullable().optional(),
 })
 
@@ -161,6 +219,7 @@ export const UpdateScheduleJobRequestSchema = z.object({
   model: z.string().min(1).max(200).nullable().optional(),
   skillMetadata: ScheduleSkillMetadataSchema.nullable().optional(),
   permissionConfig: SchedulePermissionConfigSchema.nullable().optional(),
+  mcpServers: ScheduleMcpServersSchema.optional(),
   branch: z.string().min(1).max(200).nullable().optional(),
 })
 export type UpdateScheduleJobRequest = z.infer<typeof UpdateScheduleJobRequestSchema>

@@ -6,7 +6,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2 } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
-import { settingsApi } from '@/api/settings'
 import {
   mcpOAuthRedirectUri,
   type McpServerConfig,
@@ -17,20 +16,92 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 interface AddMcpServerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onUpdate: (content: Record<string, unknown>) => Promise<void>
+  onSubmit: (serverId: string, config: McpServerConfig) => Promise<void>
+  showConnectToggle?: boolean
 }
 
-interface EnvironmentVariable {
+interface KeyValueEntry {
   key: string
   value: string
 }
 
-export function AddMcpServerDialog({ open, onOpenChange, onUpdate }: AddMcpServerDialogProps) {
+function toRecord(entries: KeyValueEntry[]): Record<string, string> | undefined {
+  const record = Object.fromEntries(
+    entries
+      .filter((entry) => entry.key.trim() && entry.value.trim())
+      .map((entry) => [entry.key.trim(), entry.value.trim()]),
+  )
+  return Object.keys(record).length > 0 ? record : undefined
+}
+
+interface KeyValueRowsProps {
+  label: string
+  hint: string
+  entries: KeyValueEntry[]
+  onChange: (entries: KeyValueEntry[]) => void
+  keyPlaceholder: string
+  valuePlaceholder: string
+}
+
+function KeyValueRows({ label, hint, entries, onChange, keyPlaceholder, valuePlaceholder }: KeyValueRowsProps) {
+  const updateEntry = (index: number, field: keyof KeyValueEntry, value: string) => {
+    onChange(entries.map((entry, i) => (i === index ? { ...entry, [field]: value } : entry)))
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label>{label}</Label>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className='h-6'
+          aria-label={`Add ${label}`}
+          onClick={() => onChange([...entries, { key: '', value: '' }])}
+        >
+          +
+        </Button>
+      </div>
+      {entries.map((entry, index) => (
+        <div key={index} className="flex gap-2">
+          <Input
+            value={entry.key}
+            onChange={(e) => updateEntry(index, 'key', e.target.value)}
+            placeholder={keyPlaceholder}
+            aria-label={`${label} name ${index + 1}`}
+            className="bg-background border-border font-mono"
+          />
+          <Input
+            value={entry.value}
+            onChange={(e) => updateEntry(index, 'value', e.target.value)}
+            placeholder={valuePlaceholder}
+            aria-label={`${label} value ${index + 1}`}
+            className="bg-background border-border font-mono"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={`Remove ${label} ${index + 1}`}
+            onClick={() => onChange(entries.filter((_, i) => i !== index))}
+          >
+            x
+          </Button>
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  )
+}
+
+export function AddMcpServerDialog({ open, onOpenChange, onSubmit, showConnectToggle = true }: AddMcpServerDialogProps) {
   const [serverId, setServerId] = useState('')
   const [serverType, setServerType] = useState<'local' | 'remote'>('local')
   const [command, setCommand] = useState('')
   const [url, setUrl] = useState('')
-  const [environment, setEnvironment] = useState<EnvironmentVariable[]>([])
+  const [environment, setEnvironment] = useState<KeyValueEntry[]>([])
+  const [headers, setHeaders] = useState<KeyValueEntry[]>([])
   const [timeout, setTimeout] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [oauthEnabled, setOauthEnabled] = useState(false)
@@ -58,16 +129,12 @@ export function AddMcpServerDialog({ open, onOpenChange, onUpdate }: AddMcpServe
         throw new Error('Command is required for local MCP servers')
       }
 
-      const environmentVariables = Object.fromEntries(
-        environment
-          .filter((env) => env.key.trim() && env.value.trim())
-          .map((env) => [env.key.trim(), env.value.trim()]),
-      )
+      const environmentVariables = toRecord(environment)
 
       return {
         type: 'local',
         command: commandArray,
-        ...(Object.keys(environmentVariables).length > 0 ? { environment: environmentVariables } : {}),
+        ...(environmentVariables ? { environment: environmentVariables } : {}),
         ...shared,
       }
     }
@@ -76,56 +143,31 @@ export function AddMcpServerDialog({ open, onOpenChange, onUpdate }: AddMcpServe
       throw new Error('URL is required for remote MCP servers')
     }
 
+    const requestHeaders = toRecord(headers)
+
     return {
       type: 'remote',
       url: url.trim(),
-      ...(oauthEnabled
+      ...(requestHeaders ? { headers: requestHeaders } : {}),
+      oauth: oauthEnabled
         ? {
-            oauth: {
-              ...(oauthClientId.trim() ? { client_id: oauthClientId.trim() } : {}),
-              ...(oauthClientSecret.trim() ? { client_secret: oauthClientSecret.trim() } : {}),
-              ...(oauthScope.trim() ? { scope: oauthScope.trim() } : {}),
-              redirect_uri: mcpOAuthRedirectUri(window.location.origin),
-            },
+            ...(oauthClientId.trim() ? { client_id: oauthClientId.trim() } : {}),
+            ...(oauthClientSecret.trim() ? { client_secret: oauthClientSecret.trim() } : {}),
+            ...(oauthScope.trim() ? { scope: oauthScope.trim() } : {}),
+            redirect_uri: mcpOAuthRedirectUri(window.location.origin),
           }
-        : {}),
+        : false,
       ...shared,
     }
   }
 
   const addMcpServerMutation = useMutation({
-    mutationFn: async () => {
-      const config = await settingsApi.getOpenCodeConfig()
-      const mcpServerConfig = buildMcpServerConfig()
-      const mcp = (config.content.mcp as Record<string, unknown> | undefined) ?? {}
-
-      await onUpdate({
-        ...config.content,
-        mcp: {
-          ...mcp,
-          servers: { ...(mcp.servers as Record<string, unknown> | undefined), [serverId]: mcpServerConfig },
-        },
-      })
-    },
+    mutationFn: () => onSubmit(serverId, buildMcpServerConfig()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mcp-status'] })
       handleClose()
     },
   })
-
-  const handleAddEnvironmentVar = () => {
-    setEnvironment([...environment, { key: '', value: '' }])
-  }
-
-  const handleRemoveEnvironmentVar = (index: number) => {
-    setEnvironment(environment.filter((_, i) => i !== index))
-  }
-
-  const handleUpdateEnvironmentVar = (index: number, field: 'key' | 'value', value: string) => {
-    const updated = [...environment]
-    updated[index][field] = value
-    setEnvironment(updated)
-  }
 
   const handleAdd = () => {
     if (serverId) {
@@ -139,6 +181,7 @@ export function AddMcpServerDialog({ open, onOpenChange, onUpdate }: AddMcpServe
     setCommand('')
     setUrl('')
     setEnvironment([])
+    setHeaders([])
     setTimeout('')
     setEnabled(true)
     setOauthEnabled(false)
@@ -268,49 +311,25 @@ export function AddMcpServerDialog({ open, onOpenChange, onUpdate }: AddMcpServe
             )}
 
             {serverType === 'local' && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label>Environment Variables</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className='h-6'
-                    onClick={handleAddEnvironmentVar}
-                  >
-                    +
-                  </Button>
-                </div>
-                {environment.map((env, index) => (
-                  <div key={index} className="flex gap-2">
-                    <Input
-                      value={env.key}
-                      onChange={(e) => handleUpdateEnvironmentVar(index, 'key', e.target.value)}
-                      placeholder="API_KEY"
-                      className="bg-background border-border font-mono"
-                    />
-                    <Input
-                      value={env.value}
-                      onChange={(e) => handleUpdateEnvironmentVar(index, 'value', e.target.value)}
-                      placeholder="your-api-key-here"
-                      className="bg-background border-border font-mono"
-                    />
-                    {environment.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleRemoveEnvironmentVar(index)}
-                      >
-                        x
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                <p className="text-xs text-muted-foreground">
-                  Environment variables to set when running the MCP server
-                </p>
-              </div>
+              <KeyValueRows
+                label="Environment Variables"
+                hint="Environment variables to set when running the MCP server"
+                entries={environment}
+                onChange={setEnvironment}
+                keyPlaceholder="API_KEY"
+                valuePlaceholder="your-api-key-here"
+              />
+            )}
+
+            {serverType === 'remote' && (
+              <KeyValueRows
+                label="Headers"
+                hint="HTTP headers sent with every request, for example Authorization: Bearer <token>. Turn OAuth off when authenticating with a token."
+                entries={headers}
+                onChange={setHeaders}
+                keyPlaceholder="Authorization"
+                valuePlaceholder="Bearer your-token"
+              />
             )}
 
             <div className="space-y-1.5">
@@ -327,14 +346,16 @@ export function AddMcpServerDialog({ open, onOpenChange, onUpdate }: AddMcpServe
               </p>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="enabled"
-                checked={enabled}
-                onCheckedChange={setEnabled}
-              />
-              <Label htmlFor="enabled">Connect immediately after adding</Label>
-            </div>
+            {showConnectToggle && (
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="enabled"
+                  checked={enabled}
+                  onCheckedChange={setEnabled}
+                />
+                <Label htmlFor="enabled">Connect immediately after adding</Label>
+              </div>
+            )}
           </div>
         </div>
 

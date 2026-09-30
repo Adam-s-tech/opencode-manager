@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 import type {
+  McpStatus,
   OpenCodeApi,
   SessionMessageAssistant,
   SessionMessageInfo,
@@ -12,6 +13,8 @@ export interface ScheduleApiState {
   active: Record<string, { type: 'running' }>
   skills: SkillInfo[]
   agents: string[]
+  mcp: Record<string, McpStatus>
+  mcpConnectResults: Record<string, McpStatus>
   createError?: Error
   promptError?: Error
   interruptError?: Error
@@ -32,6 +35,8 @@ export function createStubScheduleApi(state: Partial<ScheduleApiState> = {}): Sc
     active: {},
     skills: [],
     agents: ['build', 'plan'],
+    mcp: {},
+    mcpConnectResults: {},
     ...state,
   }
 
@@ -70,6 +75,18 @@ export function createStubScheduleApi(state: Partial<ScheduleApiState> = {}): Sc
     },
     agent: {
       list: vi.fn(async () => ({ location: { directory: '' }, data: resolved.agents.map((id) => ({ id, name: id })) })),
+    },
+    mcp: {
+      list: vi.fn(async () => ({
+        location: { directory: '' },
+        data: Object.entries(resolved.mcp).map(([name, status]) => ({ name, status })),
+      })),
+      add: vi.fn(async ({ server }: { server: string }) => {
+        resolved.mcp[server] = { status: 'pending' }
+      }),
+      connect: vi.fn(async ({ server }: { server: string }) => {
+        resolved.mcp[server] = resolved.mcpConnectResults[server] ?? { status: 'connected' }
+      }),
     },
   }
 

@@ -1,10 +1,12 @@
 import type { Database } from 'bun:sqlite'
 import {
   ScheduleJobSchema,
+  ScheduleMcpServersSchema,
   SchedulePermissionConfigSchema,
   ScheduleRunSchema,
   ScheduleSkillMetadataSchema,
   type ScheduleJob,
+  type ScheduleMcpServer,
   type ScheduleMode,
   type SchedulePermissionConfig,
   type ScheduleRun,
@@ -29,6 +31,7 @@ interface ScheduleJobRow {
   model: string | null
   skill_metadata: string | null
   permission_config: string | null
+  mcp_servers: string | null
   branch: string | null
   created_at: number
   updated_at: number
@@ -83,6 +86,19 @@ function parsePermissionConfig(raw: string | null): SchedulePermissionConfig | n
   }
 }
 
+function parseMcpServers(raw: string | null): ScheduleMcpServer[] {
+  if (!raw) {
+    return []
+  }
+
+  try {
+    const result = ScheduleMcpServersSchema.safeParse(JSON.parse(raw))
+    return result.success ? result.data : []
+  } catch {
+    return []
+  }
+}
+
 function rowToScheduleJob(row: ScheduleJobRow): ScheduleJob {
   return ScheduleJobSchema.parse({
     id: row.id,
@@ -99,6 +115,7 @@ function rowToScheduleJob(row: ScheduleJobRow): ScheduleJob {
     model: row.model,
     skillMetadata: parseSkillMetadata(row.skill_metadata),
     permissionConfig: parsePermissionConfig(row.permission_config),
+    mcpServers: parseMcpServers(row.mcp_servers),
     branch: row.branch,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -144,6 +161,10 @@ function serializePermissionConfig(permissionConfig: ScheduleJobPersistenceInput
   return JSON.stringify(permissionConfig)
 }
 
+function serializeMcpServers(mcpServers: ScheduleJobPersistenceInput['mcpServers']): string | null {
+  return mcpServers.length > 0 ? JSON.stringify(mcpServers) : null
+}
+
 export function listScheduleJobsByRepo(db: Database, repoId: number): ScheduleJob[] {
   const stmt = db.prepare('SELECT * FROM schedule_jobs WHERE repo_id = ? ORDER BY created_at DESC')
   const rows = stmt.all(repoId) as ScheduleJobRow[]
@@ -174,10 +195,11 @@ export function createScheduleJob(db: Database, repoId: number, input: ScheduleJ
     INSERT INTO schedule_jobs (
       repo_id, name, description, enabled, schedule_mode, interval_minutes, cron_expression, timezone, agent_slug, prompt, model, skill_metadata,
       permission_config,
+      mcp_servers,
       branch,
       created_at, updated_at, last_run_at, next_run_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   const result = stmt.run(
@@ -194,6 +216,7 @@ export function createScheduleJob(db: Database, repoId: number, input: ScheduleJ
     input.model ?? null,
     serializeSkillMetadata(input.skillMetadata),
     serializePermissionConfig(input.permissionConfig),
+    serializeMcpServers(input.mcpServers),
     input.branch,
     now,
     now,
@@ -219,7 +242,7 @@ export function updateScheduleJob(db: Database, repoId: number, jobId: number, i
   const stmt = db.prepare(`
     UPDATE schedule_jobs
     SET name = ?, description = ?, enabled = ?, schedule_mode = ?, interval_minutes = ?, cron_expression = ?, timezone = ?,
-        agent_slug = ?, prompt = ?, model = ?, skill_metadata = ?, permission_config = ?, branch = ?, updated_at = ?, next_run_at = ?
+        agent_slug = ?, prompt = ?, model = ?, skill_metadata = ?, permission_config = ?, mcp_servers = ?, branch = ?, updated_at = ?, next_run_at = ?
     WHERE repo_id = ? AND id = ?
   `)
 
@@ -236,6 +259,7 @@ export function updateScheduleJob(db: Database, repoId: number, jobId: number, i
     input.model,
     serializeSkillMetadata(input.skillMetadata),
     serializePermissionConfig(input.permissionConfig),
+    serializeMcpServers(input.mcpServers),
     input.branch,
     now,
     input.nextRunAt,

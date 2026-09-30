@@ -82,6 +82,17 @@ The **Skills** tab in the schedule dialog lets you:
 
 When the run starts, the Manager resolves the selected skill slugs against the skills available in the run's location and attaches the matching skills directly to the submitted prompt, making them available to the agent for that run only. Skill slugs that are not available in the location are omitted, and if the available skills cannot be listed the run continues without any skill attachments.
 
+## MCP Servers
+
+The **MCP** tab attaches MCP servers to a schedule. Each run starts in a fresh worktree, which OpenCode treats as a new location. MCP servers you connected by hand in the repo are not connected there, so any server a run needs has to be attached here.
+
+- **Configured MCP servers** - Choose from the servers available in the repo, including ones turned off in the OpenCode configuration. Each run connects the selected servers before it starts.
+- **Schedule-only MCP servers** - Define a local or remote server that exists only for this schedule. It is added to each run's location and never written to the OpenCode configuration. The definition is stored with the schedule, so use `{env:NAME}` or `{file:path}` placeholders instead of pasting secrets.
+
+The Manager connects every attached server before it creates the run's session. The run fails with the server name and reason if a server is not configured for the location, cannot connect, or needs OAuth authorization. Runs are unattended and cannot complete an OAuth flow, so authorize OAuth servers in **Settings > MCP Servers** before attaching them.
+
+Connections are made at the run's directory, so they do not affect other sessions. OpenCode stops a run location's MCP servers once that location has been idle for about an hour. Schedules without a worktree, such as Assistant schedules, run in the repo directory itself. There, a connection stays until OpenCode restarts, just like turning on the server in the repo's MCP dialog.
+
 ## Worktree Isolation
 
 Each scheduled run executes in a **throwaway git worktree** — an isolated working copy branched off the repository's base branch. This provides two key guarantees:

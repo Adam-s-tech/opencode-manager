@@ -1,36 +1,21 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { McpServerConfig } from '@opencode-manager/shared/opencode'
 import { AddMcpServerDialog } from './AddMcpServerDialog'
-import { makeOpenCodeConfigFile } from '@/test/fixtures/opencode-config'
-
-const {
-  mockGetOpenCodeConfig,
-  mockUpdateOpenCodeConfig,
-} = vi.hoisted(() => ({
-  mockGetOpenCodeConfig: vi.fn(),
-  mockUpdateOpenCodeConfig: vi.fn(),
-}))
-
-vi.mock('@/api/settings', () => ({
-  settingsApi: {
-    getOpenCodeConfig: mockGetOpenCodeConfig,
-    updateOpenCodeConfig: mockUpdateOpenCodeConfig,
-  },
-}))
 
 vi.mock('@/lib/toast', () => ({
   showToast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), loading: vi.fn(), warning: vi.fn(), dismiss: vi.fn() },
 }))
 
-const config = makeOpenCodeConfigFile()
+type SubmitHandler = (serverId: string, config: McpServerConfig) => Promise<void>
 
-function renderDialog(onUpdate: (content: Record<string, unknown>) => Promise<void>) {
+function renderDialog(onSubmit: SubmitHandler, showConnectToggle?: boolean) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <AddMcpServerDialog open onOpenChange={vi.fn()} onUpdate={onUpdate} />
+      <AddMcpServerDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} showConnectToggle={showConnectToggle} />
     </QueryClientProvider>,
   )
 }
@@ -43,40 +28,27 @@ describe('AddMcpServerDialog', () => {
     Element.prototype.scrollIntoView ??= () => {}
   })
 
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockGetOpenCodeConfig.mockResolvedValue(config)
-    mockUpdateOpenCodeConfig.mockResolvedValue(config)
-  })
-
-  it('issues exactly one config update through the owner callback and never writes directly', async () => {
-    const onUpdate = vi.fn<(content: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined)
+  it('submits the server ID and a local server config exactly once', async () => {
+    const onSubmit = vi.fn<SubmitHandler>().mockResolvedValue(undefined)
     const user = userEvent.setup()
-    renderDialog(onUpdate)
+    renderDialog(onSubmit)
 
     await user.type(screen.getByLabelText('Server ID'), 'filesystem')
     await user.type(screen.getByLabelText('Command'), 'npx server-filesystem /tmp')
     await user.click(screen.getByRole('button', { name: 'Add MCP Server' }))
 
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
-    expect(mockUpdateOpenCodeConfig).not.toHaveBeenCalled()
-    expect(onUpdate).toHaveBeenCalledWith({
-      mcp: {
-        servers: {
-          filesystem: {
-            type: 'local',
-            command: ['npx', 'server-filesystem', '/tmp'],
-            disabled: false,
-          },
-        },
-      },
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit).toHaveBeenCalledWith('filesystem', {
+      type: 'local',
+      command: ['npx', 'server-filesystem', '/tmp'],
+      disabled: false,
     })
   })
 
-  it('writes a remote server with V2 OAuth keys and the Manager callback', async () => {
-    const onUpdate = vi.fn<(content: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined)
+  it('submits a remote server with V2 OAuth keys and the Manager callback', async () => {
+    const onSubmit = vi.fn<SubmitHandler>().mockResolvedValue(undefined)
     const user = userEvent.setup()
-    renderDialog(onUpdate)
+    renderDialog(onSubmit)
 
     await user.type(screen.getByLabelText('Server ID'), 'remote-tools')
     await user.click(screen.getByRole('combobox'))
@@ -87,8 +59,8 @@ describe('AddMcpServerDialog', () => {
     await user.type(screen.getByLabelText('Timeout (ms)'), '9000')
     await user.click(screen.getByRole('button', { name: 'Add MCP Server' }))
 
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
-    const serverConfig = {
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit).toHaveBeenCalledWith('remote-tools', {
       type: 'remote',
       url: 'https://mcp.example.com',
       oauth: {
@@ -97,26 +69,36 @@ describe('AddMcpServerDialog', () => {
       },
       disabled: false,
       timeout: { catalog: 9000, execution: 9000 },
-    }
-    expect(onUpdate).toHaveBeenCalledWith({ mcp: { servers: { 'remote-tools': serverConfig } } })
+    })
   })
 
-  it('passes only the merged content to onUpdate', async () => {
-    const fetched = makeOpenCodeConfigFile({ revision: 'rev-B' })
-    mockGetOpenCodeConfig.mockResolvedValue(fetched)
-    const onUpdate = vi.fn<(content: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined)
+  it('submits a remote server with bearer headers and OAuth turned off', async () => {
+    const onSubmit = vi.fn<SubmitHandler>().mockResolvedValue(undefined)
     const user = userEvent.setup()
-    renderDialog(onUpdate)
+    renderDialog(onSubmit)
 
-    await user.type(screen.getByLabelText('Server ID'), 'filesystem')
-    await user.type(screen.getByLabelText('Command'), 'npx server-filesystem /tmp')
+    await user.type(screen.getByLabelText('Server ID'), 'token-tools')
+    await user.click(screen.getByRole('combobox'))
+    await user.click(screen.getByRole('option', { name: 'Remote (HTTP)' }))
+    await user.type(screen.getByLabelText('Server URL'), 'https://mcp.example.com/mcp')
+    await user.click(screen.getByRole('button', { name: 'Add Headers' }))
+    await user.type(screen.getByLabelText('Headers name 1'), 'Authorization')
+    await user.type(screen.getByLabelText('Headers value 1'), 'Bearer secret-token')
     await user.click(screen.getByRole('button', { name: 'Add MCP Server' }))
 
-    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1))
-    const [content] = onUpdate.mock.calls[0]
-    expect(onUpdate.mock.calls[0]).toHaveLength(1)
-    const mcp = content.mcp as Record<string, unknown>
-    expect(mcp.servers).toBeDefined()
-    expect(mockUpdateOpenCodeConfig).not.toHaveBeenCalled()
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit).toHaveBeenCalledWith('token-tools', {
+      type: 'remote',
+      url: 'https://mcp.example.com/mcp',
+      headers: { Authorization: 'Bearer secret-token' },
+      oauth: false,
+      disabled: false,
+    })
+  })
+
+  it('hides the connect toggle when the caller controls connection', () => {
+    renderDialog(vi.fn<SubmitHandler>(), false)
+
+    expect(screen.queryByLabelText('Connect immediately after adding')).not.toBeInTheDocument()
   })
 })

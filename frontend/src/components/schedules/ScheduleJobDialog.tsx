@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { CreateScheduleJobRequest, PromptTemplate, ScheduleJob } from '@opencode-manager/shared/types'
+import type { CreateScheduleJobRequest, PromptTemplate, ScheduleJob, ScheduleMcpServer } from '@opencode-manager/shared/types'
 import { useScheduleModels } from '@/hooks/useScheduleModels'
 import { resolveScheduleModel } from '@/lib/schedules/schedule-model'
 import { useAgents } from '@/hooks/useOpenCode'
 import { useScheduleTarget } from '@/hooks/useScheduleTarget'
 import { settingsApi } from '@/api/settings'
+import { mcpApi } from '@/api/mcp'
 import { listRepos, listBranches } from '@/api/repos'
 import type { Repo } from '@/api/types'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,7 @@ import { GeneralTab } from './GeneralTab'
 import { TimingTab } from './TimingTab'
 import { PromptTab } from './PromptTab'
 import { SkillsTab } from './SkillsTab'
+import { McpTab } from './McpTab'
 
 const EMPTY_TEMPLATES: PromptTemplate[] = []
 
@@ -65,6 +67,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
   const [skillNotes, setSkillNotes] = useState('')
   const initialSkillSlugsRef = useRef<string[] | undefined>(undefined)
   const initialSkillNotesRef = useRef<string | undefined>(undefined)
+  const [mcpServers, setMcpServers] = useState<ScheduleMcpServer[]>([])
   const [branch, setBranch] = useState('')
   const [allowExternalDirectory, setAllowExternalDirectory] = useState(false)
   const [allowQuestions, setAllowQuestions] = useState(false)
@@ -93,6 +96,12 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
     queryFn: () => settingsApi.listManagedSkills(),
     enabled: open,
     staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: mcpStatuses = {}, isLoading: mcpStatusesLoading } = useQuery({
+    queryKey: ['mcp-status', scheduleDirectory],
+    queryFn: () => mcpApi.getStatus(scheduleDirectory),
+    enabled: open && !!scheduleDirectory,
   })
 
   const { data: repos = [] } = useQuery<Repo[]>({
@@ -215,6 +224,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
     setSkillNotes(initialSkillNotes)
     initialSkillSlugsRef.current = initialSkillSlugs
     initialSkillNotesRef.current = initialSkillNotes
+    setMcpServers(job?.mcpServers ?? [])
     setBranch(job?.branch ?? '')
     setAllowExternalDirectory(job?.permissionConfig?.allowExternalDirectory ?? false)
     setAllowQuestions(job?.permissionConfig?.allowQuestions ?? false)
@@ -264,6 +274,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
       model: resolvedModel ?? undefined,
       prompt: prompt.trim(),
       branch: branch.trim() || null,
+      mcpServers,
       permissionConfig: {
         allowExternalDirectory,
         allowQuestions,
@@ -317,11 +328,12 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
 
         <Tabs defaultValue="basics" className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="border-b border-border px-3 sm:px-6 pb-3">
-            <TabsList className="grid h-9 w-full grid-cols-4 bg-card p-0.5">
+            <TabsList className="grid h-9 w-full grid-cols-5 bg-card p-0.5">
               <TabsTrigger value="basics" className="h-8 px-2 text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">General</TabsTrigger>
               <TabsTrigger value="timing" className="h-8 px-2 text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Timing</TabsTrigger>
               <TabsTrigger value="prompt" className="h-8 px-2 text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Prompt</TabsTrigger>
               <TabsTrigger value="skills" className="h-8 px-2 text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">Skills</TabsTrigger>
+              <TabsTrigger value="mcp" className="h-8 px-2 text-xs sm:text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">MCP</TabsTrigger>
             </TabsList>
           </div>
 
@@ -392,6 +404,13 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
             onSkillNotesChange={setSkillNotes}
             skills={skills}
             skillsLoading={skillsLoading}
+          />
+
+          <McpTab
+            mcpServers={mcpServers}
+            onMcpServersChange={setMcpServers}
+            availableServers={mcpStatuses}
+            availableServersLoading={mcpStatusesLoading && !!scheduleDirectory}
           />
         </Tabs>
 
