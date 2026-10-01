@@ -22,7 +22,7 @@ import { DesktopSidebar } from '@/components/navigation/DesktopSidebar'
 import { useRightEdgeSwipe, useSwipeBack } from './hooks/useMobile'
 import { useMobileTabBar } from '@/hooks/useMobileTabBar'
 import { TTSProvider } from './contexts/TTSContext'
-import { ThemeProvider } from './contexts/ThemeContext'
+import { ThemeProvider, useThemeMode } from './contexts/ThemeContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { EventProvider, usePermissions, useEventContext } from '@/contexts/EventContext'
 import { SwipeNavigationProvider, useSwipeNavigation } from '@/contexts/SwipeNavigationContext'
@@ -32,7 +32,9 @@ import { loginLoader, setupLoader, registerLoader, protectedLoader } from './lib
 import { getSwipeBackTarget } from '@/lib/navigation'
 import { onNotificationClick } from '@/lib/serviceWorker'
 import { useAuth } from '@/hooks/useAuth'
-import { useServerHealth } from '@/hooks/useServerHealth'
+import { useOpenCodeFailureToast } from '@/hooks/useOpenCodeFailureToast'
+import { useOpenCodeServerActions } from '@/hooks/useOpenCodeServerActions'
+import { RestartServerDialog } from '@/components/settings/RestartServerDialog'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,10 +57,41 @@ function SSHHostKeyDialogWrapper() {
   )
 }
 
+function ThemedToaster() {
+  const themeMode = useThemeMode()
+  return (
+    <Toaster
+      theme={themeMode ?? 'light'}
+      position="bottom-right"
+      expand={false}
+      richColors
+      closeButton
+      duration={2500}
+    />
+  )
+}
+
 function HealthMonitor() {
   const { isAuthenticated } = useAuth()
-  useServerHealth(isAuthenticated)
-  return null
+  const {
+    restartServerMutation,
+    confirmOpen,
+    setConfirmOpen,
+    activeSessionCount,
+    requestRestart,
+    confirmRestart,
+  } = useOpenCodeServerActions()
+  useOpenCodeFailureToast(isAuthenticated, requestRestart)
+  return (
+    <RestartServerDialog
+      open={confirmOpen}
+      onOpenChange={setConfirmOpen}
+      activeSessionCount={activeSessionCount}
+      isRestarting={restartServerMutation.isPending}
+      onCancel={() => setConfirmOpen(false)}
+      onConfirm={confirmRestart}
+    />
+  )
 }
 
 function PermissionDialogWrapper() {
@@ -169,13 +202,7 @@ function AppShell() {
           <HealthMonitor />
           <VersionNotifier />
           <PwaUpdatePrompt />
-          <Toaster
-            position="bottom-right"
-            expand={false}
-            richColors
-            closeButton
-            duration={2500}
-          />
+          <ThemedToaster />
         </EventProvider>
       </AuthProvider>
     </ThemeProvider>

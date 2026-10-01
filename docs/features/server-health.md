@@ -53,6 +53,14 @@ The health-watch ladder is the only automatic repair path. When the supervised O
 
 Because the ladder only runs after repeated failed health checks, a config file that fails validation but does not make the server unhealthy is left in place. Setting `OPENCODE_HEALTH_WATCH_ENABLED=false` disables the ladder entirely, leaving no automatic repair path.
 
+## Failure Reporting
+
+When startup fails without a recovery path, or every recovery action has been tried, the server enters the **failed** state:
+
+- A persistent error toast shows the failure reason, with **View logs** (opens Settings → Logs) and **Restart** actions. It appears once per distinct failure, including when the app is opened while the server is already failed, and is replaced by a "back online" notice once the server is healthy again. Transient unhealthy or recovering states do not toast.
+- The Settings → Logs tab shows the failure reason and the recovery actions already attempted above the log stream.
+- A server process that exits or cannot be launched (for example, a missing executable) fails startup immediately with its exit code and the tail of its stderr, rather than waiting for the 30-second health timeout.
+
 The last known good config is a snapshot of every recognized source file (including which ones exist), captured before every write made through the Settings UI, the internal API, or a host config import, so any of those can be undone with `POST /api/settings/opencode-rollback` or by the ladder. Restoring a snapshot rewrites the sources it contains and removes recognized sources it does not. Archived broken configs and debug snapshots are kept under `.opencode/state/health-watch/` in the workspace, pruned to the newest 20 files.
 
 Earlier releases stored named configuration profiles in the Manager database. On first start after upgrading, each profile is archived to `.config/opencode-configs-archive/<name>.json` in the workspace, the default profile is restored to `opencode.json` if that file does not exist yet, and the database table is dropped.

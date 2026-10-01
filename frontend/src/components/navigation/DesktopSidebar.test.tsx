@@ -47,7 +47,7 @@ function createWrapper(initialEntries?: string[]) {
 describe('DesktopSidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'sessions', toggleSection: vi.fn() })
+    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ isSectionOpen: () => true, toggleSection: vi.fn() })
   })
 
   it('returns null when user is not authenticated', () => {
@@ -189,7 +189,6 @@ describe('DesktopSidebar', () => {
   it('opens dialog items by updating the dialog query param (push) and closes on back', () => {
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'menu', toggleSection: vi.fn() })
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -238,7 +237,6 @@ describe('DesktopSidebar', () => {
   it('preserves session route as return target when opening schedules', () => {
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'menu', toggleSection: vi.fn() })
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -258,7 +256,7 @@ describe('DesktopSidebar', () => {
     expect(screen.getByTestId('location').textContent).toBe('/repos/5/schedules?returnTo=%2Frepos%2F5%2Fsessions%2Fabc%3Fassistant%3D1')
   })
 
-  it('renders the session tree and account footer when the sessions section is open', () => {
+  it('renders both collapsible sections open by default with the account footer', () => {
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
@@ -270,24 +268,6 @@ describe('DesktopSidebar', () => {
     render(<DesktopSidebar />, { wrapper: createWrapper(['/repos/5']) })
 
     expect(screen.getByTestId('session-tree')).toBeInTheDocument()
-    expect(screen.queryByText('Files')).toBeNull()
-    expect(screen.getByText('Settings')).toBeInTheDocument()
-    expect(screen.getByText('Logout')).toBeInTheDocument()
-  })
-
-  it('renders the menu items and account footer when the menu section is open', () => {
-    vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
-    vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'menu', toggleSection: vi.fn() })
-    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    } as any)
-
-    render(<DesktopSidebar />, { wrapper: createWrapper(['/repos/5']) })
-
-    expect(screen.queryByTestId('session-tree')).toBeNull()
     expect(screen.getByText('Files')).toBeInTheDocument()
     expect(screen.getByText('Settings')).toBeInTheDocument()
     expect(screen.getByText('Logout')).toBeInTheDocument()
@@ -309,10 +289,13 @@ describe('DesktopSidebar', () => {
     expect(screen.getByText('Settings')).toBeInTheDocument()
   })
 
-  it('hides the session tree when the menu section is open', () => {
+  it('hides the session tree when the sessions section is collapsed', () => {
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'menu', toggleSection: vi.fn() })
+    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({
+      isSectionOpen: (section) => section !== 'sessions',
+      toggleSection: vi.fn(),
+    })
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -325,10 +308,13 @@ describe('DesktopSidebar', () => {
     expect(screen.getByText('Files')).toBeInTheDocument()
   })
 
-  it('hides the menu items when the sessions section is open', () => {
+  it('hides the menu items when the menu section is collapsed', () => {
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'sessions', toggleSection: vi.fn() })
+    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({
+      isSectionOpen: (section) => section !== 'menu',
+      toggleSection: vi.fn(),
+    })
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -346,7 +332,7 @@ describe('DesktopSidebar', () => {
     const toggle = vi.fn()
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'sessions', toggleSection: toggle })
+    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ isSectionOpen: () => true, toggleSection: toggle })
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       isAuthenticated: true,
       isLoading: false,
@@ -363,7 +349,7 @@ describe('DesktopSidebar', () => {
     const toggle = vi.fn()
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ openSection: 'sessions', toggleSection: toggle })
+    vi.mocked(useSidebarCollapsedModule.useSidebarSections).mockReturnValue({ isSectionOpen: () => true, toggleSection: toggle })
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       isAuthenticated: true,
       isLoading: false,

@@ -4,28 +4,12 @@ import { ENV } from '@opencode-manager/shared/config/env'
 import { archiveBrokenOpenCodeConfigFile, writeHealthWatchArtifact } from './opencode-config-file'
 import { restoreLastKnownGoodOpenCodeConfig, seedOpenCodeConfigFile } from './opencode-config-apply'
 import type { OpenCodeServerManager } from './opencode-single-server'
-
-export const OPENCODE_LIFECYCLE_STATES = [
-  'idle',
-  'starting',
-  'healthy',
-  'unhealthy',
-  'recovering',
-  'failed',
-  'stopping',
-  'stopped',
-] as const
-
-export type OpenCodeLifecycleState = (typeof OPENCODE_LIFECYCLE_STATES)[number]
-
-export const OPENCODE_RECOVERY_ACTIONS = [
-  'restart',
-  'debug_capture',
-  'rollback_last_known_good',
-  'seed_default_config',
-] as const
-
-export type OpenCodeRecoveryAction = (typeof OPENCODE_RECOVERY_ACTIONS)[number]
+import {
+  OPENCODE_RECOVERY_ACTIONS,
+  type OpenCodeLifecycleState,
+  type OpenCodeLifecycleStatus,
+  type OpenCodeRecoveryAction,
+} from '@opencode-manager/shared/opencode'
 
 const MAX_QUEUED_LIFECYCLE_OPERATIONS = 2
 
@@ -35,22 +19,6 @@ export type OpenCodeOperationReason =
   | 'settings_restart'
   | 'settings_reload'
   | 'manual'
-
-export interface OpenCodeLifecycleStatus {
-  state: OpenCodeLifecycleState
-  healthy: boolean
-  port: number
-  version: string | null
-  minVersion: string
-  versionSupported: boolean
-  lastError: string | null
-  activeRecoveryAction: OpenCodeRecoveryAction | null
-  attemptedRecoveryActions: OpenCodeRecoveryAction[]
-  nextRecoveryAction: OpenCodeRecoveryAction | null
-  failureCount: number
-  watching: boolean
-  updatedAt: string
-}
 
 interface OpenCodeSupervisorOptions {
   pollIntervalMs?: number
@@ -267,6 +235,7 @@ export class OpenCodeSupervisor {
     }
 
     this.activeRecoveryAction = null
+    logger.error(`OpenCode server failed after recovery actions [${this.attemptedRecoveryActions.join(', ')}]: ${this.lastError ?? 'unknown error'}`)
     this.setState('failed')
     this.openCodeServerManager.setLifecycleInitialized(false)
     return this.getStatus()

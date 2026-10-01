@@ -24,7 +24,7 @@ export function DesktopSidebar() {
   const navigate = useNavigate()
   const { updateParams } = useUrlParams()
   const [collapsed, toggle] = useSidebarCollapsed()
-  const { openSection, toggleSection } = useSidebarSections(['sessions', 'menu'] as const, 'sessions')
+  const { isSectionOpen, toggleSection } = useSidebarSections(['sessions', 'menu'] as const)
   const [repoSwitcherOpen, setRepoSwitcherOpen] = useState(false)
   const { isAuthenticated, isLoading, logout } = useAuth()
 
@@ -118,7 +118,7 @@ export function DesktopSidebar() {
           <>
             <SidebarCollapsibleSection
               label="Sessions"
-              collapsed={openSection !== 'sessions'}
+              collapsed={!isSectionOpen('sessions')}
               onToggle={() => toggleSection('sessions')}
               className="border-t border-border"
             >
@@ -127,7 +127,7 @@ export function DesktopSidebar() {
 
             <SidebarCollapsibleSection
               label="Menu"
-              collapsed={openSection !== 'menu'}
+              collapsed={!isSectionOpen('menu')}
               onToggle={() => toggleSection('menu')}
               className="flex-1 min-h-fit border-t border-border"
               contentClassName="overflow-y-auto"

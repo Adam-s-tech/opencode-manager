@@ -3,9 +3,18 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LogsViewer } from './LogsViewer'
 import { useManagerLogs } from '@/hooks/useManagerLogs'
+import { useServerHealth, type HealthResponse } from '@/hooks/useServerHealth'
 import type { ManagerLogEntry } from '@opencode-manager/shared/schemas'
 
 vi.mock('@/hooks/useManagerLogs')
+vi.mock('@/hooks/useServerHealth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useServerHealth')>()),
+  useServerHealth: vi.fn(),
+}))
+
+function mockHealth(health: Partial<HealthResponse> | undefined) {
+  vi.mocked(useServerHealth).mockReturnValue({ data: health } as ReturnType<typeof useServerHealth>)
+}
 
 const entries: ManagerLogEntry[] = [
   {
@@ -39,6 +48,47 @@ describe('LogsViewer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockLogs()
+    mockHealth({ opencode: 'healthy', status: 'healthy' })
+  })
+
+  it('does not render a server issue panel while OpenCode is healthy', () => {
+    render(<LogsViewer />)
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('renders the startup failure, attempted recovery and an errors-only shortcut', async () => {
+    const user = userEvent.setup()
+    mockHealth({
+      opencode: 'unhealthy',
+      status: 'unhealthy',
+      opencodeLifecycle: {
+        state: 'failed',
+        healthy: false,
+        port: 5551,
+        version: null,
+        minVersion: '2.0.15',
+        versionSupported: false,
+        lastError: 'OpenCode server exited with code 1: invalid config',
+        activeRecoveryAction: null,
+        attemptedRecoveryActions: ['restart', 'rollback_last_known_good'],
+        nextRecoveryAction: null,
+        failureCount: 3,
+        watching: true,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    })
+    render(<LogsViewer />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('OpenCode server failed')
+    expect(alert).toHaveTextContent('OpenCode server exited with code 1: invalid config')
+    expect(alert).toHaveTextContent('Recovery attempted: restart, rollback last known good')
+
+    await user.click(screen.getByRole('button', { name: 'Show errors only' }))
+
+    expect(vi.mocked(useManagerLogs).mock.lastCall?.[0]).toMatchObject({ level: 'error', source: undefined })
+    expect(screen.queryByRole('button', { name: 'Show errors only' })).not.toBeInTheDocument()
   })
 
   it('renders entries with their message, level and source', () => {

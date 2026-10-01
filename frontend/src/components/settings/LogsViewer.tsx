@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pause, Play, Trash2 } from 'lucide-react'
+import { AlertTriangle, Pause, Play, Trash2 } from 'lucide-react'
 import type { ManagerLogLevel, ManagerLogSource } from '@opencode-manager/shared/schemas'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/copy-button'
 import { useManagerLogs } from '@/hooks/useManagerLogs'
+import { getOpenCodeServerIssue, useServerHealth, type OpenCodeServerIssue } from '@/hooks/useServerHealth'
 import { DEFAULTS } from '@/config'
 import { cn } from '@/lib/utils'
+
+const ISSUE_TITLES: Record<OpenCodeServerIssue['state'], string> = {
+  failed: 'OpenCode server failed',
+  recovering: 'OpenCode server is recovering',
+  unhealthy: 'OpenCode server is unhealthy',
+}
 
 type LevelFilter = ManagerLogLevel | 'all'
 type SourceFilter = ManagerLogSource | 'all'
@@ -45,6 +53,8 @@ export function LogsViewer() {
   const [paused, setPaused] = useState(false)
   const [isFollowing, setIsFollowing] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const { data: health } = useServerHealth()
+  const serverIssue = getOpenCodeServerIssue(health)
 
   const { entries, dropped, clear } = useManagerLogs({
     level: level === 'all' ? undefined : level,
@@ -122,6 +132,32 @@ export function LogsViewer() {
             <CopyButton content={copyContent} title="Copy log entries" variant="ghost" />
           </div>
         </div>
+        {serverIssue && (
+          <Alert variant={serverIssue.state === 'failed' ? 'destructive' : 'default'} className="shrink-0">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>{ISSUE_TITLES[serverIssue.state]}</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs">{serverIssue.message}</p>
+              {serverIssue.attemptedRecoveryActions.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Recovery attempted: {serverIssue.attemptedRecoveryActions.map((action) => action.replaceAll('_', ' ')).join(', ')}
+                </p>
+              )}
+              {(level !== 'error' || source !== 'all') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setLevel('error')
+                    setSource('all')
+                  }}
+                >
+                  Show errors only
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
         <div
           ref={scrollRef}
           onScroll={handleScroll}

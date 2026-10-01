@@ -97,13 +97,6 @@ export const settingsApi = {
     return fetchWrapper(`${API_BASE_URL}/api/settings/opencode-active-sessions`)
   },
 
-  rollbackOpenCodeConfig: async (): Promise<{ success: boolean; message: string; fallback?: boolean }> => {
-    return fetchWrapper(`${API_BASE_URL}/api/settings/opencode-rollback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    })
-  },
-
   getOpenCodeImportStatus: async (): Promise<OpenCodeImportStatus> => {
     return fetchWrapper(`${API_BASE_URL}/api/settings/opencode-import/status`)
   },

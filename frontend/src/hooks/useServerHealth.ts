@@ -1,11 +1,8 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef } from 'react'
-import { toast } from 'sonner'
-import { settingsApi } from '@/api/settings'
-import { invalidateConfigCaches, invalidateSettingsCaches } from '@/lib/queryInvalidation'
+import { useQuery } from '@tanstack/react-query'
+import type { OpenCodeLifecycleStatus, OpenCodeRecoveryAction } from '@opencode-manager/shared/opencode'
 import { fetchWrapper } from '@/api/fetchWrapper'
 
-interface HealthResponse {
+export interface HealthResponse {
   status: 'healthy' | 'degraded' | 'unhealthy'
   timestamp: string
   database: 'connected' | 'disconnected'
@@ -16,51 +13,49 @@ interface HealthResponse {
   opencodeVersionSupported: boolean
   opencodeManagerVersion: string | null
   opencodeRestartPending?: boolean
+  opencodeLifecycle?: OpenCodeLifecycleStatus
   sandbox?: { available: boolean; enabled: boolean; enforced: boolean; reason?: string; msbVersion?: string }
   error?: string
 }
 
+export interface OpenCodeServerIssue {
+  state: 'failed' | 'recovering' | 'unhealthy'
+  message: string
+  attemptedRecoveryActions: OpenCodeRecoveryAction[]
+}
+
+const DEFAULT_ISSUE_MESSAGE = 'OpenCode server is not responding'
+
 async function fetchHealth(): Promise<HealthResponse> {
-  return fetchWrapper<HealthResponse>('/api/health')
+  return fetchWrapper<HealthResponse>('/api/health', { acceptedStatuses: [503] })
+}
+
+/**
+ * Derives the current OpenCode server problem from a health payload, preferring
+ * the supervisor lifecycle (which distinguishes in-progress recovery from a
+ * terminal failure) and falling back to the raw health probe.
+ */
+export function getOpenCodeServerIssue(health: HealthResponse | undefined): OpenCodeServerIssue | null {
+  if (!health) return null
+  const lifecycle = health.opencodeLifecycle
+  if (lifecycle) {
+    if (lifecycle.state !== 'failed' && lifecycle.state !== 'recovering' && lifecycle.state !== 'unhealthy') return null
+    return {
+      state: lifecycle.state,
+      message: lifecycle.lastError ?? health.error ?? DEFAULT_ISSUE_MESSAGE,
+      attemptedRecoveryActions: lifecycle.attemptedRecoveryActions,
+    }
+  }
+  if (health.opencode === 'healthy') return null
+  return {
+    state: health.status === 'unhealthy' ? 'failed' : 'unhealthy',
+    message: health.error ?? DEFAULT_ISSUE_MESSAGE,
+    attemptedRecoveryActions: [],
+  }
 }
 
 export function useServerHealth(enabled = true) {
-  const queryClient = useQueryClient()
-  const lastHealthStatusRef = useRef<'healthy' | 'unhealthy'>('healthy')
-  const prevHealthRef = useRef<string | null>(null)
-
-  const restartMutation = useMutation({
-    mutationFn: async () => {
-      return await settingsApi.restartOpenCodeServer()
-    },
-    onSuccess: () => {
-      invalidateConfigCaches(queryClient)
-      toast.success('OpenCode server restarted', { id: 'reload-config' })
-    },
-    onError: (error: unknown) => {
-      const errorMessage = error && typeof error === 'object' && 'response' in error
-        ? ((error as { response?: { data?: { details?: string; error?: string } } }).response?.data?.details
-           || (error as { response?: { data?: { details?: string; error?: string } } }).response?.data?.error
-           || 'Failed to restart OpenCode server')
-        : 'Failed to restart OpenCode server'
-      toast.error(errorMessage, { id: 'reload-config' })
-    },
-  })
-
-  const rollbackMutation = useMutation({
-    mutationFn: async () => {
-      return await settingsApi.rollbackOpenCodeConfig()
-    },
-    onSuccess: (data) => {
-      invalidateSettingsCaches(queryClient)
-      toast.success(data.message, { id: 'rollback-config' })
-    },
-    onError: () => {
-      toast.error('Failed to rollback to previous config', { id: 'rollback-config' })
-    },
-  })
-
-  const query = useQuery<HealthResponse>({
+  return useQuery<HealthResponse>({
     queryKey: ['health'],
     queryFn: fetchHealth,
     refetchInterval: 30000,
@@ -68,39 +63,4 @@ export function useServerHealth(enabled = true) {
     enabled,
     staleTime: 10000,
   })
-
-  const { data: health } = query
-
-  useEffect(() => {
-    if (!health) return
-
-    const isUnhealthy = health.opencode !== 'healthy'
-    const currentStatus = isUnhealthy ? 'unhealthy' : 'healthy'
-    const previousStatus = lastHealthStatusRef.current
-    const prevHealth = prevHealthRef.current
-
-    if (prevHealth && currentStatus !== prevHealth) {
-      if (isUnhealthy && previousStatus === 'healthy') {
-        toast.error(health.error || 'OpenCode server is currently unhealthy', {
-          id: 'server-health-unhealthy',
-          duration: Infinity,
-          action: {
-            label: 'Restart',
-            onClick: () => restartMutation.mutate(),
-          },
-        })
-      } else if (!isUnhealthy && previousStatus === 'unhealthy') {
-        toast.success('Server is back online', { id: 'server-health-online' })
-      }
-    }
-
-    lastHealthStatusRef.current = currentStatus
-    prevHealthRef.current = currentStatus
-  }, [health, restartMutation])
-
-  return {
-    ...query,
-    restartMutation,
-    rollbackMutation,
-  }
 }
