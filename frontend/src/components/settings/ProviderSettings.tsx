@@ -368,7 +368,7 @@ export function ProviderSettings() {
                 />
               </div>
 
-              <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-thin pt-4 pb-1 pr-1 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
+              <div className="space-y-2 max-h-96 overflow-y-auto pt-4 pb-1 pr-1 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
                 {filteredAvailableProviders.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-2">
                     {availableSearch ? 'No providers match your search.' : 'No available providers.'}
