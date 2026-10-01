@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 
 const STORAGE_KEY = 'oc:sidebar:collapsed'
-const SECTION_STORAGE_KEY = `${STORAGE_KEY}:section`
+const CLOSED_SECTIONS_STORAGE_KEY = `${STORAGE_KEY}:closed-sections`
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {
   if (typeof window === 'undefined') {
@@ -35,21 +35,23 @@ function usePersistentBoolean(key: string, fallback: boolean): [boolean, () => v
   return [value, toggle]
 }
 
-function readStoredSection<T extends string>(sections: readonly T[], fallback: T | null): T | null {
+function readStoredClosedSections<T extends string>(sections: readonly T[]): T[] {
   if (typeof window === 'undefined') {
-    return fallback
+    return []
   }
-  const stored = localStorage.getItem(SECTION_STORAGE_KEY)
+  const stored = localStorage.getItem(CLOSED_SECTIONS_STORAGE_KEY)
   if (stored === null) {
-    return fallback
+    return []
   }
   try {
     const parsed = JSON.parse(stored)
-    return typeof parsed === 'string' && (sections as readonly string[]).includes(parsed)
-      ? (parsed as T)
-      : fallback
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    const known = new Set<string>(sections)
+    return parsed.filter((value): value is T => typeof value === 'string' && known.has(value))
   } catch {
-    return fallback
+    return []
   }
 }
 
@@ -59,19 +61,25 @@ export function useSidebarCollapsed(): [boolean, () => void] {
 
 export function useSidebarSections<T extends string>(
   sections: readonly T[],
-  defaultSection: T | null = null,
-): { openSection: T | null; toggleSection: (section: T) => void } {
-  const [openSection, setOpenSection] = useState<T | null>(() => readStoredSection(sections, defaultSection))
+): { isSectionOpen: (section: T) => boolean; toggleSection: (section: T) => void } {
+  const [closedSections, setClosedSections] = useState<T[]>(() => readStoredClosedSections(sections))
 
   const toggleSection = useCallback((section: T) => {
-    setOpenSection((prev) => {
-      const next = prev === section ? null : section
+    setClosedSections((prev) => {
+      const next = prev.includes(section)
+        ? prev.filter((item) => item !== section)
+        : [...prev, section]
       if (typeof window !== 'undefined') {
-        localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(next))
+        localStorage.setItem(CLOSED_SECTIONS_STORAGE_KEY, JSON.stringify(next))
       }
       return next
     })
   }, [])
 
-  return { openSection, toggleSection }
+  const isSectionOpen = useCallback(
+    (section: T) => !closedSections.includes(section),
+    [closedSections],
+  )
+
+  return { isSectionOpen, toggleSection }
 }

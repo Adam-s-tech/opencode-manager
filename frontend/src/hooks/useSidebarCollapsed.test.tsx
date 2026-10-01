@@ -78,55 +78,97 @@ describe('sidebar collapse hooks', () => {
   describe('useSidebarSections', () => {
     const sections = ['sessions', 'menu'] as const
 
-    it('opens the default section when no stored value', () => {
+    it('opens every section by default when no stored value', () => {
       localStorageMock.getItem.mockReturnValue(null)
 
-      const { result } = renderHook(() => useSidebarSections(sections, 'sessions'))
+      const { result } = renderHook(() => useSidebarSections(sections))
 
-      expect(result.current.openSection).toBe('sessions')
+      expect(result.current.isSectionOpen('sessions')).toBe(true)
+      expect(result.current.isSectionOpen('menu')).toBe(true)
     })
 
-    it('restores the stored open section', () => {
+    it('restores closed sections from storage', () => {
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(['sessions']))
+
+      const { result } = renderHook(() => useSidebarSections(sections))
+
+      expect(localStorageMock.getItem).toHaveBeenCalledWith('oc:sidebar:collapsed:closed-sections')
+      expect(result.current.isSectionOpen('sessions')).toBe(false)
+      expect(result.current.isSectionOpen('menu')).toBe(true)
+    })
+
+    it('ignores unknown sections from storage', () => {
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(['sessions', 'other']))
+
+      const { result } = renderHook(() => useSidebarSections(sections))
+
+      expect(result.current.isSectionOpen('sessions')).toBe(false)
+      expect(result.current.isSectionOpen('menu')).toBe(true)
+    })
+
+    it('opens every section when the stored value is malformed JSON', () => {
+      localStorageMock.getItem.mockReturnValue('not-json{{')
+
+      const { result } = renderHook(() => useSidebarSections(sections))
+
+      expect(result.current.isSectionOpen('sessions')).toBe(true)
+      expect(result.current.isSectionOpen('menu')).toBe(true)
+    })
+
+    it('opens every section when the stored value is not an array', () => {
       localStorageMock.getItem.mockReturnValue(JSON.stringify('menu'))
 
-      const { result } = renderHook(() => useSidebarSections(sections, 'sessions'))
+      const { result } = renderHook(() => useSidebarSections(sections))
 
-      expect(localStorageMock.getItem).toHaveBeenCalledWith('oc:sidebar:collapsed:section')
-      expect(result.current.openSection).toBe('menu')
+      expect(result.current.isSectionOpen('sessions')).toBe(true)
+      expect(result.current.isSectionOpen('menu')).toBe(true)
     })
 
-    it('falls back to the default when the stored section is unknown', () => {
-      localStorageMock.getItem.mockReturnValue(JSON.stringify('other'))
-
-      const { result } = renderHook(() => useSidebarSections(sections, 'sessions'))
-
-      expect(result.current.openSection).toBe('sessions')
-    })
-
-    it('opens a section and persists it, closing the other', () => {
+    it('closes a section and persists it without affecting the others', () => {
       localStorageMock.getItem.mockReturnValue(null)
 
-      const { result } = renderHook(() => useSidebarSections(sections, 'sessions'))
-
-      act(() => {
-        result.current.toggleSection('menu')
-      })
-
-      expect(result.current.openSection).toBe('menu')
-      expect(localStorageMock.setItem).toHaveBeenCalledWith('oc:sidebar:collapsed:section', JSON.stringify('menu'))
-    })
-
-    it('closes the open section when toggled again', () => {
-      localStorageMock.getItem.mockReturnValue(null)
-
-      const { result } = renderHook(() => useSidebarSections(sections, 'sessions'))
+      const { result } = renderHook(() => useSidebarSections(sections))
 
       act(() => {
         result.current.toggleSection('sessions')
       })
 
-      expect(result.current.openSection).toBeNull()
-      expect(localStorageMock.setItem).toHaveBeenCalledWith('oc:sidebar:collapsed:section', JSON.stringify(null))
+      expect(result.current.isSectionOpen('sessions')).toBe(false)
+      expect(result.current.isSectionOpen('menu')).toBe(true)
+      expect(localStorageMock.setItem).toHaveBeenCalledWith(
+        'oc:sidebar:collapsed:closed-sections',
+        JSON.stringify(['sessions']),
+      )
+    })
+
+    it('reopens a closed section when toggled again', () => {
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(['sessions']))
+
+      const { result } = renderHook(() => useSidebarSections(sections))
+
+      act(() => {
+        result.current.toggleSection('sessions')
+      })
+
+      expect(result.current.isSectionOpen('sessions')).toBe(true)
+      expect(localStorageMock.setItem).toHaveBeenCalledWith(
+        'oc:sidebar:collapsed:closed-sections',
+        JSON.stringify([]),
+      )
+    })
+
+    it('tracks each section independently', () => {
+      localStorageMock.getItem.mockReturnValue(null)
+
+      const { result } = renderHook(() => useSidebarSections(sections))
+
+      act(() => {
+        result.current.toggleSection('sessions')
+        result.current.toggleSection('menu')
+      })
+
+      expect(result.current.isSectionOpen('sessions')).toBe(false)
+      expect(result.current.isSectionOpen('menu')).toBe(false)
     })
   })
 })

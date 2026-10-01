@@ -517,3 +517,23 @@ input:-webkit-autofill:active {
 .animate-progress {
   animation: progress 2s ease-in-out infinite;
 }
+
+:root [data-sonner-toaster][data-sonner-theme] {
+  --normal-bg: var(--color-popover);
+  --normal-bg-hover: var(--color-accent);
+  --normal-border: var(--color-border);
+  --normal-border-hover: var(--color-border);
+  --normal-text: var(--color-foreground);
+  --success-bg: var(--color-popover);
+  --success-border: var(--color-success);
+  --success-text: var(--color-success);
+  --info-bg: var(--color-popover);
+  --info-border: var(--color-info);
+  --info-text: var(--color-info);
+  --warning-bg: var(--color-popover);
+  --warning-border: var(--color-warning);
+  --warning-text: var(--color-warning);
+  --error-bg: var(--color-popover);
+  --error-border: var(--color-destructive);
+  --error-text: var(--color-destructive);
+}

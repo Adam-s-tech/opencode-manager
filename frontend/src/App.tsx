@@ -22,7 +22,7 @@ import { DesktopSidebar } from '@/components/navigation/DesktopSidebar'
 import { useRightEdgeSwipe, useSwipeBack } from './hooks/useMobile'
 import { useMobileTabBar } from '@/hooks/useMobileTabBar'
 import { TTSProvider } from './contexts/TTSContext'
-import { ThemeProvider } from './contexts/ThemeContext'
+import { ThemeProvider, useThemeMode } from './contexts/ThemeContext'
 import { AuthProvider } from './contexts/AuthContext'
 import { EventProvider, usePermissions, useEventContext } from '@/contexts/EventContext'
 import { SwipeNavigationProvider, useSwipeNavigation } from '@/contexts/SwipeNavigationContext'
@@ -53,6 +53,20 @@ function SSHHostKeyDialogWrapper() {
       onRespond={async (requestId, response) => {
         await sshHostKey.respond(requestId, response === 'accept')
       }}
+    />
+  )
+}
+
+function ThemedToaster() {
+  const themeMode = useThemeMode()
+  return (
+    <Toaster
+      theme={themeMode ?? 'light'}
+      position="bottom-right"
+      expand={false}
+      richColors
+      closeButton
+      duration={2500}
     />
   )
 }
@@ -188,13 +202,7 @@ function AppShell() {
           <HealthMonitor />
           <VersionNotifier />
           <PwaUpdatePrompt />
-          <Toaster
-            position="bottom-right"
-            expand={false}
-            richColors
-            closeButton
-            duration={2500}
-          />
+          <ThemedToaster />
         </EventProvider>
       </AuthProvider>
     </ThemeProvider>
