@@ -28,11 +28,15 @@ Each entry shows a timestamp, severity level, source, and message:
 
 If entries were evicted before you opened the tab, a notice above the view reports how many earlier entries were dropped.
 
+## OpenCode Server Issues
+
+While the OpenCode server is unhealthy, recovering, or failed, a panel above the log stream shows the current failure reason (including the server's exit code and stderr tail when it crashed during startup) and the recovery actions already attempted. **Show errors only** switches the filters to errors from all sources, so the Manager's startup messages appear alongside the server's own output.
+
 ## Limits and Behavior
 
 - The buffer is **in-memory** on the Manager backend and holds up to **2,000** entries (`DEFAULTS.LOGS.BUFFER_CAPACITY`). Older entries are evicted first.
 - Individual entries are truncated at **4,000** characters (`DEFAULTS.LOGS.MAX_ENTRY_LENGTH`).
 - The buffer is **cleared when the Manager process restarts**. When the frontend detects a backend restart it resets its view and re-polls from the start.
-- **Child-process capture is production-only.** In development the OpenCode server inherits the terminal, so only Manager lines appear in the tab.
+- OpenCode server stdout and stderr are captured in every mode; in development they are also mirrored to the terminal.
 - The frontend polls the backend every **3 seconds** (`DEFAULTS.LOGS.POLL_INTERVAL_MS`); backend pages are capped at 1,000 entries per response.
 - `docker-compose logs` remains the fallback for failures that happen **before** the Manager's HTTP server is up — nothing can be captured in-app at that point.

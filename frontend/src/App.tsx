@@ -32,7 +32,9 @@ import { loginLoader, setupLoader, registerLoader, protectedLoader } from './lib
 import { getSwipeBackTarget } from '@/lib/navigation'
 import { onNotificationClick } from '@/lib/serviceWorker'
 import { useAuth } from '@/hooks/useAuth'
-import { useServerHealth } from '@/hooks/useServerHealth'
+import { useOpenCodeFailureToast } from '@/hooks/useOpenCodeFailureToast'
+import { useOpenCodeServerActions } from '@/hooks/useOpenCodeServerActions'
+import { RestartServerDialog } from '@/components/settings/RestartServerDialog'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,8 +59,25 @@ function SSHHostKeyDialogWrapper() {
 
 function HealthMonitor() {
   const { isAuthenticated } = useAuth()
-  useServerHealth(isAuthenticated)
-  return null
+  const {
+    restartServerMutation,
+    confirmOpen,
+    setConfirmOpen,
+    activeSessionCount,
+    requestRestart,
+    confirmRestart,
+  } = useOpenCodeServerActions()
+  useOpenCodeFailureToast(isAuthenticated, requestRestart)
+  return (
+    <RestartServerDialog
+      open={confirmOpen}
+      onOpenChange={setConfirmOpen}
+      activeSessionCount={activeSessionCount}
+      isRestarting={restartServerMutation.isPending}
+      onCancel={() => setConfirmOpen(false)}
+      onConfirm={confirmRestart}
+    />
+  )
 }
 
 function PermissionDialogWrapper() {

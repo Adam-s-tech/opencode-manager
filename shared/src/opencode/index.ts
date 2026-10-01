@@ -79,6 +79,10 @@ export {
   parseOpenCodeVersionOutput,
 } from './release'
 
+export { OPENCODE_LIFECYCLE_STATES, OPENCODE_RECOVERY_ACTIONS } from './lifecycle'
+
+export type { OpenCodeLifecycleState, OpenCodeLifecycleStatus, OpenCodeRecoveryAction } from './lifecycle'
+
 export const OPENCODE_SERVER_USERNAME = 'opencode'
 
 export type OpenCodeApi = ReturnType<typeof OpenCode.make>

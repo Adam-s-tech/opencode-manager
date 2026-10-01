@@ -606,8 +606,7 @@ class OpenCodeServerManager {
       await prepareOpenCodeServiceLaunch(serverEnv, password)
     } catch (error) {
       const message = `Failed to prepare the OpenCode service settings: ${error instanceof Error ? error.message : String(error)}`
-      this.lastStartupError = message
-      logger.error(message)
+      this.recordStartupError(message)
       throw new Error(message)
     }
 
@@ -617,7 +616,7 @@ class OpenCodeServerManager {
       {
         cwd: openCodeServerDirectory,
         detached: !isDevelopment,
-        stdio: isDevelopment ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: serverEnv,
       }
     )
@@ -625,36 +624,46 @@ class OpenCodeServerManager {
     const openCodeStdoutLog = createProcessLogForwarder({ source: 'opencode', defaultLevel: 'info' })
     const openCodeStderrLog = createProcessLogForwarder({ source: 'opencode', defaultLevel: 'error' })
 
-    if (!isDevelopment && this.serverProcess.stderr) {
-      this.serverProcess.stderr.on('data', (data) => {
-        const text = data.toString()
-        stderrOutput += text
-        if (stderrOutput.length > MAX_STDERR_SIZE) {
-          stderrOutput = stderrOutput.slice(-MAX_STDERR_SIZE)
-        }
-        openCodeStderrLog.write(data)
-      })
-      this.serverProcess.stderr.on('end', () => openCodeStderrLog.flush())
+    this.serverProcess.stderr?.on('data', (data) => {
+      if (isDevelopment) process.stderr.write(data)
+      stderrOutput += data.toString()
+      if (stderrOutput.length > MAX_STDERR_SIZE) {
+        stderrOutput = stderrOutput.slice(-MAX_STDERR_SIZE)
+      }
+      openCodeStderrLog.write(data)
+    })
+    this.serverProcess.stderr?.on('end', () => openCodeStderrLog.flush())
+
+    this.serverProcess.stdout?.on('data', (data) => {
+      if (isDevelopment) process.stdout.write(data)
+      openCodeStdoutLog.write(data)
+    })
+    this.serverProcess.stdout?.on('end', () => openCodeStdoutLog.flush())
+
+    let spawnedProcessExitError: string | null = null
+    const recordSpawnedProcessExit = (message: string) => {
+      spawnedProcessExitError = message
+      this.recordStartupError(message)
     }
 
-    if (!isDevelopment && this.serverProcess.stdout) {
-      this.serverProcess.stdout.on('data', (data) => openCodeStdoutLog.write(data))
-      this.serverProcess.stdout.on('end', () => openCodeStdoutLog.flush())
-    }
+    this.serverProcess.on('error', (error) => {
+      recordSpawnedProcessExit(`Failed to launch the OpenCode server (${openCodeExecutable}): ${error.message}`)
+    })
 
     const spawnedServerPid = this.serverProcess.pid
     this.serverProcess.on('exit', (code, signal) => {
+      const exitedBeforeHealthy = !this.isHealthy
       if (spawnedServerPid !== undefined && this.serverPid === spawnedServerPid) {
         this.serverPid = null
         this.isHealthy = false
         this.stopChildStateMarkerRefresh()
       }
       if (code !== null && code !== 0) {
-        this.lastStartupError = `Server exited with code ${code}${stderrOutput ? `: ${stderrOutput.slice(-500)}` : ''}`
-        logger.error('OpenCode server process exited:', this.lastStartupError)
+        recordSpawnedProcessExit(`OpenCode server exited with code ${code}${stderrOutput ? `: ${stderrOutput.slice(-500)}` : ''}`)
       } else if (signal) {
-        this.lastStartupError = `Server terminated by signal ${signal}`
-        logger.error('OpenCode server process terminated:', this.lastStartupError)
+        recordSpawnedProcessExit(`OpenCode server terminated by signal ${signal}`)
+      } else if (exitedBeforeHealthy) {
+        recordSpawnedProcessExit('OpenCode server exited with code 0 before becoming healthy')
       }
     })
 
@@ -667,8 +676,7 @@ class OpenCodeServerManager {
           const startToken = await readProcessStartTokenWithRetry(this.serverPid)
           if (startToken === null) {
             const message = 'Failed to read the process identity of the freshly spawned OpenCode server; refusing to detach an unattestable child'
-            this.lastStartupError = message
-            logger.error(message)
+            this.recordStartupError(message)
             await this.stop(true)
             throw new Error(message)
           }
@@ -687,8 +695,7 @@ class OpenCodeServerManager {
             })
           } catch (error) {
             const message = `Failed to persist the OpenCode child state marker: ${error instanceof Error ? error.message : String(error)}`
-            this.lastStartupError = message
-            logger.error(message)
+            this.recordStartupError(message)
             await this.stop(true)
             throw new Error(message)
           }
@@ -699,10 +706,14 @@ class OpenCodeServerManager {
 
     logger.info(`OpenCode server started with PID ${this.serverPid}`)
 
-    const healthy = await this.waitForHealth(STARTUP_HEALTH_TIMEOUT_MS)
+    const healthy = await this.waitForHealth(STARTUP_HEALTH_TIMEOUT_MS, () => spawnedProcessExitError !== null)
     if (!healthy) {
-      this.lastStartupError = `Server failed to become healthy after ${Math.round(STARTUP_HEALTH_TIMEOUT_MS / 1000)}s${stderrOutput ? `. Last error: ${stderrOutput.slice(-500)}` : ''}`
-      throw new Error('OpenCode server failed to become healthy')
+      if (spawnedProcessExitError !== null) {
+        throw new Error(spawnedProcessExitError)
+      }
+      const message = `OpenCode server failed to become healthy after ${Math.round(STARTUP_HEALTH_TIMEOUT_MS / 1000)}s${stderrOutput ? `. Last error: ${stderrOutput.slice(-500)}` : ''}`
+      this.recordStartupError(message)
+      throw new Error(message)
     }
 
     if (sandboxEnforced || replacingExistingServer) {
@@ -711,16 +722,14 @@ class OpenCodeServerManager {
         portOwners = await this.findProcessesByPort(openCodeServerPort)
       } catch (inspectionError) {
         const message = `Could not verify port ${openCodeServerPort} ownership after health; refusing to mark the server healthy: ${inspectionError instanceof Error ? inspectionError.message : String(inspectionError)}`
-        this.lastStartupError = message
-        logger.error(message)
+        this.recordStartupError(message)
         await this.stop(true)
         throw new Error(message)
       }
       if (this.serverPid === null || !portOwners.some((proc) => proc.pid === this.serverPid)) {
         const owners = portOwners.length > 0 ? `; port ${openCodeServerPort} is owned by PID(s) ${portOwners.map((proc) => proc.pid).join(', ')}` : `; no process owns port ${openCodeServerPort}`
         const message = `The newly started OpenCode server (PID ${this.serverPid ?? 'unknown'}) does not own the OpenCode port${owners}; refusing to mark the server healthy`
-        this.lastStartupError = message
-        logger.error(message)
+        this.recordStartupError(message)
         await this.stop(true)
         throw new Error(message)
       }
@@ -866,10 +875,14 @@ class OpenCodeServerManager {
     this.lastStartupErrorNonRecoverable = false
   }
 
-  private failNonRecoverable(message: string): never {
+  private recordStartupError(message: string): void {
     this.lastStartupError = message
-    this.lastStartupErrorNonRecoverable = true
     logger.error(message)
+  }
+
+  private failNonRecoverable(message: string): never {
+    this.lastStartupErrorNonRecoverable = true
+    this.recordStartupError(message)
     throw new NonRecoverableStartupError(message)
   }
 
@@ -973,8 +986,7 @@ class OpenCodeServerManager {
     const killed = await this.waitForProcessOrGroupExit(pid, groupTarget, PROCESS_SIGKILL_CONFIRM_MS)
     if (!killed) {
       const message = `${context} (PID ${pid}${groupTarget !== null ? `, process group ${groupTarget}` : ''}) ${failurePhrase}`
-      this.lastStartupError = message
-      logger.error(message)
+      this.recordStartupError(message)
       throw new Error(message)
     }
   }
@@ -996,8 +1008,7 @@ class OpenCodeServerManager {
     }
     if (survivors.length > 0) {
       const message = `Failed to terminate the existing OpenCode server process(es) on port ${getOpenCodeServerPort()}: PID(s) ${survivors.join(', ')} still own the port or retain live process-group members; refusing to spawn a new server`
-      this.lastStartupError = message
-      logger.error(message)
+      this.recordStartupError(message)
       throw new Error(message)
     }
   }
@@ -1039,8 +1050,7 @@ class OpenCodeServerManager {
       const currentMembers = resolveProcessIdentityProvider().readProcessGroupMembers(marker.pgid)
       if (currentMembers.length > 0 && !target.groupAttested) {
         const message = `Previous OpenCode server process (PID ${marker.pid}) has exited but process group ${marker.pgid} still exists and cannot be proven to belong to it; refusing to signal an unverified process group before starting an enforced server`
-        this.lastStartupError = message
-        logger.error(message)
+        this.recordStartupError(message)
         throw new Error(message)
       }
     }
@@ -1080,8 +1090,7 @@ class OpenCodeServerManager {
       if (currentMembers.length > 0) {
         if (!target.groupAttested || target.groupTarget === null) {
           const message = `Previous OpenCode server leader (PID ${marker.pid}) has exited but process group ${marker.pgid} still exists and cannot be proven to belong to it; refusing to replace the child state marker while live processes may survive`
-          this.lastStartupError = message
-          logger.error(message)
+          this.recordStartupError(message)
           throw new Error(message)
         }
         logger.warn(
@@ -1135,11 +1144,14 @@ class OpenCodeServerManager {
     }
   }
 
-  private async waitForHealth(timeoutMs: number): Promise<boolean> {
+  private async waitForHealth(timeoutMs: number, hasProcessExited: () => boolean): Promise<boolean> {
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
       if (await this.checkHealth()) {
         return true
+      }
+      if (hasProcessExited()) {
+        return false
       }
       await new Promise(r => setTimeout(r, 500))
     }

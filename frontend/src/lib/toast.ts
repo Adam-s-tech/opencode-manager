@@ -7,6 +7,10 @@ interface ToastOptions {
     label: string
     onClick: () => void
   }
+  cancel?: {
+    label: string
+    onClick: () => void
+  }
   id?: string | number
 }
 

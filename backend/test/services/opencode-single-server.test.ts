@@ -705,6 +705,48 @@ describe('OpenCodeServerManager - server auth', () => {
     }
   })
 
+  it('fails startup immediately with the exit reason when the spawned server exits before becoming healthy', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info: vi.fn().mockRejectedValue(new Error('connection refused')) } },
+      forwardRaw: vi.fn(),
+    }))
+    spawnMock.mockImplementationOnce(() => ({
+      pid: 1234,
+      stderr: null,
+      on: vi.fn((event: string, handler: (code: number | null, signal: string | null) => void) => {
+        if (event === 'exit') queueMicrotask(() => handler(1, null))
+      }),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    const startedAt = Date.now()
+    await expect(manager.start()).rejects.toThrow('OpenCode server exited with code 1')
+    expect(Date.now() - startedAt).toBeLessThan(5000)
+    expect(manager.getLastStartupError()).toBe('OpenCode server exited with code 1')
+  })
+
+  it('records a launch failure when the OpenCode executable cannot be spawned', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info: vi.fn().mockRejectedValue(new Error('connection refused')) } },
+      forwardRaw: vi.fn(),
+    }))
+    spawnMock.mockImplementationOnce(() => ({
+      pid: undefined as unknown as number,
+      stderr: null,
+      on: vi.fn((event: string, handler: (error: Error) => void) => {
+        if (event === 'error') queueMicrotask(() => handler(new Error('spawn opencode ENOENT')))
+      }),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    await expect(manager.start()).rejects.toThrow('spawn opencode ENOENT')
+    expect(manager.getLastStartupError()).toBe('Failed to launch the OpenCode server (opencode): spawn opencode ENOENT')
+  })
+
   it('honors a user-supplied HOME serverEnvVars entry while enforced', async () => {
     sandboxRuntimeServiceMock.SandboxRuntimeService.mockImplementation(() => ({
       isEnabled: () => true,

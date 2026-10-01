@@ -69,8 +69,6 @@ const mockServerHealth = (health?: Partial<ReturnType<typeof useServerHealth>['d
     isLoading: false,
     error: null,
     refetch: vi.fn(),
-    restartMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
-    rollbackMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
   })
 }
 

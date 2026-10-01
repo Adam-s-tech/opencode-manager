@@ -6,6 +6,7 @@ export { FetchError }
 interface FetchWrapperOptions extends RequestInit {
   timeout?: number
   params?: Record<string, string | number | boolean | undefined>
+  acceptedStatuses?: number[]
 }
 
 function formatDetails(details: unknown): string | undefined {
@@ -71,7 +72,7 @@ async function fetchWithTimeout(
   url: string,
   options: FetchWrapperOptions = {}
 ): Promise<Response> {
-  const { timeout = 30000, params, ...fetchOptions } = options
+  const { timeout = 30000, params, acceptedStatuses, ...fetchOptions } = options
   const urlObj = buildUrl(url, params)
 
   const controller = new AbortController()
@@ -86,7 +87,7 @@ async function fetchWithTimeout(
 
     if (timeoutId) clearTimeout(timeoutId)
 
-    if (!response.ok) {
+    if (!response.ok && !acceptedStatuses?.includes(response.status)) {
       await handleResponse(response)
     }
 
