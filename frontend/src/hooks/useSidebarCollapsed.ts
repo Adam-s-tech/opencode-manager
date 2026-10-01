@@ -3,11 +3,24 @@ import { useState, useCallback } from 'react'
 const STORAGE_KEY = 'oc:sidebar:collapsed'
 const CLOSED_SECTIONS_STORAGE_KEY = `${STORAGE_KEY}:closed-sections`
 
-function readStoredBoolean(key: string, fallback: boolean): boolean {
-  if (typeof window === 'undefined') {
-    return fallback
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
   }
-  const stored = localStorage.getItem(key)
+}
+
+function writeStorage(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    return
+  }
+}
+
+function readStoredBoolean(key: string, fallback: boolean): boolean {
+  const stored = readStorage(key)
   if (stored === null) {
     return fallback
   }
@@ -25,9 +38,7 @@ function usePersistentBoolean(key: string, fallback: boolean): [boolean, () => v
   const toggle = useCallback(() => {
     setValue((prev: boolean) => {
       const newValue = !prev
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(key, JSON.stringify(newValue))
-      }
+      writeStorage(key, newValue)
       return newValue
     })
   }, [key])
@@ -36,10 +47,7 @@ function usePersistentBoolean(key: string, fallback: boolean): [boolean, () => v
 }
 
 function readStoredClosedSections<T extends string>(sections: readonly T[]): T[] {
-  if (typeof window === 'undefined') {
-    return []
-  }
-  const stored = localStorage.getItem(CLOSED_SECTIONS_STORAGE_KEY)
+  const stored = readStorage(CLOSED_SECTIONS_STORAGE_KEY)
   if (stored === null) {
     return []
   }
@@ -69,9 +77,7 @@ export function useSidebarSections<T extends string>(
       const next = prev.includes(section)
         ? prev.filter((item) => item !== section)
         : [...prev, section]
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(CLOSED_SECTIONS_STORAGE_KEY, JSON.stringify(next))
-      }
+      writeStorage(CLOSED_SECTIONS_STORAGE_KEY, next)
       return next
     })
   }, [])

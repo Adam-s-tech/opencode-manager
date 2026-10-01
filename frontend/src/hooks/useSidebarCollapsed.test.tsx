@@ -157,6 +157,25 @@ describe('sidebar collapse hooks', () => {
       )
     })
 
+    it('defaults open and keeps toggling in memory when storage throws', () => {
+      localStorageMock.getItem.mockImplementationOnce(() => {
+        throw new Error('SecurityError')
+      })
+      localStorageMock.setItem.mockImplementationOnce(() => {
+        throw new Error('QuotaExceededError')
+      })
+
+      const { result } = renderHook(() => useSidebarSections(sections))
+
+      expect(result.current.isSectionOpen('sessions')).toBe(true)
+
+      act(() => {
+        result.current.toggleSection('sessions')
+      })
+
+      expect(result.current.isSectionOpen('sessions')).toBe(false)
+    })
+
     it('tracks each section independently', () => {
       localStorageMock.getItem.mockReturnValue(null)
 
