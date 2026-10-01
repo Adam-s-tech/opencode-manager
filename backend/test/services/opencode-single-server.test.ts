@@ -727,6 +727,95 @@ describe('OpenCodeServerManager - server auth', () => {
     expect(manager.getLastStartupError()).toBe('OpenCode server exited with code 1')
   })
 
+  it('aborts an in-flight health probe and fails promptly when the child exits', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    let capturedSignal: AbortSignal | undefined
+    let emitExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {}
+    const info = vi.fn((options: { signal?: AbortSignal }) => {
+      capturedSignal = options.signal
+      queueMicrotask(() => emitExit(1, null))
+      return new Promise<never>(() => {})
+    })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info } },
+      forwardRaw: vi.fn(),
+    }))
+    spawnMock.mockImplementationOnce(() => ({
+      pid: 1234,
+      stdout: null,
+      stderr: null,
+      on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
+        if (event === 'exit') emitExit = handler
+      }),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    const startedAt = Date.now()
+    await expect(manager.start()).rejects.toThrow('OpenCode server exited with code 1')
+    expect(Date.now() - startedAt).toBeLessThan(5000)
+    expect(capturedSignal?.aborted).toBe(true)
+    expect(manager.getLastStartupError()).toBe('OpenCode server exited with code 1')
+  }, 15000)
+
+  it('marks the server healthy when a health probe succeeds while the child is still running', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    let capturedSignal: AbortSignal | undefined
+    const info = vi.fn(async (options: { signal?: AbortSignal }) => {
+      capturedSignal = options.signal
+      return { version: '2.0.15', pid: 1234, urls: ['http://127.0.0.1:5551'], paths: { tmp: '/tmp' } }
+    })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info } },
+      forwardRaw: vi.fn(),
+    }))
+    spawnMock.mockImplementationOnce(() => ({
+      pid: 1234,
+      stdout: null,
+      stderr: null,
+      on: vi.fn(),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    await manager.start()
+
+    expect(info).toHaveBeenCalledTimes(1)
+    expect(capturedSignal?.aborted).toBe(false)
+    expect(manager.getLastStartupError()).toBeNull()
+  }, 15000)
+
+  it('fails startup when a health probe succeeds only after the child has exited', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    let capturedSignal: AbortSignal | undefined
+    let emitExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {}
+    const info = vi.fn((options: { signal?: AbortSignal }) => {
+      capturedSignal = options.signal
+      queueMicrotask(() => emitExit(1, null))
+      return new Promise((resolve) => {
+        setTimeout(() => resolve({ version: '2.0.15', pid: 1234, urls: [], paths: { tmp: '/tmp' } }), 0)
+      })
+    })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info } },
+      forwardRaw: vi.fn(),
+    }))
+    spawnMock.mockImplementationOnce(() => ({
+      pid: 1234,
+      stdout: null,
+      stderr: null,
+      on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
+        if (event === 'exit') emitExit = handler
+      }),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    await expect(manager.start()).rejects.toThrow('OpenCode server exited with code 1')
+    expect(capturedSignal?.aborted).toBe(true)
+    expect(manager.getLastStartupError()).toBe('OpenCode server exited with code 1')
+  }, 15000)
+
   it('records a launch failure when the OpenCode executable cannot be spawned', async () => {
     setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
     createOpenCodeClientMock.mockImplementationOnce(() => ({
@@ -1546,11 +1635,139 @@ describe('OpenCodeServerManager - server auth', () => {
       expect(messages.filter((message) => message === 'partial tail FINAL')).toHaveLength(1)
       expect((manager as any).serverPid).toBeNull()
       expect(manager.getLastStartupError()).toContain('exited with code 1')
+      expect(manager.getLastStartupError()).toContain('partial tail FINAL')
     } finally {
       readFileSyncMock.mockReset()
       readdirSyncMock.mockReset()
       Object.defineProperty(ENV.SERVER, 'NODE_ENV', { value: originalNodeEnv, configurable: true, writable: true })
     }
+  }, 15000)
+
+  it('preserves a split multibyte UTF-8 character in the startup stderr diagnostic tail', async () => {
+    const { manager, stderr, emitExit, cleanup } = await captureSpawnedServerStderrStream()
+    try {
+      const encoded = Buffer.from('Fatal: café', 'utf8')
+      const accentByteIndex = encoded.length - 1
+      stderr.emit('data', encoded.subarray(0, accentByteIndex))
+      stderr.emit('data', encoded.subarray(accentByteIndex))
+      stderr.emit('end')
+      emitExit(1)
+
+      const startupError = manager.getLastStartupError()
+      expect(startupError).toContain('Fatal: café')
+      expect(startupError).not.toContain('\uFFFD')
+    } finally {
+      cleanup()
+    }
+  }, 15000)
+
+  it('flushes an incomplete multibyte sequence when the stderr stream ends', async () => {
+    const { manager, stderr, emitExit, cleanup } = await captureSpawnedServerStderrStream()
+    try {
+      stderr.emit('data', Buffer.from([0xC3]))
+      stderr.emit('end')
+      emitExit(1)
+
+      expect(manager.getLastStartupError()).toContain('\uFFFD')
+    } finally {
+      cleanup()
+    }
+  }, 15000)
+
+  it('includes stderr that arrives after a startup crash exit in the startup diagnostic', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info: vi.fn().mockRejectedValue(new Error('connection refused')) } },
+      forwardRaw: vi.fn(),
+    }))
+    const { EventEmitter } = await import('events')
+    const stderr = new EventEmitter()
+    spawnMock.mockImplementationOnce(() => ({
+      pid: 1234,
+      stdout: null,
+      stderr,
+      on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
+        if (event === 'exit') {
+          queueMicrotask(() => {
+            handler(1, null)
+            stderr.emit('data', Buffer.from('late startup crash detail'))
+            stderr.emit('end')
+          })
+        }
+      }),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    await expect(manager.start()).rejects.toThrow('OpenCode server exited with code 1')
+    expect(manager.getLastStartupError()).toContain('late startup crash detail')
+  }, 15000)
+
+  it('finalizes the exit diagnostic after the drain bound when stderr never ends', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info: vi.fn().mockRejectedValue(new Error('connection refused')) } },
+      forwardRaw: vi.fn(),
+    }))
+    const { EventEmitter } = await import('events')
+    const stderr = new EventEmitter()
+    spawnMock.mockImplementationOnce(() => ({
+      pid: 1234,
+      stdout: null,
+      stderr,
+      on: vi.fn((event: string, handler: (code: number | null, signal: NodeJS.Signals | null) => void) => {
+        if (event === 'exit') {
+          queueMicrotask(() => {
+            handler(1, null)
+            stderr.emit('data', Buffer.from('drain bound detail'))
+          })
+        }
+      }),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] })
+    try {
+      const startPromise = manager.start()
+      startPromise.catch(() => {})
+      await vi.advanceTimersByTimeAsync(1000)
+      await expect(startPromise).rejects.toThrow('OpenCode server exited with code 1')
+      expect(manager.getLastStartupError()).toContain('drain bound detail')
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 15000)
+
+  it('finalizes the exit diagnostic on child close when stderr never ends', async () => {
+    setOpenCodeEnv({ host: '127.0.0.1', password: 'envpassword123' })
+    createOpenCodeClientMock.mockImplementationOnce(() => ({
+      api: { server: { info: vi.fn().mockRejectedValue(new Error('connection refused')) } },
+      forwardRaw: vi.fn(),
+    }))
+    const { EventEmitter } = await import('events')
+    const stderr = new EventEmitter()
+    let closeHandler: (() => void) | undefined
+    spawnMock.mockImplementationOnce(() => ({
+      pid: 1234,
+      stdout: null,
+      stderr,
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === 'close') closeHandler = handler as () => void
+        if (event === 'exit') {
+          queueMicrotask(() => {
+            handler(1, null)
+            stderr.emit('data', Buffer.from('close fallback detail'))
+            closeHandler?.()
+          })
+        }
+      }),
+    }))
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+
+    await expect(manager.start()).rejects.toThrow('OpenCode server exited with code 1')
+    expect(manager.getLastStartupError()).toContain('close fallback detail')
   }, 15000)
 
   it('reconciles an attested surviving descendant group before an unenforced replacement start', async () => {
@@ -2199,6 +2416,87 @@ describe('OpenCodeServerManager - server auth', () => {
     } finally {
       killSpy.mockRestore()
       Object.defineProperty(ENV.SERVER, 'NODE_ENV', { value: originalNodeEnv, configurable: true, writable: true })
+    }
+  }, 15000)
+
+  async function startProductionServerWithControllableExit() {
+    const originalNodeEnv = ENV.SERVER.NODE_ENV
+    Object.defineProperty(ENV.SERVER, 'NODE_ENV', { value: 'production', configurable: true, writable: true })
+    const killSpy = vi.spyOn(process, 'kill')
+    readFileMock.mockReset()
+    readdirSyncMock.mockReset()
+    sandboxRuntimeServiceMock.SandboxRuntimeService.mockImplementation(() => ({
+      isEnabled: () => false,
+    }))
+    execSyncMock.mockImplementation(() => {
+      throw new Error('not found')
+    })
+    readFileSyncMock.mockReturnValue(procStatStringWithGroup(1234, '42'))
+    killSpy.mockImplementation(((pid: number, signal?: number | string) => {
+      if (pid === -1234 && signal !== 0) return true
+      const error = new Error('No such process') as NodeJS.ErrnoException
+      error.code = 'ESRCH'
+      throw error
+    }) as typeof process.kill)
+
+    spawnMock.mockImplementationOnce(() => ({ pid: 1234, stdout: null, stderr: null, on: vi.fn() }))
+
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+    manager.setDatabase(createPasswordDb(null))
+
+    await manager.start()
+
+    const spawnedChild = spawnMock.mock.results[0]!.value as { on: ReturnType<typeof vi.fn> }
+    const exitCall = spawnedChild.on.mock.calls.find((call: unknown[]) => call[0] === 'exit')
+    expect(exitCall).toBeDefined()
+
+    return {
+      manager,
+      emitExit: (code: number | null, signal: NodeJS.Signals | null) => {
+        ;(exitCall![1] as (code: number | null, signal: NodeJS.Signals | null) => void)(code, signal)
+      },
+      cleanup: () => {
+        killSpy.mockRestore()
+        Object.defineProperty(ENV.SERVER, 'NODE_ENV', { value: originalNodeEnv, configurable: true, writable: true })
+      },
+    }
+  }
+
+  it('does not record a deliberate SIGTERM stop as a startup failure', async () => {
+    const { manager, emitExit, cleanup } = await startProductionServerWithControllableExit()
+    try {
+      await manager.stop()
+
+      emitExit(null, 'SIGTERM')
+
+      expect(manager.getLastStartupError()).toBeNull()
+    } finally {
+      cleanup()
+    }
+  }, 15000)
+
+  it('records an unexpected SIGTERM exit as a startup failure', async () => {
+    const { manager, emitExit, cleanup } = await startProductionServerWithControllableExit()
+    try {
+      emitExit(null, 'SIGTERM')
+
+      expect(manager.getLastStartupError()).toContain('terminated by signal SIGTERM')
+    } finally {
+      cleanup()
+    }
+  }, 15000)
+
+  it('records a nonzero exit even while the manager is deliberately stopping the child', async () => {
+    const { manager, emitExit, cleanup } = await startProductionServerWithControllableExit()
+    try {
+      await manager.stop()
+
+      emitExit(1, null)
+
+      expect(manager.getLastStartupError()).toContain('exited with code 1')
+    } finally {
+      cleanup()
     }
   }, 15000)
 
@@ -2946,6 +3244,52 @@ describe('OpenCodeServerManager - server auth', () => {
     fields[2] = String(pgrp)
     fields[19] = startToken
     return `${pid} (opencode) ${fields.join(' ')}`
+  }
+
+  async function captureSpawnedServerStderrStream() {
+    const originalNodeEnv = ENV.SERVER.NODE_ENV
+    Object.defineProperty(ENV.SERVER, 'NODE_ENV', { value: 'production', configurable: true, writable: true })
+    sandboxRuntimeServiceMock.SandboxRuntimeService.mockImplementation(() => ({
+      isEnabled: () => false,
+    }))
+    execSyncMock.mockImplementation(() => {
+      throw new Error('not found')
+    })
+    readdirSyncMock.mockReturnValue([])
+    readFileSyncMock.mockImplementation((filePath: string) => {
+      if (String(filePath).includes('/proc/1234/stat')) return procStatStringWithGroup(1234, '42')
+      const error = new Error('No such process') as NodeJS.ErrnoException
+      error.code = 'ENOENT'
+      throw error
+    })
+
+    const { EventEmitter } = await import('events')
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    spawnMock.mockImplementationOnce(() => ({ pid: 1234, stdout, stderr, on: vi.fn() }))
+
+    const { OpenCodeServerManager } = await import('../../src/services/opencode-single-server')
+    const manager = OpenCodeServerManager.getInstance()
+    manager.setDatabase(createPasswordDb(null))
+
+    await manager.start()
+
+    const spawnedChild = spawnMock.mock.results[0]!.value as { pid: number; on: ReturnType<typeof vi.fn> }
+    const exitCall = spawnedChild.on.mock.calls.find((call: unknown[]) => call[0] === 'exit')
+    expect(exitCall).toBeDefined()
+
+    return {
+      manager,
+      stderr,
+      emitExit: (code: number) => {
+        ;(exitCall![1] as (code: number | null, signal: NodeJS.Signals | null) => void)(code, null)
+      },
+      cleanup: () => {
+        readFileSyncMock.mockReset()
+        readdirSyncMock.mockReset()
+        Object.defineProperty(ENV.SERVER, 'NODE_ENV', { value: originalNodeEnv, configurable: true, writable: true })
+      },
+    }
   }
 
   const FAKE_SECRETS = Symbol('fakeSecrets')

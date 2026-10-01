@@ -1,6 +1,7 @@
 import { spawn, execSync, spawnSync } from 'child_process'
 import path from 'path'
 import os from 'os'
+import { StringDecoder } from 'node:string_decoder'
 import { promises as fs, accessSync, constants } from 'fs'
 import { logger } from '../utils/logger'
 import { createGitIdentityEnv, resolveGitIdentity } from '../utils/git-auth'
@@ -49,6 +50,8 @@ import { OPENCODE_SERVICE_SERVE_ARGS, prepareOpenCodeServiceLaunch } from './ope
 
 const MAX_STDERR_SIZE = 10240
 const STARTUP_HEALTH_TIMEOUT_MS = 30000
+const HEALTH_POLL_INTERVAL_MS = 500
+const CHILD_EXIT_DIAGNOSTIC_DRAIN_MS = 1000
 const PROCESS_SIGTERM_GRACE_MS = 10000
 const PROCESS_SIGKILL_CONFIRM_MS = 2000
 const PROCESS_EXIT_POLL_MS = 50
@@ -150,6 +153,48 @@ async function readProcessGroupIdWithRetry(pid: number): Promise<number | null> 
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
   return null
+}
+
+type AbortRaceOutcome<T> = { completed: true; value: T } | { completed: false }
+
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<AbortRaceOutcome<T>> {
+  if (signal.aborted) {
+    return Promise.resolve({ completed: false })
+  }
+  return new Promise<AbortRaceOutcome<T>>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort)
+      resolve({ completed: false })
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve({ completed: true, value })
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      },
+    )
+  })
+}
+
+function waitForPollInterval(signal: AbortSignal, ms: number): Promise<boolean> {
+  if (signal.aborted) {
+    return Promise.resolve(false)
+  }
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(true)
+    }, ms)
+    function onAbort() {
+      clearTimeout(timer)
+      resolve(false)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function readDurableRestartGeneration(db: Database | null): number {
@@ -259,6 +304,8 @@ class OpenCodeServerManager {
   private sandboxEnforced: boolean = false
   private lifecycleInitialized: boolean = false
   private markerRefreshTimer: ReturnType<typeof setInterval> | null = null
+  private processGeneration = 0
+  private intentionalStop: { pid: number; generation: number } | null = null
 
   private constructor() {}
 
@@ -565,6 +612,13 @@ class OpenCodeServerManager {
     const openCodeExecutable = resolveOpenCodeExecutable() ?? 'opencode'
 
     let stderrOutput = ''
+    const stderrDecoder = new StringDecoder('utf8')
+    const appendStderrOutput = (chunk: string) => {
+      stderrOutput += chunk
+      if (stderrOutput.length > MAX_STDERR_SIZE) {
+        stderrOutput = stderrOutput.slice(-MAX_STDERR_SIZE)
+      }
+    }
 
     const microsandboxEnv = resolveManagerMicrosandboxEnv()
 
@@ -624,15 +678,89 @@ class OpenCodeServerManager {
     const openCodeStdoutLog = createProcessLogForwarder({ source: 'opencode', defaultLevel: 'info' })
     const openCodeStderrLog = createProcessLogForwarder({ source: 'opencode', defaultLevel: 'error' })
 
+    const spawnedServerPid = this.serverProcess.pid
+    const spawnedServerStderr = this.serverProcess.stderr
+    const spawnedGeneration = ++this.processGeneration
+    const childExitController = new AbortController()
+
+    let spawnedProcessExitError: string | null = null
+    let stderrEnded = false
+    let stderrDecoderFlushed = false
+    let exitDiagnosticFinalized = false
+    let exitDiagnosticCode: number | null = null
+    let exitDiagnosticSignal: NodeJS.Signals | null = null
+    let exitDiagnosticExitedBeforeHealthy = false
+    let exitDiagnosticIntentionalStop = false
+    let exitDiagnosticDrainTimer: ReturnType<typeof setTimeout> | null = null
+    let exitDiagnosticDrainResolve: (() => void) | null = null
+
+    const flushStderrDecoder = () => {
+      if (stderrDecoderFlushed) return
+      stderrDecoderFlushed = true
+      appendStderrOutput(stderrDecoder.end())
+    }
+
+    const clearExitDiagnosticDrainTimer = () => {
+      if (exitDiagnosticDrainTimer !== null) {
+        clearTimeout(exitDiagnosticDrainTimer)
+        exitDiagnosticDrainTimer = null
+      }
+    }
+
+    const finalizeExitDiagnostic = (message: string | null) => {
+      if (exitDiagnosticFinalized) return
+      exitDiagnosticFinalized = true
+      clearExitDiagnosticDrainTimer()
+      if (message !== null) {
+        spawnedProcessExitError = message
+        if (this.processGeneration === spawnedGeneration) {
+          this.recordStartupError(message)
+        }
+      }
+      const resolve = exitDiagnosticDrainResolve
+      exitDiagnosticDrainResolve = null
+      if (resolve) resolve()
+    }
+
+    const buildExitDiagnostic = (): string | null => {
+      if (exitDiagnosticIntentionalStop) return null
+      if (exitDiagnosticCode !== null && exitDiagnosticCode !== 0) {
+        return `OpenCode server exited with code ${exitDiagnosticCode}${stderrOutput ? `: ${stderrOutput.slice(-500)}` : ''}`
+      }
+      if (exitDiagnosticSignal !== null) {
+        return `OpenCode server terminated by signal ${exitDiagnosticSignal}`
+      }
+      if (exitDiagnosticExitedBeforeHealthy) {
+        return 'OpenCode server exited with code 0 before becoming healthy'
+      }
+      return null
+    }
+
+    const finalizeExitDiagnosticFromState = () => {
+      flushStderrDecoder()
+      finalizeExitDiagnostic(buildExitDiagnostic())
+    }
+
+    const awaitExitDiagnostic = (): Promise<void> => {
+      if (exitDiagnosticFinalized) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        exitDiagnosticDrainResolve = resolve
+      })
+    }
+
     this.serverProcess.stderr?.on('data', (data) => {
       if (isDevelopment) process.stderr.write(data)
-      stderrOutput += data.toString()
-      if (stderrOutput.length > MAX_STDERR_SIZE) {
-        stderrOutput = stderrOutput.slice(-MAX_STDERR_SIZE)
-      }
+      appendStderrOutput(stderrDecoder.write(data))
       openCodeStderrLog.write(data)
     })
-    this.serverProcess.stderr?.on('end', () => openCodeStderrLog.flush())
+    this.serverProcess.stderr?.on('end', () => {
+      stderrEnded = true
+      flushStderrDecoder()
+      openCodeStderrLog.flush()
+      if (childExitController.signal.aborted) {
+        finalizeExitDiagnosticFromState()
+      }
+    })
 
     this.serverProcess.stdout?.on('data', (data) => {
       if (isDevelopment) process.stdout.write(data)
@@ -640,30 +768,46 @@ class OpenCodeServerManager {
     })
     this.serverProcess.stdout?.on('end', () => openCodeStdoutLog.flush())
 
-    let spawnedProcessExitError: string | null = null
-    const recordSpawnedProcessExit = (message: string) => {
-      spawnedProcessExitError = message
-      this.recordStartupError(message)
-    }
-
     this.serverProcess.on('error', (error) => {
-      recordSpawnedProcessExit(`Failed to launch the OpenCode server (${openCodeExecutable}): ${error.message}`)
+      childExitController.abort()
+      finalizeExitDiagnostic(`Failed to launch the OpenCode server (${openCodeExecutable}): ${error.message}`)
     })
 
-    const spawnedServerPid = this.serverProcess.pid
     this.serverProcess.on('exit', (code, signal) => {
+      childExitController.abort()
       const exitedBeforeHealthy = !this.isHealthy
       if (spawnedServerPid !== undefined && this.serverPid === spawnedServerPid) {
         this.serverPid = null
         this.isHealthy = false
         this.stopChildStateMarkerRefresh()
       }
-      if (code !== null && code !== 0) {
-        recordSpawnedProcessExit(`OpenCode server exited with code ${code}${stderrOutput ? `: ${stderrOutput.slice(-500)}` : ''}`)
-      } else if (signal) {
-        recordSpawnedProcessExit(`OpenCode server terminated by signal ${signal}`)
-      } else if (exitedBeforeHealthy) {
-        recordSpawnedProcessExit('OpenCode server exited with code 0 before becoming healthy')
+      exitDiagnosticCode = code
+      exitDiagnosticSignal = signal
+      exitDiagnosticExitedBeforeHealthy = exitedBeforeHealthy
+      const intentionalStop = this.intentionalStop
+      exitDiagnosticIntentionalStop = intentionalStop !== null
+        && intentionalStop.pid === spawnedServerPid
+        && intentionalStop.generation === spawnedGeneration
+        && (signal === 'SIGTERM' || signal === 'SIGKILL' || code === 0)
+      if (exitDiagnosticFinalized) return
+      const hasDiagnostic = (code !== null && code !== 0) || signal !== null || exitedBeforeHealthy
+      if (!hasDiagnostic) {
+        finalizeExitDiagnostic(null)
+        return
+      }
+      if (spawnedServerStderr == null || stderrEnded) {
+        finalizeExitDiagnosticFromState()
+        return
+      }
+      exitDiagnosticDrainTimer = setTimeout(() => {
+        exitDiagnosticDrainTimer = null
+        finalizeExitDiagnosticFromState()
+      }, CHILD_EXIT_DIAGNOSTIC_DRAIN_MS)
+    })
+
+    this.serverProcess.on('close', () => {
+      if (childExitController.signal.aborted) {
+        finalizeExitDiagnosticFromState()
       }
     })
 
@@ -706,8 +850,11 @@ class OpenCodeServerManager {
 
     logger.info(`OpenCode server started with PID ${this.serverPid}`)
 
-    const healthy = await this.waitForHealth(STARTUP_HEALTH_TIMEOUT_MS, () => spawnedProcessExitError !== null)
+    const healthy = await this.waitForHealth(STARTUP_HEALTH_TIMEOUT_MS, childExitController.signal)
     if (!healthy) {
+      if (childExitController.signal.aborted) {
+        await awaitExitDiagnostic()
+      }
       if (spawnedProcessExitError !== null) {
         throw new Error(spawnedProcessExitError)
       }
@@ -791,6 +938,7 @@ class OpenCodeServerManager {
       if (groupTarget !== null) {
         logger.info(`Terminating OpenCode process group ${groupTarget} so host-executed descendants do not survive the stop`)
       }
+      this.intentionalStop = { pid, generation: this.processGeneration }
       try {
         await this.terminateAndConfirm(
           pid,
@@ -799,6 +947,7 @@ class OpenCodeServerManager {
           'retained live processes after SIGTERM and SIGKILL; refusing to complete the stop while host-executed processes may survive',
         )
       } catch (error) {
+        this.intentionalStop = null
         this.isHealthy = false
         throw error
       }
@@ -908,13 +1057,15 @@ class OpenCodeServerManager {
     advanceDurableRestartGeneration(this.db)
   }
 
-  async checkHealth(): Promise<boolean> {
+  async checkHealth(signal?: AbortSignal): Promise<boolean> {
     if (!this.openCodeClient) {
       return false
     }
+    const timeoutSignal = AbortSignal.timeout(ENV.TIMEOUTS.HEALTH_CHECK_TIMEOUT_MS)
+    const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
     try {
       await this.openCodeClient.api.server.info({
-        signal: AbortSignal.timeout(ENV.TIMEOUTS.HEALTH_CHECK_TIMEOUT_MS),
+        signal: requestSignal,
       })
       return true
     } catch {
@@ -1144,16 +1295,23 @@ class OpenCodeServerManager {
     }
   }
 
-  private async waitForHealth(timeoutMs: number, hasProcessExited: () => boolean): Promise<boolean> {
-    const start = Date.now()
-    while (Date.now() - start < timeoutMs) {
-      if (await this.checkHealth()) {
-        return true
-      }
-      if (hasProcessExited()) {
+  private async waitForHealth(timeoutMs: number, exitSignal: AbortSignal): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (exitSignal.aborted) {
         return false
       }
-      await new Promise(r => setTimeout(r, 500))
+      const probe = await raceWithAbort(this.checkHealth(exitSignal), exitSignal)
+      if (exitSignal.aborted) {
+        return false
+      }
+      if (probe.completed && probe.value) {
+        return true
+      }
+      const polled = await waitForPollInterval(exitSignal, HEALTH_POLL_INTERVAL_MS)
+      if (!polled) {
+        return false
+      }
     }
     return false
   }
