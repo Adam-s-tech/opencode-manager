@@ -1,7 +1,8 @@
 import { describe, expect, test, beforeEach, afterEach, vi } from 'vitest'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { mkdir, mkdtemp, rm, readFile, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, rm, readFile, writeFile, symlink } from 'fs/promises'
+import { promises as fs } from 'fs'
 import type { OpenCodeClient } from '../../src/services/opencode/client'
 import type { Repo } from '../../src/types/repo'
 
@@ -338,6 +339,71 @@ describe('SkillService', () => {
         repoId: repo.id,
         repoName: 'project-zero',
       }))
+    }
+  })
+
+  test('keeps healthy skills when dangling symlinks sit beside them', async () => {
+    const { listManagedSkills } = await import('../../src/services/skills')
+    const projectPath = join(tempDir, 'project-symlinks')
+    const skillsRoot = join(projectPath, '.opencode', 'skills')
+
+    const regularDir = join(skillsRoot, 'regular-skill')
+    await mkdir(regularDir, { recursive: true })
+    await writeFile(
+      join(regularDir, 'SKILL.md'),
+      '---\nname: regular-skill\ndescription: Regular skill\n---\nBody',
+    )
+
+    const symlinkTargetDir = join(tempDir, 'symlink-target')
+    await mkdir(symlinkTargetDir, { recursive: true })
+    await writeFile(
+      join(symlinkTargetDir, 'SKILL.md'),
+      '---\nname: linked-skill\ndescription: Linked skill\n---\nBody',
+    )
+    await symlink(symlinkTargetDir, join(skillsRoot, 'linked-skill'), 'dir')
+
+    await symlink(join(tempDir, 'missing-target'), join(skillsRoot, 'dangling-skill'), 'dir')
+
+    const plainFile = join(tempDir, 'plain-file.txt')
+    await writeFile(plainFile, 'not a directory')
+    await symlink(join(plainFile, 'child'), join(skillsRoot, 'notdir-skill'), 'dir')
+
+    await symlink(join(skillsRoot, 'loop-b'), join(skillsRoot, 'loop-a'), 'dir')
+    await symlink(join(skillsRoot, 'loop-a'), join(skillsRoot, 'loop-b'), 'dir')
+
+    const skills = await listManagedSkills(mockDb, createMockClient([]), undefined, projectPath)
+
+    expect(skills).toContainEqual(expect.objectContaining({
+      name: 'regular-skill',
+      description: 'Regular skill',
+      scope: 'project',
+    }))
+    expect(skills).toContainEqual(expect.objectContaining({
+      name: 'linked-skill',
+      description: 'Linked skill',
+      scope: 'project',
+    }))
+    expect(skills.map(s => s.name)).not.toContain('dangling-skill')
+  })
+
+  test('listDirectory rejects when the root directory is missing', async () => {
+    const { listDirectory } = await import('../../src/services/file-operations')
+    await expect(listDirectory(join(tempDir, 'missing-root'))).rejects.toThrow('Failed to list directory')
+  })
+
+  test('listDirectory propagates unexpected stat errors', async () => {
+    const { listDirectory } = await import('../../src/services/file-operations')
+    const dir = join(tempDir, 'stat-error-root')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'entry.txt'), 'content')
+
+    const statSpy = vi.spyOn(fs, 'stat').mockRejectedValue(
+      Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+    )
+    try {
+      await expect(listDirectory(dir)).rejects.toThrow('Failed to list directory')
+    } finally {
+      statSpy.mockRestore()
     }
   })
 

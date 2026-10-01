@@ -135,13 +135,23 @@ export async function listDirectory(dirPath: string): Promise<Array<{
       if (entry.name === '.' || entry.name === '..') continue
       
       const entryPath = path.join(fullPath, entry.name)
-      const stats = await fs.stat(entryPath)
+      let stats: Awaited<ReturnType<typeof fs.stat>>
+      try {
+        stats = await fs.stat(entryPath)
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') {
+          logger.warn(`Skipping unresolvable directory entry ${entryPath}:`, error)
+          continue
+        }
+        throw error
+      }
       
       result.push({
         name: entry.name,
         path: entryPath,
-        isDirectory: entry.isDirectory(),
-        size: entry.isDirectory() ? 0 : stats.size,
+        isDirectory: stats.isDirectory(),
+        size: stats.isDirectory() ? 0 : stats.size,
         lastModified: stats.mtime
       })
     }
