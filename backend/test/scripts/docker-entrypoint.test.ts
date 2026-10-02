@@ -346,6 +346,58 @@ echo "opencode version 2.0.15"`)
     },
   )
 
+  it.each(['2.0.15-beta.1', '2.0.15+build.5', '2.0.15-rc.1+build.5'])(
+    'replaces a persisted home binary %s carrying a prerelease or build suffix with the bundled version',
+    (version) => {
+      stubInstallTools()
+      mkdirSync(join(stubDir, 'home/.opencode/bin'), { recursive: true })
+      writeBinary(join(stubDir, 'home/.opencode/bin'), version)
+      const res = runOpenCodeSection(`${installPrelude()}\n${extractOpenCodeInstallSection()}`)
+      expect(res.status).toBe(0)
+      expect(res.stdout).not.toContain('retaining it')
+      expect(res.stdout).toContain(`Persisted OpenCode ${version} is outside the supported range >=2.0.15 <3.0.0`)
+      expect(res.stdout).toContain('Installing OpenCode 2.0.15...')
+      expect(existsSync(homeBinPath())).toBe(true)
+      const urls = curlLog().join(' ')
+      expect(urls).toMatch(/https:\/\/opencode\.ai\/files\/bin\/2\.0\.15\/opencode-linux-(x64|arm64)\.tar\.gz/)
+    },
+  )
+
+  it.each(['2.0.15-', '2.0.15+', '2.0.15.', '2.0.15.1', '2.0.15_1', '2.0.15-beta_1', '2.0.15+build_1'])(
+    'replaces a persisted home binary %s whose appended suffix is malformed with the bundled version',
+    (version) => {
+      stubInstallTools()
+      mkdirSync(join(stubDir, 'home/.opencode/bin'), { recursive: true })
+      writeBinary(join(stubDir, 'home/.opencode/bin'), version)
+      const res = runOpenCodeSection(`${installPrelude()}\n${extractOpenCodeInstallSection()}`)
+      expect(res.status).toBe(0)
+      expect(res.stdout).not.toContain('retaining it')
+      expect(res.stdout).not.toContain('within the supported range')
+      expect(res.stdout).toContain(`Persisted OpenCode ${version} is outside the supported range >=2.0.15 <3.0.0`)
+      expect(res.stdout).toContain('Installing OpenCode 2.0.15...')
+      expect(existsSync(homeBinPath())).toBe(true)
+      const urls = curlLog().join(' ')
+      expect(urls).toMatch(/https:\/\/opencode\.ai\/files\/bin\/2\.0\.15\/opencode-linux-(x64|arm64)\.tar\.gz/)
+    },
+  )
+
+  it('treats a persisted home binary whose --version probe fails as unversioned and installs the bundled version', () => {
+    stubInstallTools()
+    mkdirSync(join(stubDir, 'home/.opencode/bin'), { recursive: true })
+    writeFileSync(homeBinPath(), `#!/bin/bash
+echo "opencode version 2.0.15"
+exit 1`)
+    chmodSync(homeBinPath(), 0o755)
+    const res = runOpenCodeSection(`${installPrelude()}\n${extractOpenCodeInstallSection()}`)
+    expect(res.status).toBe(0)
+    expect(res.stdout).not.toContain('retaining it')
+    expect(res.stdout).toContain('malformed or unversioned')
+    expect(res.stdout).toContain('Installing OpenCode 2.0.15...')
+    expect(existsSync(homeBinPath())).toBe(true)
+    const urls = curlLog().join(' ')
+    expect(urls).toMatch(/https:\/\/opencode\.ai\/files\/bin\/2\.0\.15\/opencode-linux-(x64|arm64)\.tar\.gz/)
+  })
+
   it('falls back to the bundled binary on PATH after removing a persisted 3.x binary', () => {
     mkdirSync(join(stubDir, 'home/.opencode/bin'), { recursive: true })
     writeBinary(join(stubDir, 'home/.opencode/bin'), '3.0.0')
@@ -411,5 +463,40 @@ echo "opencode version 2.0.15"`)
     expect(res.status).toBe(0)
     const urls = curlLog().join(' ')
     expect(urls).toMatch(/https:\/\/opencode\.ai\/files\/bin\/2\.0\.15\/opencode-linux-(x64|arm64)-musl\.tar\.gz/)
+  })
+})
+
+describe('parse_opencode_version_output', () => {
+  const runParser = (output: string) => {
+    const scriptPath = join(stubDir, 'test.sh')
+    writeFileSync(
+      scriptPath,
+      `set -e\n${readFileSync(releaseHelperPath, 'utf-8')}\nprintf '%s' "$(parse_opencode_version_output ${JSON.stringify(output)})"`,
+    )
+    return spawnSync('bash', [scriptPath], { encoding: 'utf-8' })
+  }
+
+  it('preserves a stable version from prefixed --version output', () => {
+    expect(runParser('opencode version 2.0.15').stdout).toBe('2.0.15')
+    expect(runParser('2.0.15').stdout).toBe('2.0.15')
+  })
+
+  it('preserves prerelease and build suffixes so the stability check rejects them', () => {
+    expect(runParser('opencode version 2.0.15-beta.1').stdout).toBe('2.0.15-beta.1')
+    expect(runParser('opencode version 2.0.15+build.5').stdout).toBe('2.0.15+build.5')
+  })
+
+  it.each(['2.0.15-', '2.0.15+', '2.0.15.', '2.0.15.1', '2.0.15_1', '2.0.15-beta_1', '2.0.15+build_1'])(
+    'preserves the whole non-whitespace token %s instead of truncating it to a stable version',
+    (output) => {
+      const parsed = runParser(`opencode version ${output}`).stdout
+      expect(parsed).toBe(output)
+      expect(parsed).not.toBe('2.0.15')
+    },
+  )
+
+  it('returns nothing for malformed output', () => {
+    expect(runParser('garbage').stdout).toBe('')
+    expect(runParser('').stdout).toBe('')
   })
 })

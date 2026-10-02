@@ -154,6 +154,19 @@ describe('OpenCode v2 contract', () => {
       }
     })
 
+    it('parses --version output through the shared release helper instead of a local parser', () => {
+      const entrypoint = readFileSync(join(REPO_ROOT, 'scripts', 'docker-entrypoint.sh'), 'utf8')
+      const setupDev = readFileSync(join(REPO_ROOT, 'scripts', 'setup-dev.sh'), 'utf8')
+      const releaseHelper = readFileSync(join(REPO_ROOT, 'scripts', 'lib', 'opencode-release.sh'), 'utf8')
+      expect(releaseHelper).toContain('parse_opencode_version_output()')
+      expect(entrypoint).toContain('parse_opencode_version_output "$output"')
+      expect(setupDev).toContain('OPENCODE_VERSION_OUTPUT="$(opencode --version 2>&1)" || OPENCODE_VERSION_OUTPUT=""')
+      expect(setupDev).toContain('parse_opencode_version_output "$OPENCODE_VERSION_OUTPUT"')
+      for (const script of [entrypoint, setupDev]) {
+        expect(script).not.toContain("grep -oE '[0-9]")
+      }
+    })
+
     it('never sets or passes OPENCODE_VERSION from a GitHub workflow', () => {
       const workflowsDir = join(REPO_ROOT, '.github', 'workflows')
       for (const entry of readdirSync(workflowsDir, { withFileTypes: true })) {

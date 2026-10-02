@@ -3,14 +3,14 @@
 ## Commands
 
 - `pnpm dev` - Start both backend (5003) and frontend (5173)
-- `pnpm dev:backend` - Backend only: `bun --watch-path backend/src --watch backend/src/index.ts`
+- `pnpm dev:backend` - Backend only: `NODE_ENV=development bun --watch backend/src/index.ts`
 - `pnpm dev:frontend` - Frontend only: `pnpm --filter frontend dev`
-- `pnpm build` - Build both backend and frontend
-- `pnpm test` - Run backend tests: `pnpm --filter backend test` (vitest)
+- `pnpm build` - Build CLI, backend, and frontend
+- `pnpm test` - Run CLI, backend, and frontend tests
 - `cd backend && vitest <filename>` - Run single test file
 - `cd backend && vitest --ui` - Test UI with coverage
 - `cd backend && vitest --coverage` - Coverage report (80% threshold)
-- `pnpm lint` - Lint both backend and frontend
+- `pnpm lint` - Lint CLI, frontend, and backend
 - `pnpm lint:backend` - Backend linting
 - `pnpm lint:frontend` - Frontend linting
 

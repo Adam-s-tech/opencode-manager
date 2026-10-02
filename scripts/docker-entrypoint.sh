@@ -46,12 +46,13 @@ grant_kvm_access() {
 OPENCODE_SUPPORTED_FLOOR="${OPENCODE_BUNDLED_VERSION:-}"
 
 read_opencode_version() {
-  local binary
+  local binary output
   binary="$(command -v "${1:-opencode}" 2>/dev/null || true)"
   if [ -z "$binary" ] || [ ! -x "$binary" ]; then
     return 0
   fi
-  runuser -u node -- "$binary" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
+  output="$(runuser -u node -- "$binary" --version 2>&1)" || return 0
+  parse_opencode_version_output "$output"
 }
 
 install_opencode() {

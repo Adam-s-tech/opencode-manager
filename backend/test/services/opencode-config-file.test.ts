@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'fs/promises'
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 import { ZodError } from 'zod'
@@ -30,6 +30,11 @@ const writeFailures = vi.hoisted(() => ({
 
 const fsCalls = vi.hoisted(() => ({ stat: 0, readFile: 0 }))
 
+const writeGate = vi.hoisted(() => ({
+  beforeWrite: null as null | (() => Promise<void>),
+  entered: null as null | (() => void),
+}))
+
 vi.mock('fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs/promises')>()
   return {
@@ -52,6 +57,11 @@ vi.mock('../../src/utils/fs-safe', async (importOriginal) => {
     writeFileAtomic: vi.fn(async (filePath: string, content: string, options?: { mode?: number }) => {
       writeFailures.calls.push(filePath)
       writeFailures.readsAtWrite.push({ stat: fsCalls.stat, readFile: fsCalls.readFile })
+      if (writeGate.beforeWrite) {
+        const gate = writeGate.beforeWrite
+        writeGate.entered?.()
+        await gate()
+      }
       if (writeFailures.paths.includes(filePath)) {
         throw new Error(`simulated write failure for ${filePath}`)
       }
@@ -75,6 +85,7 @@ import {
   pruneHealthWatchDirectory,
   readOpenCodeConfigFile,
   readOpenCodeConfigSnapshot,
+  restoreLegacyOpenCodeConfigBackup,
   restoreOpenCodeConfigSnapshot,
   serializeOpenCodeConfigSnapshot,
   toOpenCodeConfigValidationIssues,
@@ -82,6 +93,7 @@ import {
   writeHealthWatchArtifact,
   writeOpenCodeConfigFile,
 } from '../../src/services/opencode-config-file'
+import { withFileLock } from '../../src/utils/atomic-json'
 
 describe('opencode-config-file', () => {
   let workDir: string
@@ -108,6 +120,8 @@ describe('opencode-config-file', () => {
     writeFailures.readsAtWrite = []
     fsCalls.stat = 0
     fsCalls.readFile = 0
+    writeGate.beforeWrite = null
+    writeGate.entered = null
     workDir = await mkdtemp(path.join(tmpdir(), 'opencode-config-file-'))
     paths.config = path.join(workDir, 'opencode.json')
     paths.configDir = workDir
@@ -778,6 +792,66 @@ describe('opencode-config-file', () => {
     await expect(deleteOpenCodeConfigFile()).resolves.toBe(true)
     await expect(readdir(workDir)).resolves.toEqual([])
     await expect(deleteOpenCodeConfigFile()).resolves.toBe(false)
+  })
+
+  describe('restoreLegacyOpenCodeConfigBackup', () => {
+    const backupPath = (configPath: string) => `${configPath}.ocm-sandbox-backup`
+
+    it('restores removed enforcement sections from a legacy backup and removes it', async () => {
+      const configPath = sourcePath('opencode.json')
+      await writeFile(configPath, JSON.stringify({ model: 'x' }), 'utf8')
+      await writeFile(backupPath(configPath), JSON.stringify({ removedSections: { plugin: ['my-plugin'] } }), 'utf8')
+
+      await restoreLegacyOpenCodeConfigBackup(configPath)
+
+      await expect(readFile(configPath, 'utf8')).resolves.toBe(
+        JSON.stringify({ model: 'x', plugin: ['my-plugin'] }, null, 2),
+      )
+      await expect(access(backupPath(configPath))).rejects.toThrow()
+    })
+
+    it('rejects a non-object current config without overwriting it and keeps the backup', async () => {
+      const configPath = sourcePath('opencode.json')
+      await writeFile(configPath, '[]', 'utf8')
+      await writeFile(backupPath(configPath), JSON.stringify({ removedSections: { plugin: ['my-plugin'] } }), 'utf8')
+
+      await expect(restoreLegacyOpenCodeConfigBackup(configPath)).rejects.toThrow(/is not an object/)
+
+      await expect(readFile(configPath, 'utf8')).resolves.toBe('[]')
+      await expect(access(backupPath(configPath))).resolves.toBeUndefined()
+    })
+
+    it('does not overwrite a config update queued on the same native directory lock', async () => {
+      const nativeDir = path.join(workDir, 'native')
+      const configPath = path.join(nativeDir, 'opencode.json')
+      await mkdir(nativeDir, { recursive: true })
+      await writeFile(configPath, JSON.stringify({ model: 'x' }), 'utf8')
+      await writeFile(backupPath(configPath), JSON.stringify({ removedSections: { plugin: ['my-plugin'] } }), 'utf8')
+
+      let releaseWrite!: () => void
+      const writeBlocked = new Promise<void>((resolve) => {
+        releaseWrite = resolve
+      })
+      let enteredWrite!: () => void
+      const writeEntered = new Promise<void>((resolve) => {
+        enteredWrite = resolve
+      })
+      writeGate.beforeWrite = () => writeBlocked
+      writeGate.entered = enteredWrite
+
+      const restore = restoreLegacyOpenCodeConfigBackup(configPath)
+      await writeEntered
+
+      const update = withFileLock(nativeDir, async () => {
+        await writeFile(configPath, JSON.stringify({ model: 'updated' }), 'utf8')
+      })
+
+      releaseWrite()
+      await Promise.all([update, restore])
+
+      await expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ model: 'updated' })
+      await expect(access(backupPath(configPath))).rejects.toThrow()
+    })
   })
 
   describe('foldLegacyConfigJsonSource', () => {

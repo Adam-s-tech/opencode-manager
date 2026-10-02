@@ -384,7 +384,7 @@ Limit container resources:
 
 ```yaml
 services:
-  opencode-manager:
+  app:
     # ... other config
     deploy:
       resources:
@@ -404,7 +404,7 @@ Create an isolated network:
 
 ```yaml
 services:
-  opencode-manager:
+  app:
     networks:
       - opencode-net
 
@@ -419,7 +419,7 @@ Use host networking (Linux only):
 
 ```yaml
 services:
-  opencode-manager:
+  app:
     network_mode: host
 ```
 
@@ -542,7 +542,7 @@ services:
 OpenCode 2 always requires Basic Auth on the managed server, so a password is always in effect. It is resolved in this order:
 
 1. **Via UI:** Use Settings → OpenCode → Server Auth to set a password at runtime
-2. **Environment variable:** Set `OPENCODE_SERVER_PASSWORD` in your `.env` file or compose environment
+2. **Environment variable:** Set `OPENCODE_SERVER_PASSWORD` in the compose `environment:` block. The default `docker-compose.yml` does not forward it from `.env`, so setting it there alone has no effect in Docker; use `.env` only for local runs outside Docker
 3. **Auto-generated:** When neither is configured, OpenCode Manager generates a random password and persists it in its database
 
 **DB-stored passwords take precedence over the environment variable, which takes precedence over the auto-generated password.**

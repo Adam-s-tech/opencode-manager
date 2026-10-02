@@ -11,7 +11,7 @@ Complete reference for all configuration options.
 | `ADMIN_PASSWORD` | Pre-configured admin password | - |
 | `ADMIN_PASSWORD_RESET` | Set to `true` to reset admin password | `false` |
 | `AUTH_TRUSTED_ORIGINS` | Comma-separated list of trusted origins (frontend + backend) | `http://localhost:5173,http://localhost:5003` |
-| `AUTH_SECURE_COOKIES` | Use secure cookies (HTTPS only) | `true` in prod, `false` in dev |
+| `AUTH_SECURE_COOKIES` | Use secure cookies (HTTPS only) | Runtime: `true` in prod, `false` in dev; Compose: `false` unless set |
 
 ## OAuth Providers
 
@@ -73,7 +73,7 @@ When configured, users can enable push notifications in Settings → Notificatio
 | `HOST` | Server bind address | `0.0.0.0` |
 | `NODE_ENV` | Environment (`development` or `production`) | `development` |
 | `CORS_ORIGIN` | CORS origin for frontend | `http://localhost:5173` |
-| `LOG_LEVEL` | Logging level | `info` |
+| `LOG_LEVEL` | Accepted but currently unused; debug output is controlled by `DEBUG` | `info` |
 | `DEBUG` | Enable debug logging | `false` |
 
 ## Database
@@ -97,7 +97,7 @@ When configured, users can enable push notifications in Settings → Notificatio
 | `OPENCODE_HEALTH_WATCH_ENABLED` | Enable OpenCode health watcher and recovery | `true` (`false` in tests) |
 | `OPENCODE_HEALTH_POLL_MS` | OpenCode health watcher poll interval | `30000` |
 | `OPENCODE_HEALTH_FAILURE_THRESHOLD` | Failed health checks before recovery starts | `2` |
-| `OPENCODE_SERVER_PASSWORD` | Basic Auth password for the managed OpenCode server. OpenCode 2 always requires one: when unset, OpenCode Manager generates and persists a password (override it any time via Settings → OpenCode → Server Auth). DB-stored passwords override this env var. | auto-generated |
+| `OPENCODE_SERVER_PASSWORD` | Basic Auth password for the managed OpenCode server. OpenCode 2 always requires one: when unset, OpenCode Manager generates and persists a password (override it any time via Settings → OpenCode → Server Auth). DB-stored passwords override this env var. The default `docker-compose.yml` does not forward this variable from `.env`; add it to the compose `environment:` block or set it via Settings → OpenCode → Server Auth. | auto-generated |
 
 > **Upgrade note:** `OPENCODE_PUBLIC_URL` is no longer used. MCP OAuth redirects now point at the Manager's `/api/mcp-oauth-proxy/callback`, built from the request: the scheme comes from `X-Forwarded-Proto` (first value, `http` or `https` only), then the `Origin` header, then `http`; the host comes from `X-Forwarded-Host` when present, otherwise `Host`. Behind a reverse proxy, forward `X-Forwarded-Proto` and `X-Forwarded-Host` (or preserve `Host`) and remove `OPENCODE_PUBLIC_URL`; the Manager logs a warning at startup while it is still set.
 
@@ -143,7 +143,7 @@ Sandboxed agent commands run inside a microVM managed by `msb` (see [Agent Sandb
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_API_URL` | Backend API URL for frontend | `http://localhost:5003` |
+| `VITE_API_URL` | Backend API URL for frontend. Empty (the default) means same-origin requests; the Vite dev server proxies `/api` to the backend | empty (same origin) |
 | `VITE_SERVER_PORT` | Backend port hint for frontend | `5003` |
 | `VITE_OPENCODE_PORT` | OpenCode server port hint | `5551` |
 | `VITE_MAX_FILE_SIZE_MB` | File size limit for frontend | `50` |
