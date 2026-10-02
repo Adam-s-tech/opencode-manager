@@ -14,6 +14,7 @@ import { useSessionAgentStore } from '@/stores/sessionAgentStore'
 import { useUIState } from '@/stores/uiStateStore'
 import { useSendErrorStore } from '@/stores/sendErrorStore'
 import { useMobile } from '@/hooks/useMobile'
+import { FINE_POINTER_MEDIA_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 
 import { usePermissions } from '@/contexts/EventContext'
 import { ArrowDown, Upload, X, Mic, MicOff } from 'lucide-react'
@@ -39,6 +40,11 @@ import type { FileAttachmentInfo, ImageAttachment } from '@/api/types'
 import { isBuiltinCommand, type CommandActions, type PageCommandActions } from '@/lib/builtinCommands'
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/heic", "image/heif"]
+
+function parseCommandPrompt(value: string): { name: string; args?: string } | null {
+  const match = value.match(/^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/)
+  return match ? { name: match[1], args: match[2] } : null
+}
 
 
 const revokeBlobUrls = (attachments: ImageAttachment[]) => {
@@ -133,6 +139,14 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const voiceButtonContainerRef = useRef<HTMLDivElement | null>(null)
+  const hasFinePointer = useMediaQuery(FINE_POINTER_MEDIA_QUERY)
+
+  useEffect(() => {
+    if (!hasFinePointer) return
+    const activeElement = document.activeElement
+    if (activeElement && activeElement !== document.body) return
+    textareaRef.current?.focus()
+  }, [hasFinePointer, sessionID])
 
   const resetVoiceGestureState = useCallback(() => {
     voiceGestureStartYRef.current = null
@@ -215,6 +229,12 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
   const isPromptSubmitPending = sendPrompt.isPending || sendShell.isPending
   const interruptSession = useInterruptSession()
   const { filterCommands } = useCommands({ directory })
+  const isExactCommandPrompt = (value: string) => {
+    const commandPrompt = parseCommandPrompt(value)
+    if (!commandPrompt) return false
+    const [command] = filterCommands(commandPrompt.name)
+    return command?.name.toLowerCase() === commandPrompt.name.toLowerCase()
+  }
   
   const { files: searchResults } = useFileSearch(
     mentionQuery,
@@ -330,13 +350,12 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
 
     
 
-    const commandMatch = prompt.match(/^\/([a-zA-Z0-9_-]+)(?:\s+(.*))?$/)
-    if (commandMatch) {
-      const [, commandName, commandArgs] = commandMatch
-      const command = filterCommands(commandName)[0]
+    const commandPrompt = parseCommandPrompt(prompt)
+    if (commandPrompt) {
+      const command = filterCommands(commandPrompt.name)[0]
       
       if (command) {
-        const parsed = parsePromptToInput(commandArgs?.trim() || '', attachedFiles, agentNames, imageAttachments)
+        const parsed = parsePromptToInput(commandPrompt.args?.trim() || '', attachedFiles, agentNames, imageAttachments)
         const submittedPrompt = prompt
         const submittedAttachedFiles = attachedFiles
         const submittedImageAttachments = imageAttachments
@@ -961,7 +980,7 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
       }
     }
     
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || (isMobile && !e.shiftKey))) {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey || (!e.shiftKey && (isMobile || isExactCommandPrompt(prompt))))) {
       e.preventDefault()
       if (isMobile) {
         textareaRef.current?.blur()

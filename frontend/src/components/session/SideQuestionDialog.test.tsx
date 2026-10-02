@@ -1,5 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { stubMatchMedia } from '@/test/test-utils'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { SideQuestionDialog } from './SideQuestionDialog'
 
 const mocks = vi.hoisted(() => ({
@@ -22,9 +24,48 @@ const renderDialog = (props: Partial<React.ComponentProps<typeof SideQuestionDia
     />,
   )
 
+function FocusHost() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <textarea aria-label="prompt" />
+      <button type="button" onClick={() => setOpen(true)}>open</button>
+      {open && (
+        <SideQuestionDialog
+          open
+          sessionID="ses_1"
+          onOpenChange={(next) => {
+            if (!next) setOpen(false)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
 describe('SideQuestionDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'matchMedia')
+  })
+
+  it('focuses its input on open and returns focus to the previous element on Escape', async () => {
+    stubMatchMedia(true)
+    render(<FocusHost />)
+    const prompt = screen.getByLabelText('prompt')
+    prompt.focus()
+
+    fireEvent.click(screen.getByText('open'))
+
+    const input = await screen.findByPlaceholderText('Ask a side question')
+    await waitFor(() => expect(input).toHaveFocus())
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    await waitFor(() => expect(prompt).toHaveFocus())
   })
 
   it('asks a non-empty initial question once on mount and renders the answer', async () => {

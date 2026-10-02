@@ -1433,6 +1433,26 @@ describe('EventProvider permissions and forms', () => {
     expect(invalidateQueries).toHaveBeenCalledTimes(1)
   })
 
+  it('invalidates the session list when a session is forked', async () => {
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['opencode', 'sessions', '/repo'], { pages: [], pageParams: [] })
+
+    render(<Harness />, { wrapper: createWrapper(queryClient) })
+
+    await waitFor(() => expect(mocks.subscribeGlobalMonitor).toHaveBeenCalled())
+
+    const lastSubscribeCall = mocks.subscribeGlobalMonitor.mock.calls[mocks.subscribeGlobalMonitor.mock.calls.length - 1]
+    const onEvent = lastSubscribeCall[0].onEvent as (data: unknown) => void
+
+    act(() => {
+      onEvent({ type: 'session.forked', data: { sessionID: 'session-fork', parentID: 'session-9' }, directory: '/repo' })
+    })
+
+    await waitFor(() => {
+      expect(queryClient.getQueryState(['opencode', 'sessions', '/repo'])?.isInvalidated).toBe(true)
+    })
+  })
+
   it('invalidates only the session list for the event directory', async () => {
     const queryClient = createTestQueryClient()
     queryClient.setQueryData(['opencode', 'sessions', '/repo-a'], { pages: [], pageParams: [] })

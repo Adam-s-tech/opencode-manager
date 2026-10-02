@@ -509,6 +509,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
           break
         }
         case 'session.created':
+        case 'session.forked':
         case 'session.renamed':
         case 'session.moved':
         case 'session.metadata.updated':

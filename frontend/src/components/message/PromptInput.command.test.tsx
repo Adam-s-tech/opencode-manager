@@ -1,11 +1,11 @@
 import { createRef } from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PromptInput, type PromptInputHandle } from './PromptInput'
 import { useUIState } from '@/stores/uiStateStore'
 import { BUILTIN_COMMANDS } from '@/lib/builtinCommands'
-import { createCommandActionsMock } from '@/test/test-utils'
+import { createCommandActionsMock, stubMatchMedia } from '@/test/test-utils'
 
 const mocks = vi.hoisted(() => ({
   runCommand: vi.fn(),
@@ -187,6 +187,39 @@ describe('PromptInput command submission', () => {
     useUIState.getState().clearPendingPromptFile()
   })
 
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'matchMedia')
+  })
+
+  it('focuses the prompt on open with a fine pointer', async () => {
+    stubMatchMedia(true)
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    expect(input).toHaveFocus()
+  })
+
+  it('does not focus the prompt on open on touch devices', async () => {
+    stubMatchMedia(false)
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    expect(input).not.toHaveFocus()
+  })
+
+  it('does not take focus from an element that already has it', async () => {
+    stubMatchMedia(true)
+    const other = document.createElement('button')
+    document.body.appendChild(other)
+    other.focus()
+
+    renderComponent()
+
+    await screen.findByPlaceholderText('Send a message...')
+    expect(other).toHaveFocus()
+    other.remove()
+  })
+
   it('sends parsed command attachments and offsets to runCommand without injecting the selected agent', async () => {
     const { container } = renderComponent()
 
@@ -224,6 +257,53 @@ describe('PromptInput command submission', () => {
       { name: 'reviewer', mention: { start: 9, end: 18, text: '@reviewer' } },
     ])
     expect(call.skills).toEqual([])
+  })
+
+  it('runs a command whose arguments span multiple lines', async () => {
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/review first line\nsecond line' } })
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(mocks.runCommand).toHaveBeenCalled())
+    expect(mocks.runCommand.mock.calls[0][0]).toMatchObject({
+      name: 'review',
+      text: 'first line\nsecond line',
+    })
+  })
+
+  it('submits on plain Enter when the prompt is a known command', async () => {
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/btw first line\nsecond line' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(defaultProps.commandActions.askSideQuestion).toHaveBeenCalledWith('first line\nsecond line'))
+  })
+
+  it('does not submit a known command on Shift+Enter', async () => {
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/btw hi' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+
+    expect(defaultProps.commandActions.askSideQuestion).not.toHaveBeenCalled()
+    expect(input).toHaveValue('/btw hi')
+  })
+
+  it.each(['hello there', '/bt hi', '/unknown hi'])('does not submit %j on plain Enter', async (value) => {
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(input).toHaveValue(value)
+    expect(mocks.runCommand).not.toHaveBeenCalled()
+    expect(defaultProps.commandActions.askSideQuestion).not.toHaveBeenCalled()
   })
 
   it('preserves the submitted command text when the command submission fails', async () => {

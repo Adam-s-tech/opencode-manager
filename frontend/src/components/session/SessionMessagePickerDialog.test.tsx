@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { stubMatchMedia } from '@/test/test-utils'
+import { useState } from 'react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { SessionMessageInfo } from '@opencode-manager/shared/opencode'
 import { SessionMessagePickerDialog } from './SessionMessagePickerDialog'
 
@@ -25,7 +27,48 @@ const renderPicker = (
     />,
   )
 
+function FocusHost() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <textarea aria-label="prompt" />
+      <button type="button" onClick={() => setOpen(true)}>open</button>
+      {open && (
+        <SessionMessagePickerDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setOpen(false)
+          }}
+          title="Fork session"
+          messages={[]}
+          onSelect={vi.fn()}
+        />
+      )}
+    </>
+  )
+}
+
 describe('SessionMessagePickerDialog', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'matchMedia')
+  })
+
+  it('focuses its search on open and returns focus to the previous element on Escape', async () => {
+    stubMatchMedia(true)
+    render(<FocusHost />)
+    const prompt = screen.getByLabelText('prompt')
+    prompt.focus()
+
+    fireEvent.click(screen.getByText('open'))
+
+    const search = await screen.findByPlaceholderText('Search messages')
+    await waitFor(() => expect(search).toHaveFocus())
+
+    fireEvent.keyDown(search, { key: 'Escape' })
+
+    await waitFor(() => expect(prompt).toHaveFocus())
+  })
+
   it('lists only user messages, newest first', () => {
     renderPicker({
       messages: [

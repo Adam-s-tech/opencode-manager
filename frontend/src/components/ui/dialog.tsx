@@ -5,13 +5,37 @@ import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSwipeBack } from '@/hooks/useMobile'
 import { useVisualViewport } from '@/hooks/useVisualViewport'
+import { FINE_POINTER_MEDIA_QUERY } from '@/hooks/useMediaQuery'
 
 const DialogOpenContext = React.createContext<boolean>(true)
+const DialogReturnFocusContext = React.createContext<HTMLElement | null>(null)
+
+function getFocusedElement(): HTMLElement | null {
+  return typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null
+}
+
+function canRestoreFocus(element: HTMLElement): boolean {
+  if (!element.isConnected || element === document.body) return false
+  if (!element.matches('input, textarea, [contenteditable="true"]')) return true
+  return typeof window.matchMedia === 'function' && window.matchMedia(FINE_POINTER_MEDIA_QUERY).matches
+}
 
 function Dialog({ open, ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  const [openState, setOpenState] = React.useState(() => ({
+    open,
+    returnFocus: open ? getFocusedElement() : null,
+  }))
+  if (openState.open !== open) {
+    setOpenState({ open, returnFocus: open ? getFocusedElement() : openState.returnFocus })
+  }
+
   return (
     <DialogOpenContext.Provider value={open ?? true}>
-      <DialogPrimitive.Root open={open} {...props} />
+      <DialogReturnFocusContext.Provider value={openState.returnFocus}>
+        <DialogPrimitive.Root open={open} {...props} />
+      </DialogReturnFocusContext.Provider>
     </DialogOpenContext.Provider>
   )
 }
@@ -53,9 +77,16 @@ interface DialogContentProps
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, hideCloseButton, fullscreen, mobileFullscreen, mobileSwipeToClose, keyboardAware, canSwipeBack, onSwipeBack, overlayClassName, style, ...props }, ref) => {
+>(({ className, children, hideCloseButton, fullscreen, mobileFullscreen, mobileSwipeToClose, keyboardAware, canSwipeBack, onSwipeBack, overlayClassName, style, onCloseAutoFocus, ...props }, ref) => {
   const isMobileFullscreenMode = fullscreen || mobileFullscreen
   const isDialogOpen = React.useContext(DialogOpenContext)
+  const returnFocus = React.useContext(DialogReturnFocusContext)
+  const handleCloseAutoFocus = (event: Event) => {
+    onCloseAutoFocus?.(event)
+    if (event.defaultPrevented || !returnFocus || !canRestoreFocus(returnFocus)) return
+    event.preventDefault()
+    returnFocus.focus()
+  }
   const [isMobile, setIsMobile] = React.useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   const shouldEnableMobileSwipe = mobileSwipeToClose !== false && isMobile && isDialogOpen
   const shouldAnimateSwipe = shouldEnableMobileSwipe && isMobileFullscreenMode
@@ -118,6 +149,7 @@ const DialogContent = React.forwardRef<
         )}
         style={Object.keys(mergedStyle).length > 0 ? mergedStyle : undefined}
         {...props}
+        onCloseAutoFocus={handleCloseAutoFocus}
       >
         {children}
         {shouldEnableMobileSwipe && (

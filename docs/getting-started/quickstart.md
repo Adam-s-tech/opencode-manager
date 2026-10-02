@@ -80,7 +80,7 @@ If you already used standalone OpenCode in those repositories, existing chats ap
 1. Select your repository from the sidebar
 2. Click **New Session** or type `/new`
 3. Type your message
-4. Press **Enter** to send
+4. Press **Cmd+Enter** (`Ctrl+Enter` on other platforms) to send, or **Enter** on mobile
 
 ### Useful Commands
 
@@ -105,7 +105,7 @@ If you already used standalone OpenCode in those repositories, existing chats ap
 | `/skills` | Load a skill |
 | `/connect` | Connect a provider |
 
-Built-in commands use only the command text. Attached files and images are kept in the composer for your next message.
+Press **Enter** to run a command once its name is complete; use **Shift+Enter** to continue its text on a new line. Built-in commands use only the command text. Attached files and images are kept in the composer for your next message.
 
 ### File Mentions
 
@@ -129,7 +129,8 @@ Now that you're set up, explore more features:
 
 | Shortcut | Action |
 |----------|--------|
-| `Enter` | Send message |
+| `Cmd+Enter` / `Ctrl+Enter` | Send message |
+| `Enter` | Run a slash command, such as `/btw <question>`; otherwise a new line on desktop, send on mobile |
 | `Shift+Enter` | New line |
 
 The app uses a configurable leader key system (`Cmd+O` on Mac, `Ctrl+O` on other platforms) for additional shortcuts. Customize in Settings > Keyboard Shortcuts.

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
+import { stubMatchMedia } from "@/test/test-utils";
 import {
   Dialog,
   DialogContent,
@@ -397,6 +399,78 @@ describe("DialogHeader", () => {
     expect(screen.getByTestId("dialog-header")).toHaveClass("min-w-0");
   });
 });
+
+function ReturnFocusHost({ onCloseAutoFocus }: { onCloseAutoFocus?: (event: Event) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <textarea aria-label="prompt" />
+      <button type="button" onClick={() => setOpen(true)}>open</button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
+          <DialogTitle>Focus Dialog</DialogTitle>
+          <input aria-label="dialog input" autoFocus />
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+async function openAndEscape(returnTarget: HTMLElement) {
+  returnTarget.focus()
+  fireEvent.click(screen.getByText('open'))
+  const input = await screen.findByLabelText('dialog input')
+  await waitFor(() => expect(input).toHaveFocus())
+  fireEvent.keyDown(input, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByLabelText('dialog input')).not.toBeInTheDocument())
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+}
+
+describe('Dialog return focus', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'matchMedia')
+  })
+
+  it('returns focus to the element focused before opening when there is no trigger', async () => {
+    stubMatchMedia(true)
+    render(<ReturnFocusHost />)
+    const prompt = screen.getByLabelText('prompt')
+
+    await openAndEscape(prompt)
+
+    expect(prompt).toHaveFocus()
+  })
+
+  it('does not refocus a text field on touch devices, so the keyboard stays closed', async () => {
+    stubMatchMedia(false)
+    render(<ReturnFocusHost />)
+    const prompt = screen.getByLabelText('prompt')
+
+    await openAndEscape(prompt)
+
+    expect(prompt).not.toHaveFocus()
+  })
+
+  it('refocuses a non-text element on touch devices', async () => {
+    stubMatchMedia(false)
+    render(<ReturnFocusHost />)
+    const opener = screen.getByText('open')
+
+    await openAndEscape(opener)
+
+    expect(opener).toHaveFocus()
+  })
+
+  it('lets a caller onCloseAutoFocus that prevents default take over', async () => {
+    stubMatchMedia(true)
+    render(<ReturnFocusHost onCloseAutoFocus={(event) => event.preventDefault()} />)
+    const prompt = screen.getByLabelText('prompt')
+
+    await openAndEscape(prompt)
+
+    expect(prompt).not.toHaveFocus()
+  })
+})
 
 function stubVisualViewport(height: number) {
   const listeners = new Set<() => void>()
