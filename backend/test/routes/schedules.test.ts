@@ -15,6 +15,10 @@ const scheduleService = {
   listAllEnabledJobs: vi.fn(),
   listAllJobsWithRepos: vi.fn(),
   listAllRuns: vi.fn(),
+  listUnreadRuns: vi.fn(),
+  countUnreadRuns: vi.fn(),
+  markRunViewed: vi.fn(),
+  markAllRunsViewed: vi.fn(),
   recoverRunningRuns: vi.fn(),
   setJobChangeHandler: vi.fn(),
 }
@@ -301,5 +305,62 @@ describe('Schedule Routes', () => {
     expect(response.status).toBe(400)
     expect(body.error).toBe('Run id must be a positive integer')
     expect(scheduleService.listAllRuns).not.toHaveBeenCalled()
+  })
+
+  it('lists unread runs with counts using the default limit', async () => {
+    scheduleService.listUnreadRuns.mockReturnValue([
+      { id: 5, status: 'failed', preview: 'Deploy failed' },
+    ])
+    scheduleService.countUnreadRuns.mockReturnValue({ total: 3, failed: 1 })
+
+    const response = await app.request('/repos/42/schedules/all/runs/unread')
+    const body = await response.json() as { runs: Array<{ id: number }>; total: number; failed: number }
+
+    expect(response.status).toBe(200)
+    expect(body.runs).toHaveLength(1)
+    expect(body.total).toBe(3)
+    expect(body.failed).toBe(1)
+    expect(scheduleService.listUnreadRuns).toHaveBeenCalledWith(20)
+  })
+
+  it('passes a bounded limit to the unread runs query', async () => {
+    scheduleService.listUnreadRuns.mockReturnValue([])
+    scheduleService.countUnreadRuns.mockReturnValue({ total: 0, failed: 0 })
+
+    const response = await app.request('/repos/42/schedules/all/runs/unread?limit=500')
+
+    expect(response.status).toBe(200)
+    expect(scheduleService.listUnreadRuns).toHaveBeenCalledWith(100)
+  })
+
+  it('marks all finished runs viewed', async () => {
+    scheduleService.markAllRunsViewed.mockReturnValue(4)
+
+    const response = await app.request('/repos/42/schedules/all/runs/viewed', { method: 'POST' })
+    const body = await response.json() as { updated: number }
+
+    expect(response.status).toBe(200)
+    expect(body.updated).toBe(4)
+    expect(scheduleService.markAllRunsViewed).toHaveBeenCalled()
+  })
+
+  it('marks a single run viewed', async () => {
+    scheduleService.markRunViewed.mockReturnValue(true)
+
+    const response = await app.request('/repos/42/schedules/all/runs/5/viewed', { method: 'POST' })
+    const body = await response.json() as { updated: boolean }
+
+    expect(response.status).toBe(200)
+    expect(body.updated).toBe(true)
+    expect(scheduleService.markRunViewed).toHaveBeenCalledWith(5)
+  })
+
+  it('rejects an invalid run id when marking a run viewed', async () => {
+    const response = await app.request('/repos/42/schedules/all/runs/not-a-number/viewed', { method: 'POST' })
+    const body = await response.json() as { error: string }
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Invalid run id')
+    expect(scheduleService.markRunViewed).not.toHaveBeenCalled()
   })
 })

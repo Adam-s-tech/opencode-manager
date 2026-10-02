@@ -3,12 +3,14 @@ import type { CreatePromptTemplateRequest } from '@opencode-manager/shared/types
 import type { PromptDialog } from '@/hooks/useScheduleUrlState'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Loader2, FileText, Plus, Upload } from 'lucide-react'
+import { Loader2, FileText, MoreHorizontal, Plus, Upload } from 'lucide-react'
+import { formatDistanceToNow } from 'date-fns'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { usePromptTemplates, useDeletePromptTemplate } from '@/hooks/usePromptTemplates'
 import { parseMarkdownTemplate } from '@/lib/schedules/markdownTemplate'
 import { PromptTemplateDialog } from './PromptTemplateDialog'
+import { ScheduleListToolbar } from './ScheduleListToolbar'
 import { DeleteDialog } from '@/components/ui/delete-dialog'
-import { PromptTemplateCard } from './PromptTab'
 
 interface PromptsTabProps {
   promptDialog: PromptDialog
@@ -24,7 +26,15 @@ export function PromptsTab({ promptDialog, templateId, onNew, onEdit, onDelete, 
   const [importValues, setImportValues] = useState<Partial<CreatePromptTemplateRequest> | undefined>()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [search, setSearch] = useState('')
   const { data: templates = [], isLoading } = usePromptTemplates()
+  const searchTerm = search.trim().toLowerCase()
+  const visibleTemplates = searchTerm
+    ? templates.filter((template) =>
+      [template.title, template.description, template.category, template.cadenceHint, template.suggestedName]
+        .some((field) => field.toLowerCase().includes(searchTerm)),
+    )
+    : templates
   const deleteMutation = useDeletePromptTemplate()
 
   const editingTemplate = templates.find((t) => t.id === templateId)
@@ -72,31 +82,23 @@ export function PromptsTab({ promptDialog, templateId, onNew, onEdit, onDelete, 
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold">Prompt templates</h2>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={onNew}
-          >
-            <Plus className="h-3 w-3" />
-            New
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="h-3 w-3" />
-            Import .md
-          </Button>
-        </div>
-      </div>
+      <ScheduleListToolbar search={search} onSearchChange={setSearch} searchPlaceholder="Search prompts">
+        <Button type="button" variant="outline" size="sm" className="h-9 shrink-0 gap-1" onClick={onNew}>
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">New</span>
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0 gap-1"
+          aria-label="Import .md"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload className="h-4 w-4" />
+          <span className="hidden sm:inline">Import .md</span>
+        </Button>
+      </ScheduleListToolbar>
 
       <input
         ref={fileInputRef}
@@ -106,12 +108,12 @@ export function PromptsTab({ promptDialog, templateId, onNew, onEdit, onDelete, 
         onChange={handleFileImport}
       />
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : templates.length === 0 ? (
+        ) : visibleTemplates.length === 0 ? (
           <div className="flex min-h-full items-center justify-center">
             <Card className="max-w-md border-dashed border-border/70">
               <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
@@ -119,24 +121,88 @@ export function PromptsTab({ promptDialog, templateId, onNew, onEdit, onDelete, 
                   <FileText className="h-8 w-8 text-muted-foreground" />
                 </div>
                 <div className="space-y-2">
-                  <p className="text-lg font-semibold">No templates yet</p>
+                  <p className="text-lg font-semibold">{searchTerm ? 'No matching templates' : 'No templates yet'}</p>
                   <p className="text-sm text-muted-foreground">
-                    Create prompt templates to reuse across your schedules.
+                    {searchTerm ? 'Try a different search.' : 'Create prompt templates to reuse across your schedules.'}
                   </p>
                 </div>
               </CardContent>
             </Card>
           </div>
         ) : (
-          <div className="grid gap-3 lg:grid-cols-2">
-            {templates.map((template) => (
-              <PromptTemplateCard
-                key={template.id}
-                template={template}
-                onEdit={(item) => onEdit(item.id)}
-                onDelete={onDelete}
-              />
-            ))}
+          <div className="overflow-x-auto rounded-lg border border-border/70">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 whitespace-nowrap bg-background text-xs uppercase text-muted-foreground">
+                <tr className="border-b border-border/60">
+                  <th scope="col" className="px-3 py-2.5 text-left font-medium">Template</th>
+                  <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Category</th>
+                  <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Cadence</th>
+                  <th scope="col" className="hidden px-3 py-2.5 text-left font-medium md:table-cell">Updated</th>
+                  <th scope="col" className="w-px px-3 py-2.5 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {visibleTemplates.map((template) => (
+                  <tr
+                    key={template.id}
+                    tabIndex={0}
+                    onClick={() => onEdit(template.id)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        onEdit(template.id)
+                      }
+                    }}
+                    className="cursor-pointer transition-colors hover:bg-accent/40"
+                  >
+                    <td className="px-3 py-2.5">
+                      <div className="flex min-w-0 flex-col">
+                        <span className="max-w-[32rem] truncate font-medium">{template.title}</span>
+                        {template.description && (
+                          <span className="max-w-[32rem] truncate text-xs text-muted-foreground">{template.description}</span>
+                        )}
+                        <span className="truncate text-xs text-muted-foreground sm:hidden">
+                          {template.category} · {template.cadenceHint}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="hidden px-3 py-2.5 text-muted-foreground sm:table-cell">
+                      <span className="capitalize">{template.category}</span>
+                    </td>
+                    <td className="hidden px-3 py-2.5 text-muted-foreground sm:table-cell">{template.cadenceHint}</td>
+                    <td
+                      className="hidden px-3 py-2.5 text-muted-foreground md:table-cell"
+                      title={new Date(template.updatedAt).toLocaleString()}
+                    >
+                      {formatDistanceToNow(template.updatedAt, { addSuffix: true })}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="More actions"
+                            className="h-7 w-7 text-muted-foreground"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+                          <DropdownMenuItem onClick={() => onEdit(template.id)}>Edit</DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive" onClick={() => onDelete(template.id)}>
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

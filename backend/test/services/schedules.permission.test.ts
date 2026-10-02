@@ -137,6 +137,7 @@ const baseRun: ScheduleRun = {
   status: 'running',
   startedAt: Date.UTC(2026, 2, 9, 12, 5, 0),
   finishedAt: null,
+  viewedAt: null,
   createdAt: Date.UTC(2026, 2, 9, 12, 5, 0),
   sessionId: null,
   sessionTitle: null,

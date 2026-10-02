@@ -6,6 +6,7 @@ import { useMobile } from '@/hooks/useMobile'
 import { useMobileTabBar } from '@/hooks/useMobileTabBar'
 import { useUrlParams } from '@/hooks/useUrlParams'
 import { useScheduleUrlState, type ScheduleTab } from '@/hooks/useScheduleUrlState'
+import { useUnreadScheduleRuns } from '@/hooks/useSchedules'
 import { getAssistantPath, isAssistantPath, parseRepoRoute } from '@/lib/navigation'
 import { openDialogParam } from '@/hooks/useDialogParam'
 
@@ -27,6 +28,7 @@ interface GlobalTabsArgs {
   isInsideRepo: boolean
   repoId: number | null
   updateParams: ReturnType<typeof useUrlParams>['updateParams']
+  unreadScheduleCount: number
 }
 
 type TabBarMode = 'hidden' | 'global' | 'schedule'
@@ -62,7 +64,7 @@ function getMobileTabRouteState(pathname: string): MobileTabRouteState {
   }
 }
 
-function buildGlobalTabs({ pathname, openSheet, open, close, navigate, isInsideRepo, repoId, updateParams }: GlobalTabsArgs): TabDef[] {
+function buildGlobalTabs({ pathname, openSheet, open, close, navigate, isInsideRepo, repoId, updateParams, unreadScheduleCount }: GlobalTabsArgs): TabDef[] {
   const openRepoDialog = (dialog: string) => {
     openDialogParam(updateParams, dialog)
   }
@@ -120,6 +122,7 @@ function buildGlobalTabs({ pathname, openSheet, open, close, navigate, isInsideR
           icon: CalendarClock,
           onClick: () => navigate('/schedules'),
           active: pathname === '/schedules' && !openSheet,
+          badge: unreadScheduleCount > 0,
         }]
       : []),
     {
@@ -199,8 +202,10 @@ export const MobileTabBar = memo(function MobileTabBar() {
   const { openSheet, open, close } = useMobileTabBar()
   const { updateParams } = useUrlParams()
   const { scheduleTab, setScheduleTab } = useScheduleUrlState()
+  const { data: unreadRuns } = useUnreadScheduleRuns()
   const isMobile = useMobile()
   const routeState = useMemo(() => getMobileTabRouteState(pathname), [pathname])
+  const unreadScheduleCount = unreadRuns?.total ?? 0
 
   const tabs = useMemo<TabDef[]>(
     () => (routeState.mode === 'schedule'
@@ -214,6 +219,7 @@ export const MobileTabBar = memo(function MobileTabBar() {
         isInsideRepo: routeState.isInsideRepo,
         repoId: routeState.repoId,
         updateParams,
+        unreadScheduleCount,
       })),
     [
       routeState,
@@ -225,6 +231,7 @@ export const MobileTabBar = memo(function MobileTabBar() {
       close,
       navigate,
       updateParams,
+      unreadScheduleCount,
     ],
   )
 

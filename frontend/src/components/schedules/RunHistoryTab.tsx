@@ -1,17 +1,17 @@
+import { useState } from 'react'
 import type { ScheduleJob, ScheduleRun } from '@opencode-manager/shared/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { History, Loader2, Trash2 } from 'lucide-react'
-import { RunHistoryCards, RunDetailPanel } from '@/components/schedules'
+import { ScheduleListToolbar, ScheduleRunDrawer, ScheduleRunsTable } from '@/components/schedules'
+import { formatRunBranch, getRunStatusLabel, getRunTitle } from './schedule-run-display'
 
 interface RunHistoryTabProps {
-  repoId: number
   selectedJob: ScheduleJob | undefined
   runs: ScheduleRun[] | undefined
   runsLoading: boolean
-  activeRun: ScheduleRun | null
-  selectedRunLoading: boolean
-  onSelectRun: (id: number) => void
+  runId: number | null
+  onSelectRun: (id: number | null) => void
   onCancelRun: () => void
   cancelRunPending: boolean
   onClearHistory: () => void
@@ -21,13 +21,11 @@ interface RunHistoryTabProps {
 }
 
 export function RunHistoryTab({
-  repoId,
   selectedJob,
   runs,
   runsLoading,
+  runId,
   onSelectRun,
-  activeRun,
-  selectedRunLoading,
   onCancelRun,
   cancelRunPending,
   onClearHistory,
@@ -35,14 +33,9 @@ export function RunHistoryTab({
   onDeleteRun,
   deleteRunPending,
 }: RunHistoryTabProps) {
+  const [search, setSearch] = useState('')
+
   if (!selectedJob) {
-    if (selectedRunLoading) {
-      return (
-        <div className="flex min-h-0 flex-1 h-full items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      )
-    }
     return (
       <div className="flex min-h-0 flex-1 h-full items-start">
         <Card className="max-w-3xl border-dashed border-border/70 w-full">
@@ -56,43 +49,54 @@ export function RunHistoryTab({
     )
   }
 
+  const searchTerm = search.trim().toLowerCase()
+  const runList = (runs ?? []).filter((run) => !searchTerm || [
+    getRunTitle(run),
+    getRunStatusLabel(run.status),
+    run.triggerSource,
+    formatRunBranch(run),
+    run.errorText,
+  ].some((field) => field?.toLowerCase().includes(searchTerm)))
+  const activeRun = runId !== null ? runList.find((run) => run.id === runId) ?? null : null
+  const activeIndex = activeRun ? runList.findIndex((run) => run.id === activeRun.id) : -1
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-2 pt-2">
-        <p className="text-sm font-medium text-muted-foreground">Run history</p>
+      <ScheduleListToolbar search={search} onSearchChange={setSearch} searchPlaceholder="Search runs">
         <Button
           variant="outline"
           size="sm"
+          className="h-9 shrink-0"
           onClick={onClearHistory}
           disabled={clearHistoryPending || !runs?.length}
+          aria-label="Clear history"
         >
           {clearHistoryPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-          Clear history
+          <span className="hidden sm:inline">Clear history</span>
         </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden pt-2 xl:gap-4 xl:grid xl:grid-cols-[320px_minmax(0,1fr)] xl:grid-rows-1">
-        <div className="min-h-0 h-full overflow-y-auto pb-2 xl:pr-1">
-          <RunHistoryCards
-            runs={runs}
+      </ScheduleListToolbar>
+      <div className="min-h-0 flex-1 overflow-y-auto pt-2 pb-2">
+        <div className="overflow-x-auto rounded-lg border border-border/70">
+          <ScheduleRunsTable
+            runs={runList}
             runsLoading={runsLoading}
+            selectedRunId={runId}
             onSelectRun={onSelectRun}
-            onCancelRun={onCancelRun}
-            cancelRunPending={cancelRunPending}
             onDeleteRun={onDeleteRun}
             deleteRunPending={deleteRunPending}
-          />
-        </div>
-
-        <div className="hidden xl:flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 py-3">
-          <RunDetailPanel
-            repoId={repoId}
-            activeRun={activeRun}
-            selectedRunLoading={selectedRunLoading}
-            onCancelRun={onCancelRun}
-            cancelRunPending={cancelRunPending}
+            isFiltered={Boolean(searchTerm)}
           />
         </div>
       </div>
+      <ScheduleRunDrawer
+        run={activeRun}
+        open={runId !== null}
+        onClose={() => onSelectRun(null)}
+        onCancelRun={onCancelRun}
+        cancelPending={cancelRunPending}
+        onPrev={activeIndex > 0 ? () => onSelectRun(runList[activeIndex - 1].id) : undefined}
+        onNext={activeIndex >= 0 && activeIndex < runList.length - 1 ? () => onSelectRun(runList[activeIndex + 1].id) : undefined}
+      />
     </div>
   )
 }

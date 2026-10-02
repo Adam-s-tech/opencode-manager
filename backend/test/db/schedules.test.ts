@@ -39,6 +39,7 @@ function makeRunRow(overrides: Record<string, unknown> = {}) {
     status: 'running',
     started_at: Date.UTC(2026, 2, 9, 12, 0, 0),
     finished_at: null,
+    viewed_at: null,
     created_at: Date.UTC(2026, 2, 9, 12, 0, 0),
     session_id: 'ses-1',
     session_title: 'Scheduled: Weekly engineering summary',
@@ -603,6 +604,28 @@ describe('schedule database queries', () => {
     expect(stmt.all).toHaveBeenCalledWith(42, 99, 1, 0)
   })
 
+  it('applies an escaped search term across run, job, and repo columns', () => {
+    const stmt = { all: vi.fn().mockReturnValue([]) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    schedulesDb.listAllScheduleRuns(mockDb, { search: '  50%_off  ' })
+
+    const sql = mockDb.prepare.mock.calls[0][0] as string
+    expect(sql).toContain("sj.name LIKE ? ESCAPE '\\'")
+    expect(sql).toContain("r.local_path LIKE ? ESCAPE '\\'")
+    const pattern = '%50\\%\\_off%'
+    expect(stmt.all).toHaveBeenCalledWith(pattern, pattern, pattern, pattern, pattern, pattern, 50, 0)
+  })
+
+  it('ignores a blank search term', () => {
+    const stmt = { all: vi.fn().mockReturnValue([]) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    schedulesDb.listAllScheduleRuns(mockDb, { search: '   ' })
+
+    expect(stmt.all).toHaveBeenCalledWith(50, 0)
+  })
+
   it('applies limit and offset', () => {
     const stmt = { all: vi.fn().mockReturnValue([]) }
     mockDb.prepare.mockReturnValue(stmt)
@@ -689,5 +712,161 @@ describe('schedule database queries', () => {
 
     expect(cleared).toBe(0)
     expect(mockDb.prepare).not.toHaveBeenCalled()
+  })
+
+  it('maps lastRun onto jobs with repo context from the latest run', () => {
+    const row = {
+      ...makeJobRow(),
+      repo_url: 'https://github.com/test/my-repo',
+      repo_path: '/home/user/my-repo',
+      repo_name: 'my-repo',
+      repo_source_path: null,
+      last_run_id: 5,
+      last_run_status: 'failed',
+      last_run_started_at: Date.UTC(2026, 2, 9, 12, 0, 0),
+      last_run_finished_at: Date.UTC(2026, 2, 9, 12, 5, 0),
+      last_run_viewed_at: null,
+      last_run_error_text: 'Model unavailable',
+      last_run_response_head: null,
+    }
+    const stmt = { all: vi.fn().mockReturnValue([row]) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const jobs = schedulesDb.listAllScheduleJobsWithRepos(mockDb)
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('substr(sr.response_text, 1, 600) AS last_run_response_head'))
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('ORDER BY started_at DESC LIMIT 1'))
+    expect(jobs[0]?.lastRun).toEqual({
+      id: 5,
+      status: 'failed',
+      startedAt: Date.UTC(2026, 2, 9, 12, 0, 0),
+      finishedAt: Date.UTC(2026, 2, 9, 12, 5, 0),
+      viewedAt: null,
+      preview: 'Model unavailable',
+    })
+  })
+
+  it('maps lastRun to null when a job has no runs', () => {
+    const row = {
+      ...makeJobRow(),
+      repo_url: null,
+      repo_path: '/home/user/my-repo',
+      repo_name: 'my-repo',
+      repo_source_path: null,
+      last_run_id: null,
+      last_run_status: null,
+      last_run_started_at: null,
+      last_run_finished_at: null,
+      last_run_viewed_at: null,
+      last_run_error_text: null,
+      last_run_response_head: null,
+    }
+    const stmt = { all: vi.fn().mockReturnValue([row]) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const jobs = schedulesDb.listAllScheduleJobsWithRepos(mockDb)
+
+    expect(jobs[0]?.lastRun).toBeNull()
+  })
+
+  it('lists unread runs only for finished unviewed completed/failed runs with a preview', () => {
+    const completedRow = {
+      ...makeRunRow({ id: 5, status: 'completed', finished_at: Date.UTC(2026, 2, 9, 12, 5, 0), response_text: null, error_text: null }),
+      job_name: 'Weekly summary',
+      repo_path: '/home/user/my-repo',
+      response_head: '## Summary\nEverything is stable.',
+    }
+    const failedRow = {
+      ...makeRunRow({ id: 6, status: 'failed', finished_at: Date.UTC(2026, 2, 9, 12, 6, 0), response_text: null, error_text: 'Deploy failed\nsee logs' }),
+      job_name: 'Weekly summary',
+      repo_path: '/home/user/my-repo',
+      response_head: null,
+    }
+    const stmt = { all: vi.fn().mockReturnValue([failedRow, completedRow]) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const runs = schedulesDb.listUnreadScheduleRuns(mockDb, 20)
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining("sr.status IN ('completed', 'failed') AND sr.viewed_at IS NULL"))
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining('substr(sr.response_text, 1, 600) AS response_head'))
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining("ORDER BY (sr.status = 'failed') DESC, sr.finished_at DESC"))
+    expect(stmt.all).toHaveBeenCalledWith(20)
+    expect(runs).toHaveLength(2)
+    expect(runs[0]).toMatchObject({ id: 6, status: 'failed', preview: 'Deploy failed' })
+    expect(runs[1]).toMatchObject({ id: 5, status: 'completed', preview: 'Summary' })
+  })
+
+  it('counts unread runs in a single aggregate query', () => {
+    const stmt = { get: vi.fn().mockReturnValue({ total: 3, failed: 1 }) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const counts = schedulesDb.countUnreadScheduleRuns(mockDb)
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining("WHERE status IN ('completed', 'failed') AND viewed_at IS NULL"))
+    expect(counts).toEqual({ total: 3, failed: 1 })
+  })
+
+  it('marks a single finished run viewed with an atomic guarded update', () => {
+    const stmt = { run: vi.fn().mockReturnValue({ changes: 1 }) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const updated = schedulesDb.markScheduleRunViewed(mockDb, 5)
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining("WHERE id = ? AND viewed_at IS NULL AND status IN ('completed', 'failed')"))
+    expect(stmt.run).toHaveBeenCalledWith(expect.any(Number), 5)
+    expect(updated).toBe(true)
+  })
+
+  it('reports no change when marking an already viewed or running run', () => {
+    const stmt = { run: vi.fn().mockReturnValue({ changes: 0 }) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const updated = schedulesDb.markScheduleRunViewed(mockDb, 5)
+
+    expect(updated).toBe(false)
+  })
+
+  it('marks every unviewed finished run viewed and returns the changed count', () => {
+    const stmt = { run: vi.fn().mockReturnValue({ changes: 4 }) }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const updated = schedulesDb.markAllScheduleRunsViewed(mockDb)
+
+    expect(mockDb.prepare).toHaveBeenCalledWith(expect.stringContaining("WHERE viewed_at IS NULL AND status IN ('completed', 'failed')"))
+    expect(stmt.run).toHaveBeenCalledWith(expect.any(Number))
+    expect(updated).toBe(4)
+  })
+
+  describe('extractReportPreview', () => {
+    it('returns null for empty input', () => {
+      expect(schedulesDb.extractReportPreview(null)).toBeNull()
+      expect(schedulesDb.extractReportPreview('')).toBeNull()
+      expect(schedulesDb.extractReportPreview('   \n  \n')).toBeNull()
+    })
+
+    it('strips markdown markers and returns the first non-empty line', () => {
+      expect(schedulesDb.extractReportPreview('## Heading\n\nBody text')).toBe('Heading')
+      expect(schedulesDb.extractReportPreview('- item one\n- item two')).toBe('item one')
+      expect(schedulesDb.extractReportPreview('1. first step')).toBe('first step')
+      expect(schedulesDb.extractReportPreview('> quoted line')).toBe('quoted line')
+      expect(schedulesDb.extractReportPreview('**bold** and `code`')).toBe('bold and code')
+    })
+
+    it('skips leading blank lines before the first content', () => {
+      expect(schedulesDb.extractReportPreview('\n\n   \n### Real heading')).toBe('Real heading')
+      expect(schedulesDb.extractReportPreview('I have enough evidence.\n\n# Drift Review\n\nBody')).toBe('Drift Review')
+    })
+
+    it('collapses whitespace', () => {
+      expect(schedulesDb.extractReportPreview('  hello    world  ')).toBe('hello world')
+    })
+
+    it('caps long previews with a trailing ellipsis', () => {
+      const preview = schedulesDb.extractReportPreview('x'.repeat(300))
+
+      expect(preview).not.toBeNull()
+      expect(preview?.endsWith('…')).toBe(true)
+      expect(preview?.replace(/…$/, '')).toHaveLength(160)
+    })
   })
 })

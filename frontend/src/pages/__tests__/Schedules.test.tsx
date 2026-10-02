@@ -6,10 +6,9 @@ import { Schedules } from '../Schedules'
 
 const mocks = vi.hoisted(() => ({
   useScheduleTarget: vi.fn(),
-  useRepoSchedules: vi.fn(),
+  useAllSchedules: vi.fn(),
   useRepoSchedule: vi.fn(),
   useRepoScheduleRuns: vi.fn(),
-  useRepoScheduleRun: vi.fn(),
   useCreateRepoSchedule: vi.fn(),
   useUpdateRepoSchedule: vi.fn(),
   useDeleteRepoSchedule: vi.fn(),
@@ -32,10 +31,9 @@ vi.mock('@/hooks/useScheduleTarget', () => ({
 }))
 
 vi.mock('@/hooks/useSchedules', () => ({
-  useRepoSchedules: mocks.useRepoSchedules,
+  useAllSchedules: mocks.useAllSchedules,
   useRepoSchedule: mocks.useRepoSchedule,
   useRepoScheduleRuns: mocks.useRepoScheduleRuns,
-  useRepoScheduleRun: mocks.useRepoScheduleRun,
   useCreateRepoSchedule: mocks.useCreateRepoSchedule,
   useUpdateRepoSchedule: mocks.useUpdateRepoSchedule,
   useDeleteRepoSchedule: mocks.useDeleteRepoSchedule,
@@ -54,15 +52,17 @@ vi.mock('@/hooks/useScheduleUrlState', () => ({
 }))
 
 vi.mock('@/components/schedules', () => ({
+  ScheduleListToolbar: () => null,
   ScheduleJobDialog: vi.fn(({ onOpenChange }) => (
     <div>
       ScheduleJobDialog
       <button onClick={() => onOpenChange(false)} data-testid="close-job-dialog">Close</button>
     </div>
   )),
-  JobsTab: vi.fn(({ onSelectJob }) => (
+  ScheduleJobsTable: vi.fn(({ onOpen }) => (
     <div>
-      <button onClick={() => onSelectJob(123)} data-testid="select-job">Select Job</button>
+      ScheduleJobsTable
+      <button onClick={() => onOpen({ id: 123, repoId: 5 })} data-testid="select-job">Select Job</button>
     </div>
   )),
   JobDetailTab: vi.fn(({ onEdit, onDelete, onRunNow }) => (
@@ -151,10 +151,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('0')
 
@@ -175,10 +174,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('0')
 
@@ -200,10 +198,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('0')
 
@@ -248,10 +245,9 @@ describe('Schedules', () => {
       mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({
         scheduleTab: 'detail',
       }))
-      mocks.useRepoSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: mockJob, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
       mocks.useRunRepoSchedule.mockReturnValue({ mutate: mutateMock, isPending: false })
 
       renderSchedules('0')
@@ -277,10 +273,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('5')
 
@@ -303,10 +298,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('5')
 
@@ -331,10 +325,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('5', '/repos/5/schedules?returnTo=%2Frepos%2F5%2Fsessions%2Fabc%3Fassistant%3D1')
 
@@ -380,10 +373,9 @@ describe('Schedules', () => {
         nextRunAt: null,
         skillMetadata: null,
       }
-      mocks.useRepoSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: mockJob, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('5')
 
@@ -401,10 +393,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: true,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: undefined, isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: undefined, isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('999')
 
@@ -417,10 +408,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: true,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: undefined, isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: undefined, isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: undefined, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('0')
 
@@ -466,10 +456,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: mockJob, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('5')
 
@@ -517,10 +506,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: mockJob, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
       mocks.useDeleteRepoSchedule.mockReturnValue({ mutate: deleteMutate, isPending: false })
 
       renderSchedules('5')
@@ -571,10 +559,9 @@ describe('Schedules', () => {
         isLoading: false,
         isError: false,
       })
-      mocks.useRepoSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
+      mocks.useAllSchedules.mockReturnValue({ data: [mockJob], isLoading: false })
       mocks.useRepoSchedule.mockReturnValue({ data: mockJob, isFetching: false })
       mocks.useRepoScheduleRuns.mockReturnValue({ data: [], isLoading: false })
-      mocks.useRepoScheduleRun.mockReturnValue({ data: undefined, isLoading: false })
 
       renderSchedules('5')
 

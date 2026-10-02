@@ -168,6 +168,7 @@ export const ScheduleRunSchema = z.object({
   status: ScheduleRunStatusSchema,
   startedAt: z.number(),
   finishedAt: z.number().nullable(),
+  viewedAt: z.number().nullable(),
   createdAt: z.number(),
   sessionId: z.string().nullable(),
   sessionTitle: z.string().nullable(),

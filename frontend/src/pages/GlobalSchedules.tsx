@@ -1,22 +1,23 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAllSchedules, useAllScheduleRuns, useCancelRepoScheduleRun } from '@/hooks/useSchedules'
+import { useAllSchedules, useAllScheduleRuns, useCancelRepoScheduleRun, useUnreadScheduleRuns } from '@/hooks/useSchedules'
 import { useDeleteRepoSchedule, useRunRepoSchedule, useUpdateRepoSchedule, useCreateRepoSchedule } from '@/hooks/useSchedules'
-import { ScheduleJobDialog, RunHistoryCards, PromptsTab } from '@/components/schedules'
+import { ScheduleJobDialog, PromptsTab, ScheduleJobsTable, ScheduleListToolbar, ScheduleRunDrawer, ScheduleRunsTable } from '@/components/schedules'
 import type { CreateScheduleJobRequest } from '@opencode-manager/shared/types'
-import { toUpdateScheduleRequest, formatScheduleShortLabel, formatTimestamp, getJobStatusTone } from '@/components/schedules/schedule-utils'
+import { matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
 import { Header } from '@/components/ui/header'
 import { Button } from '@/components/ui/button'
+import { ScheduleReportsBell } from '@/components/notifications/ScheduleReportsBell'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { DeleteDialog } from '@/components/ui/delete-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CalendarClock, Loader2, Plus, ArrowLeft, Play, Pencil, Trash2, Pause, PlayCircle, Clock3, History, SlidersHorizontal, XCircle, SearchX } from 'lucide-react'
+import { CalendarClock, Loader2, Plus, ArrowLeft, SlidersHorizontal } from 'lucide-react'
 
 import { useScheduleUrlState } from '@/hooks/useScheduleUrlState'
 import type { ScheduleTab } from '@/hooks/useScheduleUrlState'
 import { useSidebarAction } from '@/hooks/useSidebarAction'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 
 import type { ScheduleJobWithRepo, ScheduleRunWithContext } from '@/api/schedules'
 import { Combobox } from '@/components/ui/combobox'
@@ -33,6 +34,9 @@ export function GlobalSchedules() {
   const [scheduleModeFilter, setScheduleModeFilter] = useState<ScheduleModeFilter>('all')
   const [repoFilter, setRepoFilter] = useState<string>('all')
   const [sortOption, setSortOption] = useState<SortOption>('nextRun')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [runSearch, setRunSearch] = useState('')
+  const debouncedRunSearch = useDebouncedValue(runSearch.trim(), 300)
   const [runStatusFilter, setRunStatusFilter] = useState<string>('all')
   const [runRepoFilter, setRunRepoFilter] = useState<string>('all')
   const [runTriggerFilter, setRunTriggerFilter] = useState<string>('all')
@@ -66,7 +70,8 @@ export function GlobalSchedules() {
     status: runStatusFilter !== 'all' ? runStatusFilter : undefined,
     repoId: runRepoFilter !== 'all' ? Number(runRepoFilter.split('|')[0]) : undefined,
     triggerSource: runTriggerFilter !== 'all' ? runTriggerFilter : undefined,
-  }), [runStatusFilter, runRepoFilter, runTriggerFilter, runOffset])
+    search: debouncedRunSearch || undefined,
+  }), [runStatusFilter, runRepoFilter, runTriggerFilter, runOffset, debouncedRunSearch])
 
   const { data: runsPage = [], isLoading: runsLoading } = useAllScheduleRuns(runsParams, scheduleTab === 'runs')
 
@@ -84,12 +89,34 @@ export function GlobalSchedules() {
     refetch: refetchSelectedRun,
   } = useAllScheduleRuns(
     selectedRunParams,
-    scheduleTab === 'runs' && runId !== null && selectedRunInHistory === null,
+    runId !== null && selectedRunInHistory === null,
   )
 
   const selectedRun = runId === null
     ? null
     : selectedRunInHistory ?? selectedRunPage?.[0] ?? null
+
+  const { data: unreadRuns } = useUnreadScheduleRuns()
+  const unreadTotal = unreadRuns?.total ?? 0
+  const nextUnreadRun = unreadRuns?.runs.find((run) => run.id !== runId) ?? unreadRuns?.runs[0] ?? null
+
+  const handleNextUnread = useCallback(() => {
+    if (!nextUnreadRun) return
+    selectRun(nextUnreadRun.id)
+  }, [nextUnreadRun, selectRun])
+
+  useEffect(() => {
+    if (scheduleTab !== 'runs' && runId === null) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'u') return
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      event.preventDefault()
+      handleNextUnread()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [scheduleTab, runId, handleNextUnread])
 
   const createMutation = useCreateRepoSchedule()
   const deleteMutation = useDeleteRepoSchedule()
@@ -99,7 +126,7 @@ export function GlobalSchedules() {
   useEffect(() => {
     setRunOffset(0)
     setAllRuns([])
-  }, [runStatusFilter, runRepoFilter, runTriggerFilter])
+  }, [runStatusFilter, runRepoFilter, runTriggerFilter, debouncedRunSearch])
 
   useEffect(() => {
     if (runsPage.length > 0) {
@@ -174,6 +201,8 @@ export function GlobalSchedules() {
       filtered = filtered.filter((job) => job.repoPath === repoFilter)
     }
 
+    filtered = filtered.filter((job) => matchesScheduleJobSearch(job, searchQuery))
+
     filtered.sort((a, b) => {
       switch (sortOption) {
         case 'name':
@@ -190,7 +219,7 @@ export function GlobalSchedules() {
     })
 
     return filtered
-  }, [jobs, statusFilter, scheduleModeFilter, repoFilter, sortOption])
+  }, [jobs, statusFilter, scheduleModeFilter, repoFilter, sortOption, searchQuery])
 
   const repoOptions = useMemo(() => [
     { value: 'all', label: 'All Repos', description: `${jobs.length} total jobs` },
@@ -314,6 +343,37 @@ export function GlobalSchedules() {
     navigate(getRepoPath(repoId))
   }
 
+  const handleOpenJobPage = (job: ScheduleJobWithRepo) => {
+    navigate(`/repos/${job.repoId}/schedules`)
+  }
+
+  const handleOpenJobRow = (job: ScheduleJobWithRepo) => {
+    const lastRun = job.lastRun
+    if (lastRun) {
+      selectRun(lastRun.id)
+      return
+    }
+    handleOpenJobPage(job)
+  }
+
+  const handleCancelJobRun = (job: ScheduleJobWithRepo) => {
+    if (!job.lastRun) return
+    handleCancelRun(job.repoId, job.id, job.lastRun.id)
+  }
+
+  const handleCancelSelectedRun = () => {
+    if (!selectedRun) return
+    handleCancelRun(selectedRun.repoId, selectedRun.jobId, selectedRun.id)
+  }
+
+  const selectedRunIndex = runId !== null ? sortedRuns.findIndex((run) => run.id === runId) : -1
+  const selectedRunPrev = scheduleTab === 'runs' && selectedRunIndex > 0
+    ? () => selectRun(sortedRuns[selectedRunIndex - 1].id)
+    : undefined
+  const selectedRunNext = scheduleTab === 'runs' && selectedRunIndex >= 0 && selectedRunIndex < sortedRuns.length - 1
+    ? () => selectRun(sortedRuns[selectedRunIndex + 1].id)
+    : undefined
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -343,7 +403,6 @@ export function GlobalSchedules() {
   const selectedRunMissing = runId !== null && selectedRunInHistory === null
   const selectedRunLookupLoading = selectedRunMissing && selectedRunLoading
   const selectedRunLookupError = selectedRunMissing && selectedRunError && selectedRun === null
-  const selectedRunLookupNotFound = selectedRunMissing && !selectedRunLoading && !selectedRunError && selectedRun === null
 
   return (
     <div className="h-dvh max-h-dvh overflow-hidden bg-background flex flex-col">
@@ -352,6 +411,7 @@ export function GlobalSchedules() {
         <Header.Title>Schedules</Header.Title>
         <div className="flex items-center gap-2">
           <Header.Actions>
+            <ScheduleReportsBell />
             <Button
               onClick={() => { openNewJob(); setSelectedRepoId(undefined) }}
               size="sm"
@@ -388,19 +448,18 @@ export function GlobalSchedules() {
         </div>
 
         <TabsContent value="jobs" className="mt-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="px-2 sm:px-4 pt-1 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline">Filter by repo:</span>
+          <div className="px-2 sm:px-4">
+            <ScheduleListToolbar search={searchQuery} onSearchChange={setSearchQuery} searchPlaceholder="Search jobs">
               <Combobox
                 value={repoFilter}
                 onChange={setRepoFilter}
                 options={repoOptions}
                 placeholder="All Repos"
-                className="flex-1 sm:flex-none sm:min-w-[150px]"
+                className="w-[130px] shrink-0 sm:w-[180px]"
               />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label="Filters" className="sm:hidden h-8 w-8 shrink-0 relative">
+                  <Button variant="outline" size="icon" aria-label="Filters" className="shrink-0 relative">
                     <SlidersHorizontal className="h-3.5 w-3.5" />
                     {(statusFilter !== 'all' || scheduleModeFilter !== 'all') && (
                       <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary" />
@@ -414,6 +473,7 @@ export function GlobalSchedules() {
                       setScheduleModeFilter('all')
                       setRepoFilter('all')
                       setSortOption('nextRun')
+                      setSearchQuery('')
                     }}
                     className="text-xs text-muted-foreground"
                   >
@@ -484,57 +544,7 @@ export function GlobalSchedules() {
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
-            <div className="hidden sm:flex flex-wrap gap-x-4 gap-y-2">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Status:</span>
-                <div className="flex gap-1">
-                  {statusOptions.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      variant={statusFilter === opt.value ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setStatusFilter(opt.value as StatusFilter)}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Mode:</span>
-                <div className="flex gap-1">
-                  {modeOptions.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      variant={scheduleModeFilter === opt.value ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setScheduleModeFilter(opt.value as ScheduleModeFilter)}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Sort:</span>
-                <div className="flex gap-1">
-                  {sortOptions.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      variant={sortOption === opt.value ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSortOption(opt.value as SortOption)}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            </ScheduleListToolbar>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
@@ -568,7 +578,7 @@ export function GlobalSchedules() {
                     <div className="space-y-2">
                       <p className="text-lg font-semibold">No matching schedules</p>
                       <p className="text-sm text-muted-foreground">
-                        Try adjusting your filters to see more results.
+                        Try a different search or adjust your filters.
                       </p>
                     </div>
                     <Button
@@ -577,6 +587,7 @@ export function GlobalSchedules() {
                         setStatusFilter('all')
                         setScheduleModeFilter('all')
                         setRepoFilter('all')
+                        setSearchQuery('')
                       }}
                     >
                       Clear Filters
@@ -585,134 +596,39 @@ export function GlobalSchedules() {
                 </Card>
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {filteredAndSortedJobs.map((job) => (
-                  <Card
-                    key={job.id}
-                    className="group cursor-pointer transition-all hover:shadow-md border-border/70 bg-card/60"
-                    onClick={() => navigate(`/repos/${job.repoId}/schedules`)}
-                  >
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleNavigateToRepo(job.repoPath)
-                            }}
-                            className="text-xs text-muted-foreground hover:text-foreground hover:underline truncate block mb-1"
-                          >
-                            {job.repoName}
-                          </button>
-                          <h3 className="font-medium truncate">{job.name}</h3>
-                          <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
-                            {job.description || 'No description'}
-                          </p>
-                        </div>
-                        <Badge className={getJobStatusTone(job)}>{job.enabled ? 'Enabled' : 'Paused'}</Badge>
-                      </div>
-
-                      <div className="space-y-2 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <CalendarClock className="h-3.5 w-3.5" />
-                          <span className="truncate">
-                            {formatScheduleShortLabel(job)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Clock3 className="h-3.5 w-3.5" />
-                          <span>
-                            Next: {job.nextRunAt ? new Date(job.nextRunAt).toLocaleString() : 'Never'}
-                          </span>
-                        </div>
-                        {job.lastRunAt && (
-                          <div className="flex items-center gap-2">
-                            <History className="h-3.5 w-3.5" />
-                            <span>
-                              Last: {formatTimestamp(job.lastRunAt)}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex gap-2 pt-2 border-t border-border/50">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1 h-8 text-xs"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleRunNow(job)
-                          }}
-                          disabled={runMutation.isPending}
-                        >
-                          <PlayCircle className="h-3.5 w-3.5 mr-1" />
-                          Run
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          aria-label={job.enabled ? 'Pause schedule' : 'Enable schedule'}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleToggleEnabled(job)
-                          }}
-                        >
-                          {job.enabled ? (
-                            <Pause className="h-3.5 w-3.5" />
-                          ) : (
-                            <Play className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          aria-label="Edit schedule"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleEdit(job)
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                          aria-label="Delete schedule"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              openDeleteJob(job.id)
-                            }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="overflow-x-auto rounded-lg border border-border/70">
+                <ScheduleJobsTable
+                  jobs={filteredAndSortedJobs}
+                  showRepo
+                  onOpen={handleOpenJobRow}
+                  onOpenJob={handleOpenJobPage}
+                  onNavigateToRepo={handleNavigateToRepo}
+                  onRunNow={handleRunNow}
+                  onToggleEnabled={handleToggleEnabled}
+                  onEdit={handleEdit}
+                  onDelete={(job) => openDeleteJob(job.id)}
+                  onCancelRun={handleCancelJobRun}
+                  runPending={runMutation.isPending}
+                  cancelPending={cancelRunPending}
+                />
               </div>
             )}
           </div>
         </TabsContent>
 
         <TabsContent value="runs" className="mt-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="px-2 sm:px-4 pt-1 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline">Filter by repo:</span>
+          <div className="px-2 sm:px-4">
+            <ScheduleListToolbar search={runSearch} onSearchChange={setRunSearch} searchPlaceholder="Search runs">
               <Combobox
                 value={runRepoFilter}
                 onChange={setRunRepoFilter}
                 options={runRepoOptions}
                 placeholder="All Repos"
-                className="flex-1 sm:flex-none sm:min-w-[150px]"
+                className="w-[130px] shrink-0 sm:w-[180px]"
               />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" aria-label="Filters" className="sm:hidden h-8 w-8 shrink-0 relative">
+                  <Button variant="outline" size="icon" aria-label="Filters" className="shrink-0 relative">
                     <SlidersHorizontal className="h-3.5 w-3.5" />
                     {(runStatusFilter !== 'all' || runTriggerFilter !== 'all' || runSortOption !== 'startedAt') && (
                       <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary" />
@@ -726,6 +642,7 @@ export function GlobalSchedules() {
                       setRunTriggerFilter('all')
                       setRunRepoFilter('all')
                       setRunSortOption('startedAt')
+                      setRunSearch('')
                     }}
                     className="text-xs text-muted-foreground"
                   >
@@ -796,163 +713,28 @@ export function GlobalSchedules() {
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
-            <div className="hidden sm:flex flex-wrap gap-x-4 gap-y-2">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Status:</span>
-                <div className="flex gap-1">
-                  {runStatusOptions.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      variant={runStatusFilter === opt.value ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setRunStatusFilter(opt.value)}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Trigger:</span>
-                <div className="flex gap-1">
-                  {runTriggerOptions.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      variant={runTriggerFilter === opt.value ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setRunTriggerFilter(opt.value)}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground whitespace-nowrap">Sort:</span>
-                <div className="flex gap-1">
-                  {runSortOptions.map((opt) => (
-                    <Button
-                      key={opt.value}
-                      variant={runSortOption === opt.value ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setRunSortOption(opt.value as 'startedAt' | 'jobName' | 'duration')}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </div>
+              {unreadTotal > 0 && (
+                <Button variant="outline" size="sm" className="h-9 shrink-0" onClick={handleNextUnread}>
+                  Next unread ({unreadTotal})
+                </Button>
+              )}
+            </ScheduleListToolbar>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
-            {runsLoading && allRuns.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : selectedRunLookupLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : selectedRunLookupError ? (
-              <div className="flex items-center justify-center py-12">
-                <Card className="max-w-md border-dashed border-border/70">
-                  <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
-                    <div className="rounded-full border border-border bg-muted/40 p-4">
-                      <XCircle className="h-8 w-8 text-destructive" />
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-lg font-semibold">Failed to load run</p>
-                      <p className="text-sm text-muted-foreground">
-                        The selected run could not be loaded.
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => { void refetchSelectedRun() }}>
-                        Retry
-                      </Button>
-                      <Button variant="outline" onClick={() => selectRun(null)}>
-                        Back to run history
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : selectedRunLookupNotFound ? (
-              <div className="flex items-center justify-center py-12">
-                <Card className="max-w-md border-dashed border-border/70">
-                  <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
-                    <div className="rounded-full border border-border bg-muted/40 p-4">
-                      <SearchX className="h-8 w-8 text-muted-foreground" />
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-lg font-semibold">Run not found</p>
-                      <p className="text-sm text-muted-foreground">
-                        The requested run no longer exists.
-                      </p>
-                    </div>
-                    <Button variant="outline" onClick={() => selectRun(null)}>
-                      Back to run history
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : sortedRuns.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
-                <Card className="max-w-md border-dashed border-border/70">
-                  <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
-                    <div className="rounded-full border border-border bg-muted/40 p-4">
-                      <History className="h-8 w-8 text-muted-foreground" />
-                    </div>
-                    <div className="space-y-2">
-                      <p className="text-lg font-semibold">No runs found</p>
-                      <p className="text-sm text-muted-foreground">
-                        {runStatusFilter !== 'all' || runRepoFilter !== 'all' || runTriggerFilter !== 'all'
-                          ? 'Try adjusting your filters to see more results.'
-                          : 'Schedule runs will appear here once jobs start executing.'}
-                      </p>
-                    </div>
-                    {(runStatusFilter !== 'all' || runRepoFilter !== 'all' || runTriggerFilter !== 'all' || runSortOption !== 'startedAt') && (
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setRunStatusFilter('all')
-                          setRunRepoFilter('all')
-                          setRunTriggerFilter('all')
-                          setRunSortOption('startedAt')
-                        }}
-                      >
-                        Clear Filters
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            ) : (
-              <RunHistoryCards
+            <div className="overflow-x-auto rounded-lg border border-border/70">
+              <ScheduleRunsTable
                 runs={sortedRuns}
-                runsLoading={runsLoading}
+                runsLoading={runsLoading && allRuns.length === 0}
                 selectedRunId={runId}
                 onSelectRun={selectRun}
-                onCancelRun={() => {
-                  if (runId) {
-                    const run = sortedRuns.find((r) => r.id === runId)
-                    if (run) {
-                      handleCancelRun(run.repoId, run.jobId, run.id)
-                    }
-                  }
-                }}
-                cancelRunPending={cancelRunPending}
+                isFiltered={Boolean(debouncedRunSearch) || runStatusFilter !== 'all' || runRepoFilter !== 'all' || runTriggerFilter !== 'all'}
               />
-            )}
+            </div>
           </div>
         </TabsContent>
         <TabsContent value="prompts" className="mt-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
             <PromptsTab
               promptDialog={promptDialog}
               templateId={templateId}
@@ -965,6 +747,21 @@ export function GlobalSchedules() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <ScheduleRunDrawer
+        run={selectedRun}
+        open={runId !== null}
+        onClose={() => selectRun(null)}
+        onCancelRun={handleCancelSelectedRun}
+        cancelPending={cancelRunPending}
+        runLoading={selectedRunLookupLoading}
+        runError={selectedRunLookupError}
+        onRetry={() => { void refetchSelectedRun() }}
+        onNextUnread={handleNextUnread}
+        nextUnreadCount={unreadTotal}
+        onPrev={selectedRunPrev}
+        onNext={selectedRunNext}
+      />
 
       <ScheduleJobDialog
         open={dialog === 'new' || dialog === 'edit'}

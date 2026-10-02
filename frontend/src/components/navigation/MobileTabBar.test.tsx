@@ -4,6 +4,10 @@ vi.mock('@/hooks/useMobile', () => ({
   useMobile: vi.fn(),
 }))
 
+vi.mock('@/hooks/useSchedules', () => ({
+  useUnreadScheduleRuns: vi.fn(() => ({ data: undefined })),
+}))
+
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach } from 'vitest'

@@ -11,12 +11,16 @@ import {
   listAllScheduleRuns,
   listAllSchedules,
   listRepoScheduleRuns,
-  listRepoSchedules,
+  listUnreadScheduleRuns,
+  markAllScheduleRunsViewed,
+  markScheduleRunViewed,
   runRepoSchedule,
   updateRepoSchedule,
 } from '@/api/schedules'
 import { showToast } from '@/lib/toast'
 import type { ListAllRunsParams, ScheduleJobWithRepo, ScheduleRunWithContext } from '@/api/schedules'
+
+export const UNREAD_SCHEDULE_RUNS_QUERY_KEY = ['schedule-runs-unread'] as const
 
 export function useAllSchedules() {
   return useQuery({
@@ -25,6 +29,7 @@ export function useAllSchedules() {
       const response = await listAllSchedules()
       return response.jobs as ScheduleJobWithRepo[]
     },
+    refetchInterval: 10000,
   })
 }
 
@@ -40,15 +45,39 @@ export function useAllScheduleRuns(params: ListAllRunsParams, enabled: boolean =
   })
 }
 
-export function useRepoSchedules(repoId: number | undefined) {
+export function useUnreadScheduleRuns() {
   return useQuery({
-    queryKey: ['repo-schedules', repoId],
-    queryFn: async () => {
-      const response = await listRepoSchedules(repoId!)
-      return response.jobs
+    queryKey: UNREAD_SCHEDULE_RUNS_QUERY_KEY,
+    queryFn: () => listUnreadScheduleRuns(),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
+  })
+}
+
+export function useMarkScheduleRunViewed() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (runId: number) => markScheduleRunViewed(runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: UNREAD_SCHEDULE_RUNS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['all-schedules'] })
+      queryClient.invalidateQueries({ queryKey: ['all-schedule-runs'] })
     },
-    enabled: repoId !== undefined,
-    refetchInterval: 5000,
+  })
+}
+
+export function useMarkAllScheduleRunsViewed() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () => markAllScheduleRunsViewed(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: UNREAD_SCHEDULE_RUNS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['all-schedules'] })
+      queryClient.invalidateQueries({ queryKey: ['all-schedule-runs'] })
+      showToast.success('All reports marked as read')
+    },
   })
 }
 

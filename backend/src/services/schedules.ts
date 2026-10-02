@@ -24,6 +24,10 @@ import {
   listAllScheduleJobsWithRepos,
   listScheduleRunArtifactsByJob,
   listAllScheduleRuns,
+  listUnreadScheduleRuns,
+  countUnreadScheduleRuns,
+  markScheduleRunViewed,
+  markAllScheduleRunsViewed,
   listEnabledScheduleJobs,
   listScheduleJobIdsByRepo,
   listScheduleJobsByRepo,
@@ -35,7 +39,7 @@ import {
   updateScheduleRunMetadata,
   updateScheduleRunWorktree,
 } from '../db/schedules'
-import type { ListAllRunsOptions, ScheduleRunWithContext } from '../db/schedules'
+import type { ListAllRunsOptions, ScheduleRunWithContext, ScheduleRunWithUnreadPreview } from '../db/schedules'
 import {
   buildCreateSchedulePersistenceInput,
   buildUpdatedSchedulePersistenceInput,
@@ -371,6 +375,22 @@ export class ScheduleService {
     const limit = Math.min(Math.max(options.limit ?? 20, 1), 100)
     const offset = Math.max(options.offset ?? 0, 0)
     return listAllScheduleRuns(this.db, { ...options, limit, offset })
+  }
+
+  listUnreadRuns(limit: number): ScheduleRunWithUnreadPreview[] {
+    return listUnreadScheduleRuns(this.db, limit)
+  }
+
+  countUnreadRuns(): { total: number; failed: number } {
+    return countUnreadScheduleRuns(this.db)
+  }
+
+  markRunViewed(runId: number): boolean {
+    return markScheduleRunViewed(this.db, runId)
+  }
+
+  markAllRunsViewed(): number {
+    return markAllScheduleRunsViewed(this.db)
   }
 
   async recoverRunningRuns(): Promise<void> {
