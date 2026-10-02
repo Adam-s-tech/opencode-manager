@@ -129,7 +129,7 @@ The configuration directory also holds `service.json`, where the Manager writes 
 - `grep` and `glob` whose absolute search path is the configuration directory or one of its ancestors;
 - `external_directory` access to the configuration directory or one of its ancestors.
 
-As a consequence, the host-side file tools cannot read the top-level configuration files (`opencode.json`, `opencode.jsonc`, `service.json`) while enforcement is on; agents read and change the OpenCode configuration through the `ocm` tool instead. The `skills` subdirectory is unaffected.
+The denial is specific to `service.json`. A sibling configuration file such as `opencode.json` or `opencode.jsonc` is not denied for `read`, and the `grep`/`glob` check only matches an absolute search path that resolves to the configuration directory or an ancestor — a relative path is not matched. The `skills` subdirectory is unaffected.
 
 ## Enabling and Enforcement
 

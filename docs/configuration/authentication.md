@@ -33,7 +33,9 @@ When set:
 
 - Admin user is created automatically
 - Setup wizard is skipped
-- Registration is disabled
+- New account registration is rejected server-side, including account creation through OAuth; the registration page is hidden too. Internal startup provisioning can create the configured admin account.
+
+Both variables must be set. This does not revoke existing accounts or sessions, or restrict API access to an admin role: authenticated users can access Manager resources. Without a preconfigured admin, registration remains enabled. Use Manager for trusted personal deployments, not as a multi-user isolation boundary.
 
 ## Password Reset
 
@@ -47,15 +49,19 @@ ADMIN_PASSWORD=new-password
 ADMIN_PASSWORD_RESET=true
 ```
 
-2. Restart the application:
+2. Recreate the container so it picks up the new environment variables:
 
 ```bash
-docker-compose restart
+docker compose up -d --force-recreate app
 ```
 
 3. Log in with new password
 
-4. Remove `ADMIN_PASSWORD_RESET=true` from environment
+4. Remove `ADMIN_PASSWORD_RESET=true` from environment and recreate again:
+
+```bash
+docker compose up -d --force-recreate app
+```
 
 !!! warning
     Remove the reset flag after successful reset to prevent accidental password changes.
@@ -82,9 +88,12 @@ Sessions expire after 7 days. A new session is created on each login.
 
 ### Secure Cookies
 
-By default, cookies require HTTPS in production:
+Outside Docker, secure cookies default to `true` when `NODE_ENV=production` and `false` otherwise. The default `docker-compose.yml` forwards `AUTH_SECURE_COOKIES=${AUTH_SECURE_COOKIES:-false}`, so a Compose deployment defaults to non-secure cookies even though Compose sets `NODE_ENV=production`. Set it explicitly:
 
 ```bash
+# HTTPS
+AUTH_SECURE_COOKIES=true
+
 # For HTTP on trusted networks only
 AUTH_SECURE_COOKIES=false
 ```
@@ -109,7 +118,7 @@ For production with HTTPS:
 
 ```bash
 AUTH_TRUSTED_ORIGINS=https://yourdomain.com
-# AUTH_SECURE_COOKIES defaults to true
+AUTH_SECURE_COOKIES=true
 ```
 
 ## Passkeys

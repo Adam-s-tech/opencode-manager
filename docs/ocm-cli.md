@@ -137,8 +137,9 @@ Generate or rotate your internal token from **Settings → Manager Token** in th
 ## 3. Commands
 
 ```text
-ocm                       Attach to the Manager repo matching $PWD's git origin,
-                          or fall back to the last selected repo
+ocm                       Attach to the Manager repo matching $PWD's OpenCode
+                          project id, or (outside a git repo) fall back to the
+                          last selected repo
 ocm login <url> [token]   Save manager URL + token (token via stdin if omitted)
 ocm logout                Forget saved token and state
 ocm status                Show current manager URL, repo, and whether token is set
@@ -152,12 +153,10 @@ ocm --help                Show this help
 
 ### How bare `ocm` resolves the target
 
-1. If `$PWD` is inside a git repo and its `origin` matches exactly one Manager repo by URL, attach to that repo and remember it as `last`.
-2. If multiple Manager repos match `origin`, fail with a hint to use `ocm use <repoId>`.
-3. Otherwise fall back to the previously used repo (`last`).
-4. If there is no `last` either, fail with a hint to run `ocm list` then `ocm use <repoId>`.
-
-`origin` matching uses the same normalisation as `ocm push` / `ocm pull` (case-insensitive, `.git` stripped, `git@host:path` rewritten to `ssh://git@host/path`).
+1. If `$PWD` is inside a git repo, compute its OpenCode project id (the same identity OpenCode uses: the normalized origin remote hash, else the cached `<git-common-dir>/opencode` id, else the sorted first root commit). If exactly one ready Manager repo shares that project id, attach to it and remember it as `last`.
+2. If multiple Manager repos share it, fail with a hint to use `ocm use <repoId>`, listing each match's id, kind (repo or worktree), branch, and path.
+3. If `$PWD` is inside a git repo but no Manager repo matches, launch local `opencode`; the last selected repo is not consulted.
+4. Only when `$PWD` is outside a git repo does `ocm` fall back to the previously used repo (`last`), and launch local `opencode` when there is no `last`.
 
 ### Attach command equivalent
 
@@ -191,10 +190,10 @@ When the TUI plugin is installed, these internal child-process variables add a `
 
 ### TUI `/ocm-move`
 
-When the TUI plugin entry is installed, `/ocm-move` is available in local OpenCode sessions. It checks that the matching Manager repo has not diverged, pushes the local git state with the fast bundle + working-tree patch path, exports the active session through the local OpenCode 2 server (`session.export`), rewrites local repo directories and file attachment URIs to the Manager repo directory, imports the session's messages through the Manager proxy (`session.import`), and sends a synthetic reminder (`session.synthetic`) to the remote session (best-effort, never fails the move). The local session is retained. When multiple Manager repos match, a select dialog lets you pick the destination. A confirmation dialog gates the move before any push. On success you can choose to warp — exit the local TUI and attach to the moved session on the Manager immediately — or keep the local copy with the previous toast behavior.
+When the TUI plugin entry is installed, `/ocm-move` is available in local OpenCode sessions. It replaces the Manager repo's working tree with your local one (commits, staged, unstaged, and untracked files; gitignored files on the Manager are preserved). The Manager's current checkout is never switched: if it is on your branch the repo is replaced in place; otherwise your branch goes into a sibling worktree (`<repo>-<branch>`, registered as its own Manager repo), created on demand if it does not exist yet. When multiple Manager repos match, the one already on your branch is chosen; otherwise a select dialog lets you pick the destination. A confirmation dialog gates the move before any push, states where the state will land, and lists any server-side work (uncommitted changes or commits not present locally) that will be discarded there; the push itself is forced. It then exports the active session through the local OpenCode 2 server (`session.export`), rewrites local repo directories and file attachment URIs to the Manager repo directory, imports the session's messages through the Manager proxy (`session.import`), and sends a synthetic reminder (`session.synthetic`) to the remote session (best-effort, never fails the move). The local session is retained. On success you can choose to warp — exit the local TUI and attach to the moved session on the Manager immediately — or keep the local copy with the previous toast behavior.
 
 - `--force` skips the dirty-working-tree check on `pull` and the safety bail on `push`.
-- `--create` (on `push`) creates a new Manager repo when no `origin` match is found.
+- `--create` (on `push`) creates a new Manager repo when no project match is found.
 - `--yes` skips the interactive create confirmation.
 
 ---

@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { AuthInstance } from '../auth'
+import { isAdminConfigured, type AuthInstance } from '../auth'
 import { Database } from 'bun:sqlite'
 import { ENV } from '@opencode-manager/shared/config/env'
 import { logger } from '../utils/logger'
@@ -23,10 +23,6 @@ export function createAuthRoutes(auth: AuthInstance): Hono {
   })
 
   return app
-}
-
-const isAdminConfigured = (): boolean => {
-  return !!(ENV.AUTH.ADMIN_EMAIL && ENV.AUTH.ADMIN_PASSWORD)
 }
 
 export async function syncAdminFromEnv(auth: AuthInstance, db: Database): Promise<void> {

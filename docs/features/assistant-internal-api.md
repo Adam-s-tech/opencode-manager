@@ -63,6 +63,7 @@ The `path` is relative to the internal API base (for example `/settings` or `/re
 GET /settings
 PATCH /settings
 GET /opencode-config
+GET /opencode-config/effective
 GET /opencode-config/mcp
 PATCH /opencode-config
 POST /assistant/reload
@@ -274,7 +275,7 @@ List the configured MCP servers with their stored shape, enabled state, and live
 
 **GET `/api/internal/opencode-config/effective`**
 
-Read the running server's configuration as `entries`: the configuration documents and discovery directories in precedence order, lowest first, each shaped as `{ type: 'document', path, info }` or `{ type: 'directory', path }`. Its `info` values are expanded for the running server, so never copy this response into a save. Secret values in `info` are replaced with `<redacted>`.
+Read the configuration OpenCode resolves for the workspace location as `entries`: the configuration documents and discovery directories in precedence order, lowest first, each shaped as `{ type: 'document', path, info }` or `{ type: 'directory', path }`. Its `info` values are expanded for the running server, so never copy this response into a save. Secret values in `info` are replaced with `<redacted>`.
 
 **Status Codes:**
 - `200`: Effective configuration returned
@@ -311,7 +312,7 @@ Returns the refreshed redacted configuration. Semantic changes, including `mcp`,
 
 **POST `/api/internal/assistant/reload`**
 
-Reload the OpenCode server configuration, rebuilding every loaded location. Use this after editing `.opencode/agents/assistant.md` or `opencode.json` so changes take effect on the next message.
+Reload the OpenCode server configuration, rebuilding every loaded location. Use this after editing `.opencode/agents/assistant.md` or `opencode.json` so changes take effect on the next message. Returns `400` with `validationIssues` when the OpenCode configuration is invalid.
 
 **Rate Limiting:** 5 requests per minute per token. Returns `429 Too Many Requests` with `Retry-After` header when exceeded.
 
@@ -333,6 +334,7 @@ Reload the OpenCode server configuration, rebuilding every loaded location. Use 
 
 **Status Codes:**
 - `200`: Assistant workspace reloaded
+- `400`: OpenCode configuration is invalid (`validationIssues` in the body)
 - `401`: Missing or invalid bearer token
 - `429`: Rate limit exceeded
 - `502`: Failed to reload (upstream OpenCode error)

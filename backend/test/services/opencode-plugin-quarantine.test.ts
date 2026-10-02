@@ -402,6 +402,16 @@ describe('opencode plugin quarantine restore', () => {
     await expect(fs.access(`${configPath}.ocm-sandbox-backup`)).resolves.toBeUndefined()
   })
 
+  it('rejects a restore when the current config root is not an object alongside a legacy backup', async () => {
+    writeFileSync(configPath, '[]')
+    writeFileSync(`${configPath}.ocm-sandbox-backup`, JSON.stringify({ removedSections: { plugin: ['my-plugin'] } }))
+
+    await expect(restoreQuarantinedOpenCodePlugins(configHome, configPath)).rejects.toThrow(/is not an object/)
+
+    expect(JSON.parse(await fs.readFile(configPath, 'utf-8'))).toEqual([])
+    await expect(fs.access(`${configPath}.ocm-sandbox-backup`)).resolves.toBeUndefined()
+  })
+
   it('propagates a failed plugin entry restore and leaves the quarantine intact', async () => {
     const quarantineDir = path.join(configHome, 'opencode', 'plugin.ocm-quarantine')
     mkdirSync(quarantineDir, { recursive: true })

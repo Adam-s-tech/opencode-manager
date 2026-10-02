@@ -69,11 +69,19 @@ ADMIN_PASSWORD=new-password
 ADMIN_PASSWORD_RESET=true
 ```
 
-2. Restart the application
+2. Recreate the container so it picks up the new environment variables:
+
+```bash
+docker compose up -d --force-recreate app
+```
 
 3. Log in with new password
 
-4. **Important:** Remove `ADMIN_PASSWORD_RESET=true` after successful reset
+4. **Important:** Remove `ADMIN_PASSWORD_RESET=true` and recreate the container again:
+
+```bash
+docker compose up -d --force-recreate app
+```
 
 ## Security Recommendations
 

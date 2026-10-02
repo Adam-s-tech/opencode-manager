@@ -38,4 +38,4 @@ If a pinned session is deleted (manually or by context cleanup), it is removed f
 
 - Pinning is independent of session activity — a pinned session stays pinned even when new sessions push older ones out of the Recent view.
 - The Pinned section supports any number of pinned sessions.
-- Pinning is per-user and stored server-side, so it follows you across devices.
+- Pinning is stored server-side in the Manager and is Manager-wide rather than per-user, so the same pins are shown on every device and browser.

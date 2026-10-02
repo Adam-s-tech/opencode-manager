@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createTestDb } from '../helpers/assistant-workspace'
 import { createAuth } from '../../src/auth'
+import { DatabaseSync } from 'node:sqlite'
+import type { Database } from 'bun:sqlite'
+import { migrate } from '../../src/db/migration-runner'
+import { allMigrations } from '../../src/db/migrations'
+import { syncAdminFromEnv } from '../../src/routes/auth'
 
 const { ENV } = vi.hoisted(() => ({
   ENV: {
@@ -36,6 +41,8 @@ function resetEnv(): void {
   ENV.SERVER.PORT = 5003
   ENV.AUTH.TRUSTED_ORIGINS = 'http://localhost:5173,http://localhost:5003'
   ENV.AUTH.SECURE_COOKIES = false
+  ENV.AUTH.ADMIN_EMAIL = undefined
+  ENV.AUTH.ADMIN_PASSWORD = undefined
   ENV.AUTH.GITHUB_CLIENT_ID = undefined
   ENV.AUTH.GITHUB_CLIENT_SECRET = undefined
   ENV.AUTH.GOOGLE_CLIENT_ID = undefined
@@ -44,9 +51,67 @@ function resetEnv(): void {
   ENV.AUTH.DISCORD_CLIENT_SECRET = undefined
 }
 
+function createAuthDatabase(): Database {
+  const db = new DatabaseSync(':memory:')
+  const compatible = Object.assign(db, {
+    run: (sql: string, ...params: (string | number | null)[]) => db.prepare(sql).run(...params),
+  }) as unknown as Database
+  migrate(compatible, allMigrations)
+  return compatible
+}
+
 describe('createAuth', () => {
   beforeEach(() => {
     resetEnv()
+  })
+
+  it('rejects HTTP signup in admin mode while allowing internal admin provisioning and sign-in', async () => {
+    ENV.AUTH.ADMIN_EMAIL = 'admin@example.com'
+    ENV.AUTH.ADMIN_PASSWORD = 'admin-password'
+    const db = createAuthDatabase()
+    const auth = createAuth(db)
+
+    try {
+      for (const email of ['other@example.com', ENV.AUTH.ADMIN_EMAIL]) {
+        const response = await auth.handler(new Request('http://localhost:5173/api/auth/sign-up/email', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
+          body: JSON.stringify({ email, password: 'test-password', name: 'Test' }),
+        }))
+        expect(response.status).toBe(403)
+      }
+      expect(db.prepare('SELECT COUNT(*) AS count FROM "user"').get()).toEqual({ count: 0 })
+      await expect(auth.api.signUpEmail({
+        body: { email: 'other@example.com', password: 'test-password', name: 'Other' },
+      })).rejects.toThrow('Registration is disabled')
+
+      await syncAdminFromEnv(auth, db)
+      const response = await auth.handler(new Request('http://localhost:5173/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
+        body: JSON.stringify({ email: ENV.AUTH.ADMIN_EMAIL, password: ENV.AUTH.ADMIN_PASSWORD }),
+      }))
+      expect(response.status).toBe(200)
+      expect(db.prepare('SELECT COUNT(*) AS count FROM "user"').get()).toEqual({ count: 1 })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('allows signup without a complete preconfigured admin', async () => {
+    ENV.AUTH.ADMIN_EMAIL = 'admin@example.com'
+    const db = createAuthDatabase()
+    const auth = createAuth(db)
+    try {
+      const response = await auth.handler(new Request('http://localhost:5173/api/auth/sign-up/email', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
+        body: JSON.stringify({ email: 'other@example.com', password: 'test-password', name: 'Other' }),
+      }))
+      expect(response.status).toBe(200)
+    } finally {
+      db.close()
+    }
   })
 
   it('creates an auth instance without social providers and responds to requests', async () => {
