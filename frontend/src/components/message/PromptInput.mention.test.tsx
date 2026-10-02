@@ -3,13 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PromptInput } from './PromptInput'
 import { useUIState } from '@/stores/uiStateStore'
+import { createCommandActionsMock } from '@/test/test-utils'
 
 const mocks = vi.hoisted(() => ({
   sendPrompt: vi.fn(),
   switchSessionModel: vi.fn(),
   switchSessionAgent: vi.fn(),
   runCommand: vi.fn(),
-  compactSession: vi.fn(),
   agents: [] as Array<{ name: string; description?: string }>,
   useSTT: vi.fn(),
   useMobile: vi.fn(),
@@ -29,7 +29,6 @@ vi.mock('@/api/opencode', async () => {
     ...actual,
     sendPrompt: mocks.sendPrompt,
     runCommand: mocks.runCommand,
-    compactSession: mocks.compactSession,
     switchSessionModel: mocks.switchSessionModel,
     switchSessionAgent: mocks.switchSessionAgent,
   }
@@ -44,7 +43,6 @@ vi.mock('@/hooks/useOpenCode', async () => {
 })
 
 vi.mock('@/hooks/useSTT', () => ({ useSTT: mocks.useSTT }))
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
 vi.mock('@/hooks/useMobile', () => ({ useMobile: mocks.useMobile }))
 vi.mock('@/hooks/useCommands', () => ({ useCommands: mocks.useCommands }))
 vi.mock('@/hooks/useFileSearch', () => ({ useFileSearch: mocks.useFileSearch }))
@@ -112,10 +110,7 @@ describe('PromptInput agent mention submission', () => {
     isSessionActive: false,
     isStreamingResponse: false,
     onScrollToBottom: vi.fn(),
-    onShowSessionsDialog: vi.fn(),
-    onShowHelpDialog: vi.fn(),
-    onToggleDetails: vi.fn(),
-    onExportSession: vi.fn(),
+    commandActions: createCommandActionsMock(),
     onPromptChange: vi.fn(),
   }
 
@@ -142,7 +137,6 @@ describe('PromptInput agent mention submission', () => {
     mocks.switchSessionModel.mockResolvedValue(undefined)
     mocks.switchSessionAgent.mockResolvedValue(undefined)
     mocks.runCommand.mockResolvedValue(undefined)
-    mocks.compactSession.mockResolvedValue(undefined)
     mocks.agents = [{ name: 'reviewer', description: 'Reviewer' }]
     mocks.useMobile.mockReturnValue(false)
     mocks.useSTT.mockReturnValue({

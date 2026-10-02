@@ -30,7 +30,9 @@ Click the **model name** in the chat prompt area to open the quick model switche
 
 ## Slash Commands
 
-Type `/` to see available commands. Built-in commands are covered in the [Quick Start](../getting-started/quickstart.md#useful-commands).
+Type `/` to see available commands. Built-in commands are covered in the [Quick Start](../getting-started/quickstart.md#useful-commands). OpenCode's own commands, such as `/init` and `/review`, appear in the same list.
+
+The fork keyboard shortcut opens the same message picker as `/fork`.
 
 ### Custom Commands
 
@@ -49,7 +51,7 @@ template: |
   {{selection}}
 ```
 
-Use with `/review` in chat.
+Use with `/review` in chat. A custom command with the same name as a built-in command replaces the built-in.
 
 ## File Mentions
 

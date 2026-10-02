@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   activateSkill,
+  askSideQuestion,
   cancelForm,
   clearRevert,
   commitRevert,
@@ -26,6 +27,7 @@ import {
   stageRevert,
   switchSessionAgent,
   switchSessionModel,
+  SIDE_QUESTION_INSTRUCTIONS,
 } from './opencode'
 import { FetchError } from './fetchWrapper'
 
@@ -411,6 +413,20 @@ describe('OpenCode facade', () => {
 
     expect(lastRequest().url).toBe('http://localhost/api/opencode/api/session/ses_1/interrupt')
     expect(lastRequest().init.method).toBe('POST')
+  })
+
+  it('asks a side question through the session generate route with the shared instructions', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: { text: '  answer \n' } }))
+
+    const answer = await askSideQuestion('ses_1', 'why?')
+
+    expect(lastRequest().url).toBe('http://localhost/api/opencode/api/session/ses_1/generate')
+    expect(lastRequest().init.method).toBe('POST')
+    const body = JSON.parse(String(lastRequest().init.body))
+    expect(body.prompt).toBe(`${SIDE_QUESTION_INSTRUCTIONS}\n\nwhy?`)
+    expect(body.prompt.startsWith(SIDE_QUESTION_INSTRUCTIONS)).toBe(true)
+    expect(body.prompt.endsWith('\n\nwhy?')).toBe(true)
+    expect(answer).toBe('answer')
   })
 
   it('stages, commits, and clears a session revert', async () => {

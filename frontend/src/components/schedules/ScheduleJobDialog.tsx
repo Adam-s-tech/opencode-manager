@@ -20,6 +20,7 @@ import {
   type SchedulePreset,
 } from '@/components/schedules/schedule-utils'
 import { getRepoDisplayName } from '@/lib/utils'
+import { getPrimaryAgents } from '@/lib/primaryAgents'
 import { ASSISTANT_REPO_ID, ASSISTANT_REPO_NAME } from '@opencode-manager/shared/utils'
 import { DEFAULT_DESTRUCTIVE_BASH_PATTERNS } from '@opencode-manager/shared/schemas'
 import { Loader2 } from 'lucide-react'
@@ -186,13 +187,11 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
   }, [providerModels, configDefaultModel])
 
   const agentOptions = useMemo<ComboboxOption[]>(() => {
-    return agents
-      .filter((agent) => agent.mode !== 'subagent' && !agent.hidden)
-      .map((agent) => ({
-        value: agent.id,
-        label: agent.name,
-        description: agent.description,
-      }))
+    return getPrimaryAgents(agents).map((agent) => ({
+      value: agent.id,
+      label: agent.name,
+      description: agent.description,
+    }))
   }, [agents])
 
   const selectedAgentSlug = agentsLoaded && !agentOptions.some((option) => option.value === agentSlug) ? '' : agentSlug

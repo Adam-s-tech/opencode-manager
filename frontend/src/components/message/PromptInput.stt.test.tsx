@@ -3,6 +3,7 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PromptInput } from './PromptInput'
 import { useUIState } from '@/stores/uiStateStore'
+import { createCommandActionsMock } from '@/test/test-utils'
 
 const createTestQueryClient = () => new QueryClient({
   defaultOptions: {
@@ -141,11 +142,7 @@ describe('PromptInput STT Gesture Tests', () => {
     isSessionActive: false,
     isStreamingResponse: false,
     onScrollToBottom: vi.fn(),
-    onShowSessionsDialog: vi.fn(),
-    onShowModelsDialog: vi.fn(),
-    onShowHelpDialog: vi.fn(),
-    onToggleDetails: vi.fn(),
-    onExportSession: vi.fn(),
+    commandActions: createCommandActionsMock(),
     onPromptChange: vi.fn(),
   }
 

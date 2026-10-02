@@ -167,6 +167,23 @@ export async function runShell(sessionID: string, command: string): Promise<void
   await callOpenCode((api) => api.session.shell({ sessionID, command }))
 }
 
+export const SIDE_QUESTION_INSTRUCTIONS =
+  'The user is asking a quick side question about the conversation so far. Answer directly and concisely in markdown from what you already know. Do not call any tools and do not take any actions.'
+
+export async function askSideQuestion(
+  sessionID: string,
+  question: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const result = await callOpenCode((api) =>
+    api.session.generate(
+      { sessionID, prompt: [SIDE_QUESTION_INSTRUCTIONS, question].join('\n\n') },
+      signal ? { signal } : undefined,
+    ),
+  )
+  return result.text.trim()
+}
+
 export async function interruptSession(sessionID: string): Promise<void> {
   await callOpenCode((api) => api.session.interrupt({ sessionID }))
 }

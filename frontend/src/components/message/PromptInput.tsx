@@ -27,6 +27,7 @@ import { ModelQuickSelect } from '@/components/model/ModelQuickSelect'
 import { AgentQuickSelect } from '@/components/agent/AgentQuickSelect'
 import { VoiceStatusOverlay, type VoiceStatusOverlayState } from './VoiceStatusOverlay'
 import { detectMentionTrigger, parsePromptToInput, getFilename, filterAgentsByQuery } from '@/lib/promptParser'
+import { getNextPrimaryAgentId } from '@/lib/primaryAgents'
 import { randomId } from '@/lib/utils'
 import { showToast } from '@/lib/toast'
 import { formatModelName } from '@/api/providers'
@@ -35,6 +36,7 @@ import { useProviders } from '@/hooks/useProviders'
 
 import type { CommandInfo, ModelRef } from '@opencode-manager/shared/opencode'
 import type { FileAttachmentInfo, ImageAttachment } from '@/api/types'
+import { isBuiltinCommand, type CommandActions, type PageCommandActions } from '@/lib/builtinCommands'
 
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/heic", "image/heif"]
 
@@ -58,6 +60,7 @@ export interface PromptInputHandle {
   setPromptValue: (value: string) => void
   clearPrompt: () => void
   triggerFileUpload: () => void
+  openModelPicker: () => void
 }
 
 interface PromptInputProps {
@@ -67,12 +70,7 @@ interface PromptInputProps {
   isSessionActive?: boolean
   isStreamingResponse?: boolean
   onScrollToBottom: () => void
-  onShowSessionsDialog?: () => void
-  onShowHelpDialog?: () => void
-  onToggleDetails?: () => boolean
-  onExportSession?: () => void
-  onUndo?: () => void | Promise<void>
-  onRedo?: () => void | Promise<void>
+  commandActions: PageCommandActions
   onPromptChange?: (hasContent: boolean) => void
 }
 
@@ -83,12 +81,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
   isSessionActive = false,
   isStreamingResponse = false,
   onScrollToBottom,
-  onShowSessionsDialog,
-  onShowHelpDialog,
-  onToggleDetails,
-  onExportSession,
-  onUndo,
-  onRedo,
+  commandActions,
   onPromptChange
 }, ref) {
   const [prompt, setPrompt] = useState('')
@@ -98,6 +91,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
   const [attachedFiles, setAttachedFiles] = useState(new Map<string, FileAttachmentInfo>())
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
   const [showMentionSuggestions, setShowMentionSuggestions] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionRange, setMentionRange] = useState<{ start: number, end: number } | null>(null)
@@ -156,7 +150,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     imageAttachmentsRef.current = imageAttachments
   }, [attachedFiles, imageAttachments, prompt])
 
-  const clearSubmittedPrompt = useCallback((submittedPrompt: string, submittedAttachedFiles: Map<string, FileAttachmentInfo>, submittedImageAttachments: ImageAttachment[]) => {
+  const clearSubmittedPrompt = useCallback((submittedPrompt: string, submittedAttachedFiles: Map<string, FileAttachmentInfo>, submittedImageAttachments: ImageAttachment[], options?: { keepAttachments?: boolean }) => {
     if (
       promptRef.current !== submittedPrompt ||
       attachedFilesRef.current !== submittedAttachedFiles ||
@@ -166,9 +160,11 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     }
 
     setPrompt('')
-    setAttachedFiles(new Map())
-    revokeBlobUrls(submittedImageAttachments)
-    setImageAttachments([])
+    if (!options?.keepAttachments) {
+      setAttachedFiles(new Map())
+      revokeBlobUrls(submittedImageAttachments)
+      setImageAttachments([])
+    }
     clearSTT()
   }, [clearSTT])
 
@@ -206,6 +202,9 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     },
     triggerFileUpload: () => {
       fileInputRef.current?.click()
+    },
+    openModelPicker: () => {
+      setIsModelPickerOpen(true)
     }
   }), [imageAttachments, clearSTT, isRecording, abortRecording, resetVoiceGestureState])
   const sessionAgent = useSessionAgent(sessionID, directory)
@@ -348,9 +347,14 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
           agents: parsed.agents,
           skills: parsed.skills,
         }).then((shouldClear) => {
-          if (shouldClear) {
-            clearSubmittedPrompt(submittedPrompt, submittedAttachedFiles, submittedImageAttachments)
+          if (!shouldClear) return
+          const keepAttachments = isBuiltinCommand(command) && (submittedAttachedFiles.size > 0 || submittedImageAttachments.length > 0)
+          if (keepAttachments) {
+            clearSubmittedPrompt(submittedPrompt, submittedAttachedFiles, submittedImageAttachments, { keepAttachments: true })
+            showToast.info('Built-in commands do not use attachments; they were kept')
+            return
           }
+          clearSubmittedPrompt(submittedPrompt, submittedAttachedFiles, submittedImageAttachments)
         })
         return
       }
@@ -497,15 +501,6 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     setShowMentionSuggestions(false)
     setMentionQuery('')
     setMentionRange(null)
-  }
-
-  const handleAgentChange = (agentId: string) => {
-    setLocalMode(agentId)
-    setStoredAgent(sessionID, agentId)
-    const agent = agents.find(a => a.id === agentId)
-    if (agent?.model) {
-      setStoredModel({ providerID: agent.model.providerID, modelID: agent.model.id })
-    }
   }
 
   const startVoiceRecording = async () => {
@@ -985,9 +980,7 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
       clearSTT()
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 't') {
       e.preventDefault()
-      if (hasVariants) {
-        cycleVariant()
-      }
+      handleCycleVariant()
     }
   }
 
@@ -1089,18 +1082,48 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
       : undefined,
     [model, currentVariant],
   )
+
+  const handleAgentChange = useCallback((agentId: string) => {
+    setLocalMode(agentId)
+    setStoredAgent(sessionID, agentId)
+    const agent = agents.find(a => a.id === agentId)
+    if (agent?.model) {
+      setStoredModel({ providerID: agent.model.providerID, modelID: agent.model.id })
+    }
+  }, [agents, sessionID, setStoredAgent, setStoredModel])
+
+  const handleCycleVariant = useCallback(() => {
+    if (!hasVariants) {
+      showToast.info('The selected model has no variants')
+      return
+    }
+    cycleVariant()
+  }, [hasVariants, cycleVariant])
+
+  const handleCycleAgent = useCallback(() => {
+    const next = getNextPrimaryAgentId(agents, currentMode)
+    if (!next) {
+      showToast.info('No primary agents available')
+      return
+    }
+    handleAgentChange(next)
+  }, [agents, currentMode, handleAgentChange])
+
+  const commandActionsWithPrompt = useMemo<CommandActions>(
+    () => ({
+      ...commandActions,
+      cycleAgent: handleCycleAgent,
+      cycleVariant: handleCycleVariant,
+    }),
+    [commandActions, handleCycleAgent, handleCycleVariant],
+  )
+
   const { executeCommand } = useCommandHandler({
     sessionID,
     directory,
     model: modelRef,
     currentAgent: currentMode,
-    onShowSessionsDialog,
-    onShowModelsDialog: undefined,
-    onShowHelpDialog,
-    onToggleDetails,
-    onExportSession,
-    onUndo,
-    onRedo
+    actions: commandActionsWithPrompt,
   })
   const showStopButton = isSessionActive
   const hideSecondaryButtons = isMobile && isSessionActive
@@ -1298,6 +1321,11 @@ return (
                   <SessionStatusIndicator sessionID={sessionID} showLabel />
                 </div>
               )}
+              <ModelQuickSelect
+                directory={directory}
+                open={isModelPickerOpen}
+                onOpenChange={setIsModelPickerOpen}
+              />
             </>
           ) : (
             <>
@@ -1307,26 +1335,27 @@ return (
                 onAgentChange={handleAgentChange}
                 isBashMode={isBashMode}
               />
-              {isSessionActive ? (
-              <div className="px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-medium text-muted-foreground max-w-[120px] md:max-w-[180px]">
-                <SessionStatusIndicator sessionID={sessionID} showLabel />
-              </div>
-            ) : (
-               !hideSecondaryButtons && (
-                  <ModelQuickSelect
-                    directory={directory}
-                  >
-<button
-                      className="px-2.5 py-0.5 md:px-3 min-h-[36px] min-w-0 rounded-lg text-xs md:text-sm font-medium border bg-muted border-border text-muted-foreground hover:bg-muted-foreground/10 hover:border-foreground/30 transition-colors cursor-pointer flex-1 md:flex-initial md:w-auto max-w-[110px] md:max-w-[220px] dark:border-border/30 flex flex-col items-start justify-center overflow-hidden"
-                    >
-                      <span className="truncate w-full text-left">{displayModelName || 'Select model'}</span>
-{hasVariants && currentVariant && (
-                        <span className="text-[10px] text-highlight truncate w-full text-center capitalize">{currentVariant}</span>
-                      )}
-                   </button>
-                 </ModelQuickSelect>
-                )
+              {isSessionActive && (
+                <div className="px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-medium text-muted-foreground max-w-[120px] md:max-w-[180px]">
+                  <SessionStatusIndicator sessionID={sessionID} showLabel />
+                </div>
               )}
+              <ModelQuickSelect
+                directory={directory}
+                open={isModelPickerOpen}
+                onOpenChange={setIsModelPickerOpen}
+              >
+                {!isSessionActive && !hideSecondaryButtons && (
+                  <button
+                    className="px-2.5 py-0.5 md:px-3 min-h-[36px] min-w-0 rounded-lg text-xs md:text-sm font-medium border bg-muted border-border text-muted-foreground hover:bg-muted-foreground/10 hover:border-foreground/30 transition-colors cursor-pointer flex-1 md:flex-initial md:w-auto max-w-[110px] md:max-w-[220px] dark:border-border/30 flex flex-col items-start justify-center overflow-hidden"
+                  >
+                    <span className="truncate w-full text-left">{displayModelName || 'Select model'}</span>
+                    {hasVariants && currentVariant && (
+                      <span className="text-[10px] text-highlight truncate w-full text-center capitalize">{currentVariant}</span>
+                    )}
+                  </button>
+                )}
+              </ModelQuickSelect>
             </>
           )}
         </div>

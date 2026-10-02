@@ -1,15 +1,28 @@
+import { createRef } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { PromptInput } from './PromptInput'
+import { PromptInput, type PromptInputHandle } from './PromptInput'
 import { useUIState } from '@/stores/uiStateStore'
+import { BUILTIN_COMMANDS } from '@/lib/builtinCommands'
+import { createCommandActionsMock } from '@/test/test-utils'
 
 const mocks = vi.hoisted(() => ({
   runCommand: vi.fn(),
   switchSessionModel: vi.fn(),
   switchSessionAgent: vi.fn(),
-  compactSession: vi.fn(),
-  agents: [] as Array<{ name: string; description?: string }>,
+  agents: [] as Array<{ id: string; name: string; description?: string; mode?: string; hidden?: boolean }>,
+  setAgent: vi.fn(),
+  cycleVariant: vi.fn(),
+  showToast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+    loading: vi.fn(),
+    promise: vi.fn(),
+    dismiss: vi.fn(),
+  },
   useSTT: vi.fn(),
   useMobile: vi.fn(),
   useCommands: vi.fn(),
@@ -27,7 +40,6 @@ vi.mock('@/api/opencode', async () => {
   return {
     ...actual,
     runCommand: mocks.runCommand,
-    compactSession: mocks.compactSession,
     switchSessionModel: mocks.switchSessionModel,
     switchSessionAgent: mocks.switchSessionAgent,
   }
@@ -42,7 +54,6 @@ vi.mock('@/hooks/useOpenCode', async () => {
 })
 
 vi.mock('@/hooks/useSTT', () => ({ useSTT: mocks.useSTT }))
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
 vi.mock('@/hooks/useMobile', () => ({ useMobile: mocks.useMobile }))
 vi.mock('@/hooks/useCommands', () => ({ useCommands: mocks.useCommands }))
 vi.mock('@/hooks/useFileSearch', () => ({ useFileSearch: mocks.useFileSearch }))
@@ -52,6 +63,7 @@ vi.mock('@/hooks/useSessionAgent', () => ({ useSessionAgent: mocks.useSessionAge
 vi.mock('@/stores/userBashStore', () => ({ useUserBash: mocks.useUserBash }))
 vi.mock('@/stores/sessionAgentStore', () => ({ useSessionAgentStore: mocks.useSessionAgentStore }))
 vi.mock('@/stores/sendErrorStore', () => ({ useSendErrorStore: mocks.useSendErrorStore }))
+vi.mock('@/lib/toast', () => ({ showToast: mocks.showToast }))
 
 vi.mock('@/contexts/EventContext', () => ({
   usePermissions: () => ({
@@ -65,7 +77,9 @@ vi.mock('@/components/agent/AgentQuickSelect', () => ({
 }))
 
 vi.mock('@/components/model/ModelQuickSelect', () => ({
-  ModelQuickSelect: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ModelQuickSelect: ({ children, open }: { children?: React.ReactNode; open?: boolean }) => (
+    <div data-testid="model-quick-select" data-open={open ? 'true' : 'false'}>{children}</div>
+  ),
 }))
 
 vi.mock('@/components/ui/session-status-indicator', () => ({
@@ -105,10 +119,7 @@ describe('PromptInput command submission', () => {
     isSessionActive: false,
     isStreamingResponse: false,
     onScrollToBottom: vi.fn(),
-    onShowSessionsDialog: vi.fn(),
-    onShowHelpDialog: vi.fn(),
-    onToggleDetails: vi.fn(),
-    onExportSession: vi.fn(),
+    commandActions: createCommandActionsMock(),
     onPromptChange: vi.fn(),
   }
 
@@ -134,7 +145,7 @@ describe('PromptInput command submission', () => {
     mocks.runCommand.mockResolvedValue(undefined)
     mocks.switchSessionModel.mockResolvedValue(undefined)
     mocks.switchSessionAgent.mockResolvedValue(undefined)
-    mocks.agents = [{ name: 'reviewer', description: 'Reviewer' }]
+    mocks.agents = [{ id: 'reviewer', name: 'reviewer', description: 'Reviewer', mode: 'primary' }]
     mocks.useMobile.mockReturnValue(false)
     mocks.useSTT.mockReturnValue({
       isRecording: false,
@@ -150,7 +161,11 @@ describe('PromptInput command submission', () => {
       clear: vi.fn(),
     })
     mocks.useCommands.mockReturnValue({
-      filterCommands: (query: string) => query === 'review' ? [{ name: 'review', description: 'Review' }] : [],
+      filterCommands: (query: string) => {
+        if (query === 'review') return [{ name: 'review', description: 'Review' }]
+        const builtin = BUILTIN_COMMANDS.find((command) => command.name === query)
+        return builtin ? [builtin] : []
+      },
     })
     mocks.useFileSearch.mockReturnValue({ files: [] })
     mocks.useModelSelection.mockReturnValue({
@@ -163,10 +178,10 @@ describe('PromptInput command submission', () => {
       toggleFavorite: vi.fn(),
       isModelStateLoading: false,
     })
-    mocks.useVariants.mockReturnValue({ hasVariants: false, currentVariant: null, cycleVariant: vi.fn() })
+    mocks.useVariants.mockReturnValue({ hasVariants: false, currentVariant: null, cycleVariant: mocks.cycleVariant })
     mocks.useSessionAgent.mockReturnValue({ agent: 'build' })
     mocks.useUserBash.mockImplementation((selector: (state: unknown) => unknown) => selector({ addUserBashCommand: vi.fn() }))
-    mocks.useSessionAgentStore.mockImplementation((selector: (state: unknown) => unknown) => selector({ setAgent: vi.fn() }))
+    mocks.useSessionAgentStore.mockImplementation((selector: (state: unknown) => unknown) => selector({ setAgent: mocks.setAgent }))
     mocks.useSendErrorStore.mockImplementation((selector: (state: unknown) => unknown) => selector({ errors: {} }))
     useUIState.getState().clearPendingPromptCommand()
     useUIState.getState().clearPendingPromptFile()
@@ -221,5 +236,89 @@ describe('PromptInput command submission', () => {
 
     await waitFor(() => expect(mocks.runCommand).toHaveBeenCalled())
     expect(input).toHaveValue('/review')
+  })
+
+  it('switches to the next primary agent for /agent without invoking runCommand', async () => {
+    mocks.agents = [
+      { id: 'build', name: 'build', mode: 'primary' },
+      { id: 'plan', name: 'plan', mode: 'primary' },
+    ]
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/agent' } })
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(mocks.setAgent).toHaveBeenCalledWith('test-session', 'plan'))
+    expect(mocks.runCommand).not.toHaveBeenCalled()
+  })
+
+  it('reports when /variants is used with a model that has no variants', async () => {
+    mocks.useVariants.mockReturnValue({ hasVariants: false, currentVariant: null, cycleVariant: mocks.cycleVariant })
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/variants' } })
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(mocks.showToast.info).toHaveBeenCalledWith('The selected model has no variants'))
+    expect(mocks.cycleVariant).not.toHaveBeenCalled()
+  })
+
+  it('cycles variants for /variants when the model has them', async () => {
+    mocks.useVariants.mockReturnValue({ hasVariants: true, currentVariant: 'high', cycleVariant: mocks.cycleVariant })
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/variants' } })
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(mocks.cycleVariant).toHaveBeenCalled())
+    expect(mocks.showToast.info).not.toHaveBeenCalled()
+  })
+
+  it('opens the model picker through the imperative handle while the session is active', () => {
+    const queryClient = createTestQueryClient()
+    queryClient.setQueryData(['opencode', 'session', 'test-session', '/test'], sessionInfo())
+    const ref = createRef<PromptInputHandle>()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PromptInput {...defaultProps} ref={ref} isSessionActive />
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByTestId('model-quick-select')).toHaveAttribute('data-open', 'false')
+
+    act(() => {
+      ref.current?.openModelPicker()
+    })
+
+    expect(screen.getByTestId('model-quick-select')).toHaveAttribute('data-open', 'true')
+  })
+
+  it('keeps attachments and clears only the text when a built-in command is submitted', async () => {
+    const { container } = renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    await attachImage(container)
+
+    fireEvent.change(input, { target: { value: '/btw hi' } })
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(mocks.showToast.info).toHaveBeenCalledWith('Built-in commands do not use attachments; they were kept'))
+    expect(input).toHaveValue('')
+    expect(screen.getByText('pic.png')).toBeInTheDocument()
+  })
+
+  it('clears the prompt for a built-in command without attachments', async () => {
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/btw hi' } })
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(input).toHaveValue(''))
+    expect(mocks.showToast.info).not.toHaveBeenCalled()
   })
 })

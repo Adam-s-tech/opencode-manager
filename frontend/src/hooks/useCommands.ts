@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { listCommands } from '@/api/opencode'
 import type { CommandInfo } from '@opencode-manager/shared/opencode'
+import { BUILTIN_COMMANDS } from '@/lib/builtinCommands'
 
 function sortCommandsByName(commands: CommandInfo[]): CommandInfo[] {
   return [...commands].sort((a, b) => a.name.localeCompare(b.name))
@@ -13,27 +14,7 @@ function rankCommandMatch(command: CommandInfo, searchTerm: string): number {
   return 2
 }
 
-const BUILTIN_COMMANDS: CommandInfo[] = [
-  { name: 'help', description: 'Show the help dialog' },
-  { name: 'init', description: 'Create or update AGENTS.md file' },
-  { name: 'new', description: 'Start a new session' },
-  { name: 'clear', description: 'Start a new session (alias for /new)' },
-  { name: 'sessions', description: 'List and switch between sessions' },
-  { name: 'resume', description: 'List and switch between sessions (alias for /sessions)' },
-  { name: 'continue', description: 'List and switch between sessions (alias for /sessions)' },
-  { name: 'models', description: 'List available models' },
-  { name: 'themes', description: 'List available themes' },
-  { name: 'share', description: 'Share current session' },
-  { name: 'unshare', description: 'Unshare current session' },
-  { name: 'export', description: 'Export current conversation to Markdown' },
-  { name: 'compact', description: 'Compact the current session' },
-  { name: 'undo', description: 'Undo last message in the conversation' },
-  { name: 'redo', description: 'Redo a previously undone message' },
-  { name: 'details', description: 'Toggle tool execution details' },
-  { name: 'editor', description: 'Open external editor for composing messages' },
-]
-
-const SORTED_BUILTIN_COMMANDS = sortCommandsByName(BUILTIN_COMMANDS)
+const SORTED_BUILTIN_COMMANDS = sortCommandsByName([...BUILTIN_COMMANDS])
 
 interface UseCommandsOptions {
   directory?: string
@@ -47,7 +28,7 @@ export function useCommands(options: UseCommandsOptions = {}) {
     queryKey: ['opencode', 'commands', directory ?? null],
     queryFn: async () => {
       const loaded = await listCommands(directory)
-      const allCommands = [...BUILTIN_COMMANDS, ...loaded]
+      const allCommands = [...loaded, ...BUILTIN_COMMANDS]
       const uniqueCommands = allCommands.filter((command, index, self) =>
         index === self.findIndex((c) => c.name === command.name)
       )

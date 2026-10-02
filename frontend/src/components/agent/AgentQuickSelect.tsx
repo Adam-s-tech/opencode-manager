@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAgents } from '@/hooks/useOpenCode'
 import { getAgentStyleVars } from '@/lib/agent-colors'
+import { getPrimaryAgents } from '@/lib/primaryAgents'
 
 interface AgentQuickSelectProps {
   directory?: string
@@ -39,13 +40,7 @@ export function AgentQuickSelect({
 }: AgentQuickSelectProps) {
   const { data: agents = [] } = useAgents(directory)
 
-  const primaryAgents = useMemo(() => {
-    return agents.filter(
-      (agent) =>
-        (agent.mode === 'primary' || agent.mode === 'all') &&
-        !agent.hidden
-    )
-  }, [agents])
+  const primaryAgents = useMemo(() => getPrimaryAgents(agents), [agents])
 
   const handleSelect = (agentId: string) => {
     onAgentChange(agentId)
