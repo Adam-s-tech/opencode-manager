@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { RunDetailPanel } from './RunDetailPanel'
 import type { Repo } from '@/api/types'
 import type { ScheduleRun } from '@opencode-manager/shared/types'
@@ -10,9 +10,34 @@ const mocks = vi.hoisted(() => ({
   getRepo: vi.fn(),
 }))
 
+const apiMocks = vi.hoisted(() => ({
+  createSessionWithContext: vi.fn(),
+}))
+
 vi.mock('@/api/repos', () => ({
   getRepo: mocks.getRepo,
 }))
+
+vi.mock('@/api/opencode', () => ({
+  createSessionWithContext: apiMocks.createSessionWithContext,
+}))
+
+vi.mock('@/lib/toast', () => ({
+  showToast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+    loading: vi.fn(),
+    promise: vi.fn(),
+    dismiss: vi.fn(),
+  },
+}))
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="location">{location.pathname}</div>
+}
 
 vi.mock('@/components/file-browser/FileBrowserSheet', () => ({
   FileBrowserSheet: ({ isOpen, initialSelectedFile }: { isOpen: boolean; initialSelectedFile?: string }) =>
@@ -48,7 +73,7 @@ const run: ScheduleRun = {
   worktreePath: null,
 }
 
-function renderPanel() {
+function renderPanel(activeRun: ScheduleRun = run) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -60,11 +85,12 @@ function renderPanel() {
       <QueryClientProvider client={queryClient}>
         <RunDetailPanel
           repoId={5}
-          activeRun={run}
+          activeRun={activeRun}
           selectedRunLoading={false}
           onCancelRun={vi.fn()}
           cancelRunPending={false}
         />
+        <LocationProbe />
       </QueryClientProvider>
     </MemoryRouter>,
   )
@@ -126,5 +152,79 @@ describe('RunDetailPanel local link handling', () => {
     const docs = screen.getByRole('link', { name: 'Docs' })
     expect(docs.getAttribute('target')).toBe('_blank')
     expect(docs.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+})
+
+describe('RunDetailPanel open session', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.getRepo.mockResolvedValue(repo)
+  })
+
+  async function clickOpenSession() {
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open session' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Open session' }))
+  }
+
+  it('opens the original session for a run that worked in the repository', async () => {
+    renderPanel({ ...run, sessionId: 'ses_run', worktreePath: null })
+
+    await clickOpenSession()
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/repos/5/sessions/ses_run'))
+    expect(apiMocks.createSessionWithContext).not.toHaveBeenCalled()
+  })
+
+  it('opens the original session while a worktree run is still running', async () => {
+    renderPanel({ ...run, status: 'running', sessionId: 'ses_run', worktreePath: '/abs/worktrees/run-1' })
+
+    await clickOpenSession()
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/repos/5/sessions/ses_run'))
+    expect(apiMocks.createSessionWithContext).not.toHaveBeenCalled()
+  })
+
+  it('opens a new repo session seeded with the full output and branch for a finished worktree run', async () => {
+    apiMocks.createSessionWithContext.mockResolvedValue({ id: 'ses_new' })
+    renderPanel({
+      ...run,
+      sessionId: 'ses_run',
+      sessionTitle: 'Daily recap',
+      finishedAt: Date.UTC(2026, 9, 2),
+      worktreePath: '/abs/worktrees/run-1',
+      runBranch: 'schedule/run-1',
+      commitHash: 'abc123',
+    })
+
+    await clickOpenSession()
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/repos/5/sessions/ses_new'))
+    const [input, context] = apiMocks.createSessionWithContext.mock.calls[0] ?? []
+    expect(input).toEqual({ directory: '/abs/repos/my-repo', title: 'Daily recap (continued)' })
+    expect(context).toContain('scheduled run #1 "Daily recap", which completed and finished at 2026-10-02T00:00:00.000Z')
+    expect(context).toContain('branch `schedule/run-1` at commit `abc123`')
+    expect(context).toContain(`Run output:\n\n${run.responseText}`)
+  })
+
+  it('includes the error and notes no committed changes for a failed worktree run', async () => {
+    apiMocks.createSessionWithContext.mockResolvedValue({ id: 'ses_new' })
+    renderPanel({ ...run, status: 'failed', responseText: null, errorText: 'Model timed out', worktreePath: '/abs/worktrees/run-1' })
+
+    await clickOpenSession()
+
+    await waitFor(() => expect(apiMocks.createSessionWithContext).toHaveBeenCalled())
+    const [input, context] = apiMocks.createSessionWithContext.mock.calls[0] ?? []
+    expect(input).toEqual({ directory: '/abs/repos/my-repo', title: 'Scheduled run (continued)' })
+    expect(context).toContain('ended as failed')
+    expect(context).toContain('committed no changes')
+    expect(context).toContain('The run produced no output.')
+    expect(context).toContain('Run error:\n\nModel timed out')
+  })
+
+  it('shows a single open session button', async () => {
+    renderPanel({ ...run, sessionId: 'ses_run', worktreePath: '/abs/worktrees/run-1' })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open session' })).toBeEnabled())
+    expect(screen.getAllByRole('button', { name: /session|repo/i })).toHaveLength(1)
   })
 })

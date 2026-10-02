@@ -136,6 +136,21 @@ export async function forkSession(sessionID: string, before?: string): Promise<S
   )
 }
 
+export async function addSessionContext(sessionID: string, text: string): Promise<void> {
+  await callOpenCode((api) => api.session.synthetic({ sessionID, text, resume: false }))
+}
+
+export async function createSessionWithContext(input: CreateSessionInput, context: string): Promise<SessionInfo> {
+  const session = await createSession(input)
+  try {
+    await addSessionContext(session.id, context)
+  } catch (error) {
+    await deleteSession(session.id).catch(() => undefined)
+    throw error
+  }
+  return session
+}
+
 export async function switchSessionModel(sessionID: string, model: ModelRef): Promise<void> {
   await callOpenCode((api) => api.session.switchModel({ sessionID, model }))
 }

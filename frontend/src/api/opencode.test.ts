@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   activateSkill,
+  addSessionContext,
   askSideQuestion,
   cancelForm,
   clearRevert,
   commitRevert,
   compactSession,
   createSession,
+  createSessionWithContext,
   deleteSession,
   findFiles,
   forkSession,
@@ -172,6 +174,45 @@ describe('OpenCode facade', () => {
 
     expect(lastRequest().url).toBe('http://localhost/api/opencode/api/session/ses_1/fork')
     expect(lastRequest().init.body).toBe(JSON.stringify({}))
+  })
+
+  it('adds context to a session without resuming the model', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: { id: 'inb_1' } }))
+
+    await expect(addSessionContext('ses_1', 'Run output')).resolves.toBeUndefined()
+
+    expect(lastRequest().url).toBe('http://localhost/api/opencode/api/session/ses_1/synthetic')
+    expect(lastRequest().init.method).toBe('POST')
+    expect(lastRequest().init.body).toBe(JSON.stringify({ text: 'Run output', resume: false }))
+  })
+
+  it('creates a session in a directory and seeds it with context', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: sessionInfo('ses_new', '/abs/repos/my-repo') }))
+      .mockResolvedValueOnce(jsonResponse({ data: { id: 'inb_1' } }))
+
+    const session = await createSessionWithContext({ directory: '/abs/repos/my-repo', title: 'Run (continued)' }, 'Run output')
+
+    expect(session.id).toBe('ses_new')
+    const [createUrl, createInit] = fetchMock.mock.calls[0] ?? []
+    expect(String(createUrl)).toBe('http://localhost/api/opencode/api/session')
+    expect((createInit as RequestInit).body).toBe(JSON.stringify({ title: 'Run (continued)', location: { directory: '/abs/repos/my-repo' } }))
+    const [contextUrl, contextInit] = fetchMock.mock.calls[1] ?? []
+    expect(String(contextUrl)).toBe('http://localhost/api/opencode/api/session/ses_new/synthetic')
+    expect((contextInit as RequestInit).body).toBe(JSON.stringify({ text: 'Run output', resume: false }))
+  })
+
+  it('deletes the new session when seeding its context fails', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ data: sessionInfo('ses_new', '/abs/repos/my-repo') }))
+      .mockResolvedValueOnce(new Response('nope', { status: 400 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(createSessionWithContext({ directory: '/abs/repos/my-repo' }, 'Run output')).rejects.toBeInstanceOf(FetchError)
+
+    const [deleteUrl, deleteInit] = fetchMock.mock.calls[2] ?? []
+    expect(String(deleteUrl)).toBe('http://localhost/api/opencode/api/session/ses_new')
+    expect((deleteInit as RequestInit).method).toBe('DELETE')
   })
 
   it('finds files through the V2 filesystem route and returns paths', async () => {

@@ -157,12 +157,12 @@ This makes recurring jobs easy to review without digging through raw session dat
 
 Every run creates or attaches to a normal OpenCode session.
 
-Use **Open session** when you want to:
+Use **Open session** to continue from the generated report, answer follow-up questions, or debug provider, permission, or tool issues.
 
-- inspect the original conversation
-- continue from the generated report
-- answer follow-up questions from the agent
-- debug provider, permission, or tool issues
+What it opens depends on where the run worked:
+
+- **In the repository, or still running**: the run's own session.
+- **In a temporary worktree that has finished**: the worktree is removed when the run ends, so the original session can no longer do any work. Instead, a new session opens in the repository with the run's full output, any error, and the branch and commit holding the run's changes added as context. It uses your normal permissions rather than the run's unattended ones, and nothing is sent to the model until you write a message.
 
 This keeps automation connected to the rest of the OpenCode Manager workflow instead of creating a separate silo.
 
@@ -180,7 +180,7 @@ This keeps automation connected to the rest of the OpenCode Manager workflow ins
 
 1. Open the run from **Run History**
 2. Check the **Error** tab for the failure message
-3. Use **Open session** to inspect the underlying session
+3. Use **Open session** to follow up on the failure with the agent
 4. Verify provider credentials, model availability, and any pending agent questions or permissions
 
 ### No Assistant Output
