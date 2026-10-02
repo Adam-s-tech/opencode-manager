@@ -80,15 +80,32 @@ If you already used standalone OpenCode in those repositories, existing chats ap
 1. Select your repository from the sidebar
 2. Click **New Session** or type `/new`
 3. Type your message
-4. Press **Enter** to send
+4. Press **Cmd+Enter** (`Ctrl+Enter` on other platforms) to send, or **Enter** on mobile
 
 ### Useful Commands
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show available commands |
-| `/new` | Start a new session |
+| `/help`, `/settings` | Open settings |
+| `/new`, `/clear` | Start a new session |
+| `/sessions`, `/resume`, `/continue` | List and switch between sessions |
+| `/model`, `/models` | Open the model picker, also while a response is running |
+| `/agent` | Switch to the next primary agent |
+| `/variants` | Cycle the model's reasoning variant |
 | `/compact` | Reduce session context |
+| `/rename [title]` | Rename the session; with no title, regenerate it |
+| `/fork` | Fork the session from a chosen message, or the entire conversation |
+| `/timeline` | Jump to a loaded message in the conversation |
+| `/btw <question>` | Ask a side question without adding it to the conversation |
+| `/copy` | Copy the full transcript as Markdown |
+| `/export` | Download the full transcript as Markdown |
+| `/undo`, `/redo` | Undo or redo the last message |
+| `/details` | Toggle tool execution details |
+| `/mcp` | Manage MCP servers |
+| `/skills` | Load a skill |
+| `/connect` | Connect a provider |
+
+Press **Enter** to run a command once its name is complete; use **Shift+Enter** to continue its text on a new line. Built-in commands use only the command text. Attached files and images are kept in the composer for your next message.
 
 ### File Mentions
 
@@ -112,7 +129,8 @@ Now that you're set up, explore more features:
 
 | Shortcut | Action |
 |----------|--------|
-| `Enter` | Send message |
+| `Cmd+Enter` / `Ctrl+Enter` | Send message |
+| `Enter` | Run a slash command, such as `/btw <question>`; otherwise a new line on desktop, send on mobile |
 | `Shift+Enter` | New line |
 
 The app uses a configurable leader key system (`Cmd+O` on Mac, `Ctrl+O` on other platforms) for additional shortcuts. Customize in Settings > Keyboard Shortcuts.

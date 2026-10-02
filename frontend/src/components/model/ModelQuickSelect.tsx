@@ -18,7 +18,9 @@ import type { Model, Provider } from '@/api/providers'
 interface ModelQuickSelectProps {
   directory?: string
   disabled?: boolean
-  children: React.ReactNode
+  children?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 interface ModelListItem {
@@ -189,8 +191,11 @@ export function ModelQuickSelect({
   directory,
   disabled,
   children,
+  open,
+  onOpenChange,
 }: ModelQuickSelectProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [internalIsOpen, setInternalIsOpen] = useState(false)
+  const isOpen = open ?? internalIsOpen
   const [showAllModels, setShowAllModels] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const deferredSearchQuery = useDeferredValue(searchQuery)
@@ -416,13 +421,16 @@ export function ModelQuickSelect({
     setSelectedProviderId(null)
   }
 
-  const handleOpenChange = (open: boolean) => {
-    setIsOpen(open)
-    if (!open) {
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (open === undefined) {
+      setInternalIsOpen(nextOpen)
+    }
+    if (!nextOpen) {
       setShowAllModels(false)
       setSearchQuery('')
       setSelectedProviderId(null)
     }
+    onOpenChange?.(nextOpen)
   }
 
   const handleProviderSelect = (providerID: string) => {
@@ -567,9 +575,11 @@ export function ModelQuickSelect({
 
   return (
     <>
-      <span onClick={() => !disabled && handleOpenChange(true)} data-model-select-trigger>
-        {children}
-      </span>
+      {children && (
+        <span onClick={() => !disabled && handleOpenChange(true)}>
+          {children}
+        </span>
+      )}
       <BottomSheet
         isOpen={isOpen}
         onClose={() => handleOpenChange(false)}

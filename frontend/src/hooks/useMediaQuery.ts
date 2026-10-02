@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 export const DESKTOP_MEDIA_QUERY = '(min-width: 640px)'
 
+export const FINE_POINTER_MEDIA_QUERY = '(hover: hover) and (pointer: fine)'
+
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState<boolean>(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {

@@ -6,9 +6,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScheduleRunMarkdown } from '@/components/schedules/ScheduleRunMarkdown'
 import { FileBrowserSheet } from '@/components/file-browser/FileBrowserSheet'
 import { getRepo } from '@/api/repos'
+import { createSessionWithContext } from '@/api/opencode'
 import { getWorkspaceFilePath } from '@/lib/markdownLinks'
 import { getSessionPath } from '@/lib/navigation'
 import { getRepoDisplayName } from '@/lib/utils'
+import { showToast } from '@/lib/toast'
 import { useMarkScheduleRunViewed } from '@/hooks/useSchedules'
 import { Loader2 } from 'lucide-react'
 import type { ScheduleRun } from '@opencode-manager/shared/types'
@@ -24,6 +26,7 @@ interface RunDetailPanelProps {
 export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancelRun, cancelRunPending }: RunDetailPanelProps) {
   const navigate = useNavigate()
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
+  const [openingSession, setOpeningSession] = useState(false)
   const { data: repo, isPending: repoPending, isError: repoError, refetch: refetchRepo } = useQuery({
     queryKey: ['repo', repoId],
     queryFn: () => getRepo(repoId),
@@ -67,6 +70,28 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
 
   const { sessionId } = activeRun
 
+  const opensNewRepoSession = Boolean(activeRun.worktreePath) && activeRun.status !== 'running'
+
+  const handleOpenSession = async () => {
+    if (!opensNewRepoSession) {
+      if (sessionId) navigate(getSessionPath(repoId, sessionId))
+      return
+    }
+    if (!repo) return
+    setOpeningSession(true)
+    try {
+      const session = await createSessionWithContext(
+        { directory: repo.fullPath, title: `${activeRun.sessionTitle ?? 'Scheduled run'} (continued)` },
+        buildRunContext(activeRun),
+      )
+      navigate(getSessionPath(repoId, session.id))
+    } catch (error) {
+      showToast.error(`Could not open a repository session for this run: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setOpeningSession(false)
+    }
+  }
+
   return (
     <>
       <Tabs key={`${activeRun.id}-${String(activeRun.responseText ? 'response' : activeRun.errorText ? 'error' : 'log')}`} defaultValue={activeRun.responseText ? 'response' : activeRun.errorText ? 'error' : 'log'} className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -77,8 +102,9 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
             <TabsTrigger value="error" disabled={!activeRun.errorText} className="rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">{activeRun.status === 'cancelled' ? 'Details' : 'Error'}</TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-2 py-1">
-            {sessionId && (
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => navigate(getSessionPath(repoId, sessionId))}>
+            {(sessionId || opensNewRepoSession) && (
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { void handleOpenSession() }} disabled={openingSession || (opensNewRepoSession && !repo)}>
+                {openingSession ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                 Open session
               </Button>
             )}
@@ -137,4 +163,22 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
       />
     </>
   )
+}
+
+function buildRunContext(run: ScheduleRun): string {
+  const finished = run.finishedAt ? ` and finished at ${new Date(run.finishedAt).toISOString()}` : ''
+  const sections = [
+    `Context from scheduled run #${run.id} "${run.sessionTitle ?? 'Scheduled run'}", which ${run.status === 'completed' ? 'completed' : `ended as ${run.status}`}${finished}.`,
+    describeRunChanges(run),
+    run.responseText ? `Run output:\n\n${run.responseText}` : 'The run produced no output.',
+    run.errorText ? `Run error:\n\n${run.errorText}` : null,
+  ]
+  return sections.filter((section): section is string => section !== null).join('\n\n')
+}
+
+function describeRunChanges(run: ScheduleRun): string {
+  if (run.runBranch && run.commitHash) {
+    return `The run worked in a temporary worktree that has since been removed. Its changes were committed to branch \`${run.runBranch}\` at commit \`${run.commitHash}\`; they are not in this checkout unless that branch is checked out or merged.`
+  }
+  return 'The run worked in a temporary worktree that has since been removed and committed no changes.'
 }

@@ -347,7 +347,8 @@ describe('MessagePart', () => {
       const copyButton = screen.getByTitle('Copy output')
       fireEvent.click(copyButton)
 
-      await expect(vi.waitFor(() => writeText.mock.calls[0]?.[0])).resolves.toBe(output)
+      await vi.waitFor(() => expect(writeText).toHaveBeenCalled())
+      expect(writeText).toHaveBeenCalledWith(output)
     })
   })
 

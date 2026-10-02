@@ -1,18 +1,13 @@
 import { useMemo, useEffect } from 'react'
 import { useSession, useAgents } from './useOpenCode'
 import { useSessionAgentStore } from '@/stores/sessionAgentStore'
+import { getPrimaryAgents } from '@/lib/primaryAgents'
 
 interface AgentInfo {
   id: string
   name?: string
   mode?: string
   hidden?: boolean
-}
-
-const getPrimaryAgents = (agents: AgentInfo[] | undefined): AgentInfo[] => {
-  return agents?.filter(
-    (agent) => (agent.mode === 'primary' || agent.mode === 'all') && !agent.hidden
-  ) ?? []
 }
 
 const resolveAvailableAgentId = (

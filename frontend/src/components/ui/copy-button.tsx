@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { copyTextToClipboard } from '@/lib/clipboard'
 
 interface CopyButtonProps {
   content: string
@@ -23,28 +24,10 @@ export function CopyButton({
 
   const handleCopy = async () => {
     if (!content.trim()) return
-    try {
-      await navigator.clipboard.writeText(content)
+    if (await copyTextToClipboard(content)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
       onCopy?.()
-    } catch {
-      const textArea = document.createElement('textarea')
-      textArea.value = content
-      textArea.style.position = 'fixed'
-      textArea.style.left = '-9999px'
-      document.body.appendChild(textArea)
-      textArea.select()
-      try {
-        const successful = document.execCommand('copy')
-        if (successful) {
-          setCopied(true)
-          setTimeout(() => setCopied(false), 2000)
-          onCopy?.()
-        }
-      } finally {
-        document.body.removeChild(textArea)
-      }
     }
   }
 

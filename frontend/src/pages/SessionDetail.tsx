@@ -32,6 +32,7 @@ import { getAssistantText, getLatestPlayableAssistantMessage, useAutoPlayLastRes
 import { useEffect, useRef, useCallback, useMemo } from "react";
 import { MessageSkeleton } from "@/components/message/MessageSkeleton";
 import { exportSession, downloadMarkdown } from "@/lib/exportSession";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { getMessagesContentVersion } from "./sessionContentVersion";
 import { showToast } from "@/lib/toast";
 import { getWorkspaceFilePath } from "@/lib/markdownLinks";
@@ -40,6 +41,8 @@ import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
 import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog";
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog";
 import { compactSession, forkSession, listSessionMessages } from "@/api/opencode";
+import { useSessionStatus } from "@/stores/sessionStatusStore";
+import type { PageCommandActions } from "@/lib/builtinCommands";
 import { useRedoMessage, useUndoMessage } from "@/hooks/useUndoMessage";
 import { usePermissions, useForms } from "@/contexts/EventContext";
 import type { FormInfo, SessionMessageInfo } from "@opencode-manager/shared/opencode";
@@ -51,6 +54,8 @@ import { SessionSendErrorBanner } from "@/components/session/SessionSendErrorBan
 import { BackgroundWorkBar } from "@/components/session/BackgroundWorkBar";
 import { useDialogParam } from "@/hooks/useDialogParam";
 import { SessionMoreButton } from "@/components/navigation/SessionMoreButton";
+import { SideQuestionDialog } from "@/components/session/SideQuestionDialog";
+import { SessionMessagePickerDialog } from "@/components/session/SessionMessagePickerDialog";
 
 const OLDER_HISTORY_SCROLL_THRESHOLD_PX = 200
 
@@ -104,7 +109,7 @@ export function SessionDetail() {
   const repoId = Number(id) || 0;
   const isAssistantSession = new URLSearchParams(location.search).get('assistant') === '1';
   const { preferences, updateSettings } = useSettings();
-  const { open: openSettings } = useSettingsDialog();
+  const { open: openSettings, setActiveTab: setSettingsTab } = useSettingsDialog();
   const messageContainerRef = useRef<HTMLDivElement>(null);
   const promptInputRef = useRef<PromptInputHandle>(null);
   const [sessionsDialogOpen, setSessionsDialogOpen] = useState(false);
@@ -117,6 +122,10 @@ export function SessionDetail() {
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [hasPromptContent, setHasPromptContent] = useState(false);
   const [minimizedFormId, setMinimizedFormId] = useState<string | null>(null);
+  const [sideQuestion, setSideQuestion] = useState<{ id: number; question: string } | null>(null);
+  const [messagePickerMode, setMessagePickerMode] = useState<'fork' | 'timeline' | null>(null);
+  const [forkPickerMessages, setForkPickerMessages] = useState<SessionMessageInfo[] | null>(null);
+  const [forkPickerLoading, setForkPickerLoading] = useState(false);
 
   const isMobile = useMobile();
   const { keyboardHeight } = useVisualViewport();
@@ -191,6 +200,35 @@ export function SessionDetail() {
     [transcriptMessages, session?.revert?.messageID],
   );
 
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  const revertMessageID = session?.revert?.messageID;
+
+  useEffect(() => {
+    if (messagePickerMode !== 'fork' || !sessionId) return;
+    let cancelled = false;
+    setForkPickerLoading(true);
+    setForkPickerMessages(null);
+    fetchCompleteSessionHistory(sessionId)
+      .then((history) => {
+        if (cancelled) return;
+        setForkPickerMessages(applyRevertBoundary(history, revertMessageID));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        showToast.error('Failed to load messages');
+        setMessagePickerMode(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setForkPickerLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [messagePickerMode, sessionId, revertMessageID]);
+
   const messagesContentVersion = useMemo(() => getMessagesContentVersion(messages), [messages]);
 
   const { scrollToBottom } = useAutoScroll({
@@ -207,9 +245,10 @@ export function SessionDetail() {
     void fetchOlder().catch(() => undefined)
   }, [fetchOlder, hasOlder]);
   const interruptSession = useInterruptSession();
-  const updateSession = useUpdateSession(sessionDirectory);
-  const createSession = useCreateSession(sessionDirectory);
+  const { mutateAsync: updateSessionAsync } = useUpdateSession(sessionDirectory);
+  const { mutateAsync: createSessionAsync } = useCreateSession(sessionDirectory);
   const { modelString } = useModelSelection(sessionDirectory);
+  const setSessionStatus = useSessionStatus((state) => state.setStatus);
   const isEditingMessage = useUIState((state) => state.isEditingMessage);
   const setActivePromptFileBasePath = useUIState((state) => state.setActivePromptFileBasePath);
   const { isEnabled: ttsEnabled } = useTTS();
@@ -247,7 +286,9 @@ export function SessionDetail() {
   });
 
   const handleShowSessionsDialog = useCallback(() => setSessionsDialogOpen(true), []);
-  const handleShowHelpDialog = useCallback(() => openSettings(), [openSettings]);
+  const handleShowMcpDialog = useCallback(() => setMcpDialogOpen(true), [setMcpDialogOpen]);
+  const handleShowSkillsDialog = useCallback(() => setSkillsDialogOpen(true), [setSkillsDialogOpen]);
+  const handleConnectProvider = useCallback(() => setSettingsTab('providers'), [setSettingsTab]);
 
   const handleMinimizeForm = useCallback((form: FormInfo) => {
     setMinimizedFormId(form.id)
@@ -291,21 +332,21 @@ export function SessionDetail() {
 
   const handleNewSession = useCallback(async () => {
     try {
-      const newSession = await createSession.mutateAsync({ agent: undefined });
+      const newSession = await createSessionAsync({ agent: undefined });
       if (newSession?.id) {
         navigate(`/repos/${repoId}/sessions/${newSession.id}${sessionRouteSuffix}`);
       }
     } catch {
       showToast.error('Failed to create new session');
     }
-  }, [createSession, navigate, repoId, sessionRouteSuffix]);
+  }, [createSessionAsync, navigate, repoId, sessionRouteSuffix]);
 
-  const undoMessage = useUndoMessage({
+  const { mutateAsync: undoMessageAsync } = useUndoMessage({
     sessionId: sessionId ?? '',
     directory: sessionDirectory,
     onSuccess: (restoredPrompt) => promptInputRef.current?.setPromptValue(restoredPrompt),
   });
-  const redoMessage = useRedoMessage({
+  const { mutateAsync: redoMessageAsync } = useRedoMessage({
     sessionId: sessionId ?? '',
     directory: sessionDirectory,
   });
@@ -313,71 +354,96 @@ export function SessionDetail() {
   const handleCompact = useCallback(async () => {
     if (!sessionId) return;
 
-    showToast.loading('Compacting session...', { id: `compact-${sessionId}` });
+    const toastId = `compact-${sessionId}`;
+    showToast.loading('Compacting session...', { id: toastId });
+    setSessionStatus(sessionId, { type: 'compact' });
 
     try {
       await compactSession(sessionId);
+      showToast.success('Compaction requested', { id: toastId });
     } catch (error) {
-      showToast.error(`Compact failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast.error(`Compact failed: ${error instanceof Error ? error.message : 'Unknown error'}`, { id: toastId });
+      setSessionStatus(sessionId, { type: 'idle' });
     }
-  }, [sessionId]);
+  }, [sessionId, setSessionStatus]);
 
   const handleUndo = useCallback(async () => {
     if (!sessionId) return;
-    const lastUserMessage = [...messages].reverse().find((message) => message.type === 'user');
+    const lastUserMessage = [...messagesRef.current].reverse().find((message) => message.type === 'user');
     if (!lastUserMessage || lastUserMessage.type !== 'user') return;
     try {
-      await undoMessage.mutateAsync({
+      await undoMessageAsync({
         messageID: lastUserMessage.id,
         messageContent: lastUserMessage.text,
       });
     } catch {
       // The undo hook surfaces the failure.
     }
-  }, [messages, sessionId, undoMessage]);
+  }, [sessionId, undoMessageAsync]);
 
   const handleRedo = useCallback(async () => {
     if (!sessionId) return;
     try {
-      await redoMessage.mutateAsync();
+      await redoMessageAsync();
     } catch {
       // The redo hook surfaces the failure.
     }
-  }, [sessionId, redoMessage]);
+  }, [sessionId, redoMessageAsync]);
 
-  const handleFork = useCallback(async () => {
+  const openForkPicker = useCallback(() => setMessagePickerMode('fork'), []);
+
+  const handleForkAtMessage = useCallback(async (messageID?: string) => {
     if (!sessionId) return;
     try {
-      const forkedSession = await forkSession(sessionId);
+      const forkedSession = await forkSession(sessionId, messageID);
       if (forkedSession?.id) {
+        setMessagePickerMode(null);
         navigate(`/repos/${repoId}/sessions/${forkedSession.id}${sessionRouteSuffix}`);
+        if (messageID) {
+          const chosenMessage = forkPickerMessages?.find((message) => message.id === messageID);
+          if (chosenMessage?.type === 'user') {
+            promptInputRef.current?.setPromptValue(chosenMessage.text);
+          }
+        }
         showToast.success('Session forked');
       }
     } catch (error) {
       showToast.error(`Fork failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [sessionId, navigate, repoId, sessionRouteSuffix]);
+  }, [sessionId, forkPickerMessages, navigate, repoId, sessionRouteSuffix]);
+
+  const openTimelinePicker = useCallback(() => setMessagePickerMode('timeline'), []);
+
+  const handleJumpToMessage = useCallback((messageID?: string) => {
+    setMessagePickerMode(null);
+    if (!messageID) return;
+    const container = messageContainerRef.current;
+    if (!container) return;
+    const target = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-message-id]'),
+    ).find((element) => element.dataset.messageId === messageID);
+    target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, []);
 
   const handleCloseSession = useCallback(() => {
     const tab = new URLSearchParams(location.search).get('repoTab') ?? undefined;
     navigate(getSessionListPath(repoId, isAssistantSession, tab))
   }, [navigate, repoId, isAssistantSession, location.search])
 
+  const handleOpenModelDialog = useCallback(() => {
+    promptInputRef.current?.openModelPicker();
+  }, [])
+
   const { leaderActive } = useKeyboardShortcuts({
-    openModelDialog: () => {
-      const modelSelectTrigger = document.querySelector(
-        "[data-model-select-trigger]",
-      ) as HTMLElement;
-      modelSelectTrigger?.click();
-    },
-    openSessions: () => setSessionsDialogOpen(true),
+    openModelDialog: handleOpenModelDialog,
+    openSessions: handleShowSessionsDialog,
     openSettings,
     newSession: handleNewSession,
     closeSession: handleCloseSession,
     compact: handleCompact,
     undo: handleUndo,
     redo: handleRedo,
-    fork: handleFork,
+    fork: openForkPicker,
     toggleSidebar: () => setFileBrowserOpen(!fileBrowserOpen),
     toggleMode: () => {
       const modeButton = document.querySelector(
@@ -409,11 +475,18 @@ export function SessionDetail() {
     setFileBrowserOpen(true)
   }, [repo?.fullPath, repo?.localPath, sessionDirectory, setFileBrowserOpen]);
 
-  const handleSessionTitleUpdate = useCallback((newTitle: string) => {
-    if (sessionId) {
-      updateSession.mutate({ sessionID: sessionId, title: newTitle });
+  const handleRenameSession = useCallback(async (title: string) => {
+    if (!sessionId) return;
+    const trimmedTitle = title.trim();
+    try {
+      await updateSessionAsync({ sessionID: sessionId, title: trimmedTitle });
+      if (!trimmedTitle) {
+        showToast.success('Session title regenerated');
+      }
+    } catch (error) {
+      showToast.error(`Rename failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }, [sessionId, updateSession]);
+  }, [sessionId, updateSessionAsync]);
 
   const handleFileBrowserClose = useCallback(() => {
     setFileBrowserOpen(false)
@@ -433,31 +506,89 @@ export function SessionDetail() {
   const handleToggleDetails = useCallback(() => {
     const newValue = !preferences?.expandToolCalls
     updateSettings({ expandToolCalls: newValue })
-    return newValue
+    showToast.success(newValue ? 'Tool details expanded' : 'Tool details collapsed')
   }, [preferences?.expandToolCalls, updateSettings]);
 
-  const handleExportSession = useCallback(async () => {
+  const buildSessionExport = useCallback(async () => {
     if (!session || !sessionId) {
-      showToast.error('No session data to export')
-      return
+      throw new Error('No session data to export')
     }
-
-    let history: SessionMessageInfo[]
-    try {
-      history = await fetchCompleteSessionHistory(sessionId)
-    } catch {
-      showToast.error('Failed to export session')
-      return
-    }
-
-    const { filename, content } = exportSession(
+    const history = await fetchCompleteSessionHistory(sessionId)
+    return exportSession(
       applyRevertBoundary(history, session.revert?.messageID),
       session,
     )
+  }, [session, sessionId]);
+
+  const handleExportSession = useCallback(async () => {
+    const result = await buildSessionExport().catch((error: unknown) => {
+      showToast.error(
+        error instanceof Error && error.message === 'No session data to export'
+          ? error.message
+          : 'Failed to export session',
+      )
+      return null
+    })
+    if (!result) return
+
+    const { filename, content } = result
     if (await downloadMarkdown(content, filename)) {
       showToast.success(`Exported to ${filename}`)
     }
-  }, [session, sessionId]);
+  }, [buildSessionExport]);
+
+  const handleCopyTranscript = useCallback(async () => {
+    const copied = await copyTextToClipboard(
+      buildSessionExport().then((result) => result.content),
+    )
+    if (copied) {
+      showToast.success('Session transcript copied')
+    } else {
+      showToast.error('Failed to copy session transcript')
+    }
+  }, [buildSessionExport]);
+
+  const handleAskSideQuestion = useCallback((question: string) => {
+    setSideQuestion({ id: Date.now(), question });
+  }, []);
+
+  const commandActions = useMemo<PageCommandActions>(() => ({
+    showSessions: handleShowSessionsDialog,
+    showModels: handleOpenModelDialog,
+    newSession: handleNewSession,
+    toggleDetails: handleToggleDetails,
+    exportSession: handleExportSession,
+    copyTranscript: handleCopyTranscript,
+    compact: handleCompact,
+    askSideQuestion: handleAskSideQuestion,
+    renameSession: handleRenameSession,
+    forkSession: openForkPicker,
+    jumpToMessage: openTimelinePicker,
+    undo: handleUndo,
+    redo: handleRedo,
+    showMcp: handleShowMcpDialog,
+    showSkills: handleShowSkillsDialog,
+    showSettings: openSettings,
+    connectProvider: handleConnectProvider,
+  }), [
+    handleShowSessionsDialog,
+    handleOpenModelDialog,
+    handleNewSession,
+    handleToggleDetails,
+    handleExportSession,
+    handleCopyTranscript,
+    handleCompact,
+    handleAskSideQuestion,
+    handleRenameSession,
+    openForkPicker,
+    openTimelinePicker,
+    handleUndo,
+    handleRedo,
+    handleShowMcpDialog,
+    handleShowSkillsDialog,
+    openSettings,
+    handleConnectProvider,
+  ]);
 
   const handleUndoMessage = useCallback((restoredPrompt: string) => {
     promptInputRef.current?.setPromptValue(restoredPrompt)
@@ -538,7 +669,7 @@ export function SessionDetail() {
             )}
             <Header.EditableTitle
               value={session?.title || "Untitled Session"}
-              onChange={handleSessionTitleUpdate}
+              onChange={handleRenameSession}
               subtitle={<span className="text-highlight">{workspaceDisplayName}</span>}
             />
           </div>
@@ -643,12 +774,7 @@ export function SessionDetail() {
                 isSessionActive={isSessionActive}
                 isStreamingResponse={isStreamingResponse}
                 onScrollToBottom={scrollToBottom}
-                onShowSessionsDialog={handleShowSessionsDialog}
-                onShowHelpDialog={handleShowHelpDialog}
-                onToggleDetails={handleToggleDetails}
-                onExportSession={handleExportSession}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
+                commandActions={commandActions}
                 onPromptChange={setHasPromptContent}
               />
             </div>
@@ -674,6 +800,32 @@ export function SessionDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {sideQuestion && sessionId && (
+        <SideQuestionDialog
+          key={sideQuestion.id}
+          open
+          sessionID={sessionId}
+          initialQuestion={sideQuestion.question}
+          onOpenChange={(open) => {
+            if (!open) setSideQuestion(null)
+          }}
+        />
+      )}
+
+      {messagePickerMode && (
+        <SessionMessagePickerDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setMessagePickerMode(null);
+          }}
+          title={messagePickerMode === 'fork' ? 'Fork session' : 'Jump to message'}
+          leadingOptionLabel={messagePickerMode === 'fork' ? 'Entire conversation' : undefined}
+          messages={messagePickerMode === 'fork' ? forkPickerMessages ?? [] : messages}
+          loading={messagePickerMode === 'fork' && forkPickerLoading}
+          onSelect={messagePickerMode === 'fork' ? handleForkAtMessage : handleJumpToMessage}
+        />
+      )}
 
       <FileBrowserSheet
         isOpen={fileBrowserOpen}

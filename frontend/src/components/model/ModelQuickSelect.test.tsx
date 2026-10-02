@@ -87,3 +87,38 @@ describe('ModelQuickSelect theme tokens', () => {
     expect(findDarkOnlyClassOffenders(dialog)).toEqual([])
   })
 })
+
+describe('ModelQuickSelect controlled open', () => {
+  it('uses the controlled open prop as the source of truth', () => {
+    const onOpenChange = vi.fn()
+    const { rerender } = render(<ModelQuickSelect open={false} onOpenChange={onOpenChange} />)
+
+    expect(screen.queryByRole('dialog', { name: 'Select model' })).not.toBeInTheDocument()
+
+    rerender(<ModelQuickSelect open onOpenChange={onOpenChange} />)
+
+    expect(screen.getByRole('dialog', { name: 'Select model' })).toBeInTheDocument()
+  })
+
+  it('renders only the sheet without a trigger when no children are provided', () => {
+    render(<ModelQuickSelect open />)
+
+    expect(screen.getByRole('dialog', { name: 'Select model' })).toBeInTheDocument()
+    expect(document.querySelector('[data-model-select-trigger]')).toBeNull()
+  })
+
+  it('resets the internal navigation state when the sheet is closed through the component', async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    render(<ModelQuickSelect open onOpenChange={onOpenChange} />)
+
+    await user.click(screen.getByRole('button', { name: /More models/ }))
+    expect(screen.getByPlaceholderText('Search providers...')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(screen.getByRole('button', { name: /More models/ })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search providers...')).not.toBeInTheDocument()
+  })
+})

@@ -439,6 +439,20 @@ describe('MessageThread', () => {
     expect(screen.getByText('You')).toBeInTheDocument()
   })
 
+  it('exposes the message id on a rendered user message', () => {
+    setupSettings({ simpleChatMode: false, showReasoning: false })
+
+    const { container } = render(
+      <MessageThread
+        sessionID="test-session"
+        messages={[userMessage('user-42', 'Hello')]}
+        pending={[]}
+      />,
+    )
+
+    expect(container.querySelector('[data-message-id="user-42"]')).not.toBeNull()
+  })
+
   it('renders a projected shell message from the fixtures', () => {
     setupSettings({ simpleChatMode: false, showReasoning: false })
 

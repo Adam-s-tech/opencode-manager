@@ -5,6 +5,13 @@ import { renderHook } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { vi } from 'vitest'
 import type { useSettings } from '@/hooks/useSettings'
+import { BUILTIN_COMMAND_ACTIONS, type CommandActions } from '@/lib/builtinCommands'
+
+export function createCommandActionsMock(): CommandActions {
+  return Object.fromEntries(
+    BUILTIN_COMMAND_ACTIONS.map((action) => [action, vi.fn()]),
+  ) as unknown as CommandActions
+}
 
 export function createUseSettingsMock(
   overrides: Partial<ReturnType<typeof useSettings>> = {},
@@ -52,10 +59,17 @@ export function renderHookWithRouter<T>(renderFn: () => T, initialEntries?: stri
   return renderHook(renderFn, { wrapper: createRouterWrapper(initialEntries) })
 }
 
-export function LocationCatcher({ capturedSearch }: { capturedSearch: { current: string } }) {
+export function LocationCatcher({
+  capturedSearch,
+  capturedPathname,
+}: {
+  capturedSearch: { current: string }
+  capturedPathname?: { current: string }
+}) {
   const location = useLocation()
   useEffect(() => {
     capturedSearch.current = location.search
+    if (capturedPathname) capturedPathname.current = location.pathname
   })
   return null
 }

@@ -3,10 +3,18 @@ import { renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement } from 'react'
 import { useCommandHandler } from '../useCommandHandler'
+import { showToast } from '@/lib/toast'
+import { createCommandActionsMock } from '@/test/test-utils'
+import { BUILTIN_COMMANDS, type CommandActions } from '@/lib/builtinCommands'
+
+const builtinCommand = (name: string) => {
+  const command = BUILTIN_COMMANDS.find((candidate) => candidate.name === name)
+  if (!command) throw new Error(`Unknown built-in command: ${name}`)
+  return command
+}
 
 const mocks = vi.hoisted(() => ({
   runCommand: vi.fn(),
-  compactSession: vi.fn(),
   switchSessionModel: vi.fn(),
   switchSessionAgent: vi.fn(),
   setStatus: vi.fn(),
@@ -17,7 +25,6 @@ vi.mock('@/api/opencode', async () => {
   return {
     ...actual,
     runCommand: mocks.runCommand,
-    compactSession: mocks.compactSession,
     switchSessionModel: mocks.switchSessionModel,
     switchSessionAgent: mocks.switchSessionAgent,
   }
@@ -30,10 +37,6 @@ vi.mock('@/lib/toast', () => ({
     info: vi.fn(),
     loading: vi.fn(),
   },
-}))
-
-vi.mock('react-router-dom', () => ({
-  useNavigate: vi.fn(() => vi.fn()),
 }))
 
 vi.mock('@/stores/sessionStatusStore', () => ({
@@ -60,14 +63,17 @@ const sessionInfo = (overrides: Record<string, unknown> = {}) => ({
 describe('useCommandHandler', () => {
   let queryClient: QueryClient
 
-  const renderHandler = (props: Record<string, unknown> = {}) =>
-    renderHook(
-      () => useCommandHandler({ sessionID: 'test-session-id', directory: '/test/dir', ...props }),
+  const renderHandler = (props: Record<string, unknown> = {}) => {
+    const actions = (props.actions as CommandActions | undefined) ?? createCommandActionsMock()
+    const rendered = renderHook(
+      () => useCommandHandler({ sessionID: 'test-session-id', directory: '/test/dir', ...props, actions }),
       {
         wrapper: ({ children }) =>
           createElement(QueryClientProvider, { client: queryClient }, children),
       },
     )
+    return { ...rendered, actions }
+  }
 
   const setSession = (session: Record<string, unknown>) => {
     queryClient.setQueryData(
@@ -80,35 +86,87 @@ describe('useCommandHandler', () => {
     vi.clearAllMocks()
     queryClient = createTestQueryClient()
     mocks.runCommand.mockResolvedValue(undefined)
-    mocks.compactSession.mockResolvedValue(undefined)
     mocks.switchSessionModel.mockResolvedValue(undefined)
     mocks.switchSessionAgent.mockResolvedValue(undefined)
   })
 
-  it('themes command runs the V2 command without injecting an agent attachment', async () => {
-    setSession(sessionInfo({ agent: 'test-agent' }))
+  it('export dispatches the built-in action without running a server command', async () => {
+    setSession(sessionInfo())
 
-    const { result } = renderHandler({ currentAgent: 'test-agent' })
-    const themesCommand = { name: 'themes' }
+    const { result, actions } = renderHandler()
 
-    await result.current.executeCommand(themesCommand, { text: '' })
+    const cleared = await result.current.executeCommand(builtinCommand('export'), { text: '' })
+
+    expect(actions.exportSession).toHaveBeenCalledWith('')
+    expect(mocks.runCommand).not.toHaveBeenCalled()
+    expect(cleared).toBe(true)
+  })
+
+  it('runs a server command that shares a built-in name through runCommand', async () => {
+    setSession(sessionInfo())
+
+    const { result, actions } = renderHandler()
+
+    await result.current.executeCommand({ name: 'export' }, { text: '' })
 
     expect(mocks.runCommand).toHaveBeenCalledWith({
       sessionID: 'test-session-id',
-      name: 'themes',
+      name: 'export',
       text: '',
     })
+    expect(actions.exportSession).not.toHaveBeenCalled()
   })
 
-  it('compact command compacts the session', async () => {
+  it('clear dispatches the new-session built-in action', async () => {
     setSession(sessionInfo())
 
-    const { result } = renderHandler()
-    const compactCommand = { name: 'compact' }
+    const { result, actions } = renderHandler()
 
-    await result.current.executeCommand(compactCommand, { text: '' })
+    await result.current.executeCommand(builtinCommand('clear'), { text: '' })
 
-    expect(mocks.compactSession).toHaveBeenCalledWith('test-session-id')
+    expect(actions.newSession).toHaveBeenCalled()
+    expect(mocks.runCommand).not.toHaveBeenCalled()
+  })
+
+  it('undo dispatches the built-in action and keeps the prompt', async () => {
+    setSession(sessionInfo())
+
+    const { result, actions } = renderHandler()
+
+    const cleared = await result.current.executeCommand(builtinCommand('undo'), { text: '' })
+
+    expect(actions.undo).toHaveBeenCalled()
+    expect(mocks.runCommand).not.toHaveBeenCalled()
+    expect(cleared).toBe(false)
+  })
+
+  it('shows an error toast and keeps the prompt when a built-in action throws', async () => {
+    setSession(sessionInfo())
+
+    const actions = {
+      ...createCommandActionsMock(),
+      exportSession: vi.fn().mockRejectedValue(new Error('boom')),
+    }
+    const { result } = renderHandler({ actions })
+
+    const cleared = await result.current.executeCommand(builtinCommand('export'), { text: '' })
+
+    expect(cleared).toBe(false)
+    expect(showToast.error).toHaveBeenCalledWith('Command failed: boom')
+  })
+
+  it('review command runs the V2 command without injecting an agent attachment', async () => {
+    setSession(sessionInfo({ agent: 'test-agent' }))
+
+    const { result } = renderHandler({ currentAgent: 'test-agent' })
+
+    await result.current.executeCommand({ name: 'review' }, { text: '' })
+
+    expect(mocks.runCommand).toHaveBeenCalledWith({
+      sessionID: 'test-session-id',
+      name: 'review',
+      text: '',
+    })
   })
 
   it('unknown command runs the V2 command with the parsed payload', async () => {
@@ -129,17 +187,6 @@ describe('useCommandHandler', () => {
       agents,
       skills,
     })
-  })
-
-  it('sessions command opens sessions dialog without running a command', async () => {
-    const onShowSessionsDialog = vi.fn()
-    const { result } = renderHandler({ onShowSessionsDialog })
-    const sessionsCommand = { name: 'sessions' }
-
-    await result.current.executeCommand(sessionsCommand, { text: '' })
-
-    expect(mocks.runCommand).not.toHaveBeenCalled()
-    expect(onShowSessionsDialog).toHaveBeenCalled()
   })
 
   it('switches model and agent before running the command when the selection changed', async () => {
@@ -194,31 +241,5 @@ describe('useCommandHandler', () => {
 
     expect(cleared).toBe(false)
     expect(mocks.runCommand).not.toHaveBeenCalled()
-  })
-
-  it('undo invokes the revert handler instead of running a command', async () => {
-    setSession(sessionInfo())
-    const onUndo = vi.fn()
-
-    const { result } = renderHandler({ onUndo })
-
-    const cleared = await result.current.executeCommand({ name: 'undo' }, { text: '' })
-
-    expect(onUndo).toHaveBeenCalled()
-    expect(mocks.runCommand).not.toHaveBeenCalled()
-    expect(cleared).toBe(false)
-  })
-
-  it('redo invokes the revert handler instead of running a command', async () => {
-    setSession(sessionInfo())
-    const onRedo = vi.fn()
-
-    const { result } = renderHandler({ onRedo })
-
-    const cleared = await result.current.executeCommand({ name: 'redo' }, { text: '' })
-
-    expect(onRedo).toHaveBeenCalled()
-    expect(mocks.runCommand).not.toHaveBeenCalled()
-    expect(cleared).toBe(false)
   })
 })

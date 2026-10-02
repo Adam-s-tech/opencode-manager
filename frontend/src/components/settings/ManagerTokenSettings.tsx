@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useManagerToken } from '@/hooks/useManagerToken'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { AlertTriangle, Check, Copy, Eye, EyeOff, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Eye, EyeOff, RefreshCw } from 'lucide-react'
+import { CopyButton } from '@/components/ui/copy-button'
 import { SettingsDisclosure } from './SettingsDisclosure'
 
 interface ManagerTokenSettingsProps {
@@ -14,22 +15,10 @@ interface ManagerTokenSettingsProps {
 export function ManagerTokenSettings({ isOpen: controlledOpen, onToggle }: ManagerTokenSettingsProps = {}) {
   const { token, isLoading, rotate } = useManagerToken()
   const [showToken, setShowToken] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [confirmRotate, setConfirmRotate] = useState(false)
   const [uncontrolledOpen, setUncontrolledOpen] = useState(true)
   const isOpen = controlledOpen ?? uncontrolledOpen
   const handleToggle = onToggle ?? (() => setUncontrolledOpen((open) => !open))
-
-  const handleCopy = async () => {
-    if (!token) return
-    try {
-      await navigator.clipboard.writeText(token)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // clipboard may be unavailable; user can copy manually from the input
-    }
-  }
 
   const handleRotate = () => {
     if (!confirmRotate) {
@@ -73,15 +62,11 @@ export function ManagerTokenSettings({ isOpen: controlledOpen, onToggle }: Manag
             {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
-        <Button
-          variant="outline"
-          size="icon"
-          type="button"
-          onClick={handleCopy}
-          disabled={!token}
-        >
-          {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
-        </Button>
+        <CopyButton
+          content={token ?? ''}
+          title="Copy"
+          className={buttonVariants({ variant: 'outline', size: 'icon' })}
+        />
         <Button
           variant={confirmRotate ? 'destructive' : 'outline'}
           size="icon"

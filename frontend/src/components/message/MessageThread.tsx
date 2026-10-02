@@ -398,7 +398,7 @@ const MessageRow = memo(function MessageRow({
     if (!hasRenderableContent(message, simpleChatMode, showReasoning)) return null
 
     return (
-      <div className="flex flex-col group">
+      <div className="flex flex-col group" data-message-id={message.id}>
         <div
           className={`w-full rounded-lg p-1.5 ${
             isEditingThisMessage
