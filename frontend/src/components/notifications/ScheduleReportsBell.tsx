@@ -136,9 +136,9 @@ export function ScheduleReportsBell() {
       size="icon"
       aria-label={`Reports, ${total} unread`}
       onClick={isMobile ? () => setOpen(true) : undefined}
-      className="relative h-8 w-8 text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-foreground"
+      className="relative h-10 w-10 text-muted-foreground transition-all duration-200 hover:bg-accent hover:text-foreground sm:h-8 sm:w-8"
     >
-      <Inbox className="h-4 w-4" />
+      <Inbox className="h-5 w-5 sm:h-4 sm:w-4" />
       <ScheduleReportsCount total={total} failed={failed} />
     </Button>
   )

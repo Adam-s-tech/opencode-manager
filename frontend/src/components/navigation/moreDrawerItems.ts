@@ -1,7 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
-import { Plug, Sparkles, ShieldOff, CalendarClock, GitCommitHorizontal, Settings, LogOut, Plus, Bot, Folder, Clock, SquarePlus, Home } from 'lucide-react'
+import { Plug, Sparkles, ShieldOff, CalendarClock, GitCommitHorizontal, Settings, LogOut, Bot, Folder, Home } from 'lucide-react'
 import { getAssistantPath, isAssistantPath } from '@/lib/navigation'
-import type { SidebarActionKey } from '@/hooks/useSidebarAction'
 
 export interface MoreDrawerItem {
   key: string
@@ -16,8 +15,7 @@ export interface NavPrimaryCta {
   key: string
   label: string
   icon: LucideIcon
-  to?: string
-  onSelect?: SidebarActionKey
+  to: string
   variant?: 'primary' | 'secondary'
 }
 
@@ -26,13 +24,13 @@ export interface NavModel {
   items: MoreDrawerItem[]
 }
 
-function getAssistantNavItem(_pathname: string, variant: NavPrimaryCta['variant'] = 'secondary'): NavPrimaryCta {
+function getAssistantNavItem(): NavPrimaryCta {
   return {
     key: 'assistant',
     label: 'Assistant',
     icon: Bot,
     to: getAssistantPath(),
-    variant,
+    variant: 'secondary',
   }
 }
 
@@ -64,7 +62,7 @@ function buildRouteNavModel(pathname: string): NavModel {
     ]
 
     return {
-      primary: [getAssistantNavItem(pathname)],
+      primary: [getAssistantNavItem()],
       items,
     }
   }
@@ -82,7 +80,7 @@ function buildRouteNavModel(pathname: string): NavModel {
     ]
 
     return {
-      primary: [getAssistantNavItem(pathname)],
+      primary: [getAssistantNavItem()],
       items,
     }
   }
@@ -99,30 +97,14 @@ function buildRouteNavModel(pathname: string): NavModel {
     ]
 
     return {
-      primary: [
-        { key: 'new-session', label: 'New Session', icon: SquarePlus, onSelect: 'new-session', variant: 'primary' },
-        getAssistantNavItem(pathname, 'secondary'),
-      ],
+      primary: [getAssistantNavItem()],
       items,
-    }
-  }
-
-  if (pathname === '/schedules' || /^\/repos\/\d+\/schedules$/.test(pathname)) {
-    return {
-      primary: [
-        { key: 'new-schedule', label: 'New Schedule', icon: Clock, onSelect: 'new-schedule', variant: 'primary' },
-        getAssistantNavItem(pathname),
-      ],
-      items: baseItems,
     }
   }
 
   if (pathname === '/') {
     return {
-      primary: [
-        { key: 'new-repo', label: 'New Repo', icon: Plus, onSelect: 'new-repo', variant: 'primary' },
-        getAssistantNavItem(pathname),
-      ],
+      primary: [getAssistantNavItem()],
       items: [
         { key: 'all-schedules', label: 'All Schedules', icon: CalendarClock, to: '/schedules' },
         { key: 'files', label: 'Files', icon: Folder, dialog: 'files' },
@@ -132,9 +114,7 @@ function buildRouteNavModel(pathname: string): NavModel {
   }
 
   return {
-    primary: [
-      getAssistantNavItem(pathname),
-    ],
+    primary: [getAssistantNavItem()],
     items: baseItems,
   }
 }

@@ -45,7 +45,7 @@ function HeaderTitle({ children, logo, className }: HeaderTitleProps) {
         <img 
           src={theme === 'light' ? "/opencode-wordmark-light.svg" : "/opencode-wordmark-dark.svg"} 
           alt="OpenCode" 
-          className="h-6 w-auto sm:h-8"
+          className="ml-2 h-6 w-auto sm:ml-0 sm:h-8"
         />
       ) : (
         <h1 className="text-xl font-semibold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent truncate">

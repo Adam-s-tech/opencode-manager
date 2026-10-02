@@ -7,7 +7,6 @@ import { Header } from "@/components/ui/header";
 import { Button } from "@/components/ui/button";
 import { Plus, FolderOpen, CalendarClock } from "lucide-react";
 import { PendingActionsGroup } from "@/components/notifications/PendingActionsGroup";
-import { useSidebarAction } from "@/hooks/useSidebarAction";
 import { useDialogParam } from "@/hooks/useDialogParam";
 
 export function Repos() {
@@ -18,10 +17,6 @@ export function Repos() {
   const handleCloseFileBrowser = () => {
     setFileBrowserOpen(false);
   };
-
-  useSidebarAction('new-repo', () => {
-    setAddRepoOpen(true);
-  });
 
   return (
     <div className="h-dvh max-h-dvh overflow-hidden bg-gradient-to-br from-background via-background to-background flex flex-col">

@@ -149,7 +149,11 @@ describe('DesktopSidebar', () => {
     expect(screen.getByText('Assistant')).toBeInTheDocument()
   })
 
-  it('renders primary CTA for schedules routes', () => {
+  it.each([
+    ['/schedules', 'New Schedule'],
+    ['/repos/5/schedules', 'New Schedule'],
+    ['/assistant', 'New Session'],
+  ])('does not duplicate the page header create action on %s', (path, headerAction) => {
     vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
     vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
@@ -158,32 +162,10 @@ describe('DesktopSidebar', () => {
       logout: vi.fn(),
     } as any)
 
-    render(<DesktopSidebar />, { wrapper: createWrapper(['/schedules']) })
+    render(<DesktopSidebar />, { wrapper: createWrapper([path]) })
 
-    expect(screen.getByText('New Schedule')).toBeInTheDocument()
+    expect(screen.queryByText(headerAction)).toBeNull()
     expect(screen.getByText('Assistant')).toBeInTheDocument()
-  })
-
-  it('dispatches oc:sidebar:action event when primary CTA is clicked', () => {
-    const dispatchEventSpy = vi.spyOn(window, 'dispatchEvent')
-    vi.spyOn(useDesktopModule, 'useDesktop').mockReturnValue(true)
-    vi.spyOn(useSidebarCollapsedModule, 'useSidebarCollapsed').mockReturnValue([false, vi.fn()])
-    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
-      isAuthenticated: true,
-      isLoading: false,
-      logout: vi.fn(),
-    } as any)
-
-    render(<DesktopSidebar />, { wrapper: createWrapper(['/schedules']) })
-
-    fireEvent.click(screen.getByText('New Schedule'))
-
-    expect(dispatchEventSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'oc:sidebar:action',
-        detail: { action: 'new-schedule' },
-      })
-    )
   })
 
   it('opens dialog items by updating the dialog query param (push) and closes on back', () => {

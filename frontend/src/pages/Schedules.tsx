@@ -16,7 +16,6 @@ import {
 import { useRepoActivity } from '@/hooks/useRepoActivity'
 import { useScheduleTarget } from '@/hooks/useScheduleTarget'
 import { useScheduleUrlState } from '@/hooks/useScheduleUrlState'
-import { useSidebarAction } from '@/hooks/useSidebarAction'
 import { ScheduleJobDialog, ScheduleJobsTable, ScheduleListToolbar, JobDetailTab, RunHistoryTab, ScheduleTabMenu } from '@/components/schedules'
 import { matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
 import type { ScheduleJobWithRepo } from '@/api/schedules'
@@ -73,10 +72,6 @@ export function Schedules() {
   const [jobSearch, setJobSearch] = useState('')
   const [clearRunsOpen, setClearRunsOpen] = useState(false)
   const [runToDelete, setRunToDelete] = useState<number | null>(null)
-
-  useSidebarAction('new-schedule', () => {
-    openNewJob()
-  })
 
   const clearableRuns = useMemo(() => (runs ?? []).filter((run) => run.status !== 'running'), [runs])
   const clearableWorktrees = useMemo(() => clearableRuns.filter((run) => run.worktreePath).length, [clearableRuns])
@@ -298,8 +293,8 @@ export function Schedules() {
             {repoScheduleTab === 'jobs' && (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <ScheduleListToolbar search={jobSearch} onSearchChange={setJobSearch} searchPlaceholder="Search jobs" />
-                <div className="min-h-0 flex-1 overflow-y-auto pt-2 pb-2">
-                <div className="overflow-x-auto rounded-lg border border-border/70">
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-2">
+                <div className="min-h-0 overflow-auto rounded-lg border border-border/70">
                   <ScheduleJobsTable
                     jobs={(jobs ?? []).filter((job) => matchesScheduleJobSearch(job, jobSearch))}
                     showRepo={false}

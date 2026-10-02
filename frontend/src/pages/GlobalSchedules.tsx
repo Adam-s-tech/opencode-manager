@@ -16,7 +16,6 @@ import { CalendarClock, Loader2, Plus, ArrowLeft, SlidersHorizontal } from 'luci
 
 import { useScheduleUrlState } from '@/hooks/useScheduleUrlState'
 import type { ScheduleTab } from '@/hooks/useScheduleUrlState'
-import { useSidebarAction } from '@/hooks/useSidebarAction'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 
 import type { ScheduleJobWithRepo, ScheduleRunWithContext } from '@/api/schedules'
@@ -49,11 +48,6 @@ export function GlobalSchedules() {
 
   const cancelRunMutation = useCancelRepoScheduleRun()
   const cancelRunPending = cancelRunMutation.isPending
-
-  useSidebarAction('new-schedule', () => {
-    openNewJob()
-    setSelectedRepoId(undefined)
-  })
 
   useEffect(() => {
     runOffsetRef.current = runOffset
@@ -547,7 +541,7 @@ export function GlobalSchedules() {
             </ScheduleListToolbar>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
+          <div className="flex-1 min-h-0 flex flex-col overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
             {!hasJobs ? (
               <div className="flex min-h-full items-center justify-center">
                 <Card className="max-w-md border-dashed border-border/70">
@@ -596,7 +590,7 @@ export function GlobalSchedules() {
                 </Card>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border/70">
+              <div className="min-h-0 overflow-auto rounded-lg border border-border/70">
                 <ScheduleJobsTable
                   jobs={filteredAndSortedJobs}
                   showRepo
@@ -721,8 +715,8 @@ export function GlobalSchedules() {
             </ScheduleListToolbar>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
-            <div className="overflow-x-auto rounded-lg border border-border/70">
+          <div className="flex-1 min-h-0 flex flex-col overflow-y-auto px-2 sm:px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+56px)] sm:pb-4">
+            <div className="min-h-0 overflow-auto rounded-lg border border-border/70">
               <ScheduleRunsTable
                 runs={sortedRuns}
                 runsLoading={runsLoading && allRuns.length === 0}

@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   useKeyboardShortcuts: vi.fn(),
   useAutoScroll: vi.fn(),
   useDialogParam: vi.fn(),
-  useSidebarAction: vi.fn(),
   useSessionStatusForSession: vi.fn(),
   PromptInput: vi.fn(),
   uiState: { isEditingMessage: false },
@@ -91,10 +90,6 @@ vi.mock('@/hooks/useAutoScroll', () => ({
 
 vi.mock('@/hooks/useDialogParam', () => ({
   useDialogParam: vi.fn(() => [false, vi.fn()]),
-}))
-
-vi.mock('@/hooks/useSidebarAction', () => ({
-  useSidebarAction: vi.fn(() => {}),
 }))
 
 vi.mock('@/hooks/useAutoPlayLastResponse', () => ({
@@ -270,7 +265,6 @@ describe('SessionDetail scroll floating button', () => {
     mocks.useVisualViewport.mockReturnValue({ keyboardHeight: 0 })
     mocks.useKeyboardShortcuts.mockReturnValue({ leaderActive: false })
     mocks.useDialogParam.mockReturnValue([false, vi.fn()])
-    mocks.useSidebarAction.mockReturnValue(undefined)
     mocks.useSessionStatusForSession.mockReturnValue({ type: 'idle' })
     mocks.PromptInput.mockImplementation(() => <div>MockedPromptInput</div>)
   })
