@@ -76,16 +76,16 @@ opencode-manager/
 pnpm dev          # Start both backend and frontend (runs setup-dev.sh first)
 pnpm dev:backend  # Start backend only
 pnpm dev:frontend # Start frontend only
-pnpm build        # Build all packages
-pnpm lint         # Lint all packages
-pnpm test         # Run all tests
+pnpm build        # Build CLI, backend, and frontend
+pnpm lint         # Lint CLI, frontend, and backend
+pnpm test         # Run CLI, backend, and frontend tests
 ```
 
 ### Backend
 
 ```bash
 cd backend
-bun --watch src/index.ts  # Start with hot reload
+bun --watch-path src --watch src/index.ts  # Start with hot reload
 pnpm test                 # Run tests (uses Vitest)
 vitest <file>             # Run single test file
 vitest --ui               # Test UI
@@ -151,13 +151,30 @@ cd backend && pnpm test -- --coverage
 ### Writing Tests
 
 ```typescript
+import path from 'path'
 import { describe, it, expect } from 'vitest'
-import { repoService } from '../src/services/repo'
+import { Database } from 'bun:sqlite'
+import { getReposPath } from '@opencode-manager/shared/config/env'
+import { migrate } from '../src/db/migration-runner'
+import { allMigrations } from '../src/db/migrations'
+import { createRepoRow } from '../src/services/repo'
 
-describe('repoService', () => {
-  it('listAll returns repositories', async () => {
-    const repos = await repoService.listAll()
-    expect(Array.isArray(repos)).toBe(true)
+describe('createRepoRow', () => {
+  it('creates a ready local repo row', () => {
+    const db = new Database(':memory:')
+    migrate(db, allMigrations)
+
+    const { repo, created } = createRepoRow(db, {
+      name: 'demo',
+      localPath: 'demo',
+      fullPath: path.join(getReposPath(), 'demo'),
+    })
+
+    expect(created).toBe(true)
+    expect(repo.cloneStatus).toBe('ready')
+    expect(repo.isLocal).toBe(true)
+
+    db.close()
   })
 })
 ```
@@ -175,7 +192,6 @@ Logs output to terminal when running `pnpm dev`. For verbose debug logging:
 ```bash
 # Add to .env
 DEBUG=true
-LOG_LEVEL=debug
 ```
 
 ### Frontend

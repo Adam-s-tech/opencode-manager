@@ -1,5 +1,6 @@
 import { Bell, HelpCircle } from 'lucide-react'
 import { PendingActionBadge } from '@/components/ui/pending-action-badge'
+import { ScheduleReportsBell } from '@/components/notifications/ScheduleReportsBell'
 import { usePermissions, useForms } from '@/contexts/EventContext'
 
 export function PendingActionsGroup() {
@@ -8,6 +9,7 @@ export function PendingActionsGroup() {
 
   return (
     <>
+      <ScheduleReportsBell />
       <PendingActionBadge
         count={permissionCount}
         icon={Bell}

@@ -109,73 +109,21 @@ describe('buildMoreItems', () => {
 })
 
 describe('buildNavModel', () => {
-  it('returns new-repo primary CTA for root path', () => {
-    const model = buildNavModel('/')
-    expect(model.primary).toHaveLength(2)
-    expect(model.primary[0].key).toBe('new-repo')
-    expect(model.primary[0].onSelect).toBe('new-repo')
-    expect(model.primary[1].key).toBe('assistant')
-    expect(model.primary[1].to).toBe('/assistant')
-  })
-
-  it('returns only the assistant primary CTA for repo detail', () => {
-    const model = buildNavModel('/repos/5')
-    expect(model.primary).toHaveLength(1)
-    expect(model.primary[0].key).toBe('assistant')
-    expect(model.primary[0].to).toBe('/assistant')
-  })
-
-  it('returns only the assistant primary CTA for session detail', () => {
-    const model = buildNavModel('/repos/5/sessions/abc')
+  it.each([
+    '/',
+    '/repos/5',
+    '/repos/5/sessions/abc',
+    '/repos/5/assistant',
+    '/assistant',
+    '/schedules',
+    '/repos/5/schedules',
+    '/unknown/path',
+  ])('returns only the assistant primary CTA for %s', (path) => {
+    const model = buildNavModel(path)
     expect(model.primary).toHaveLength(1)
     expect(model.primary[0].key).toBe('assistant')
     expect(model.primary[0].to).toBe('/assistant')
     expect(model.primary[0].variant).toBe('secondary')
-  })
-
-  it('returns new-session and assistant primary CTAs for assistant workspace', () => {
-    const model = buildNavModel('/repos/5/assistant')
-    expect(model.primary).toHaveLength(2)
-    expect(model.primary[0].key).toBe('new-session')
-    expect(model.primary[0].onSelect).toBe('new-session')
-    expect(model.primary[0].variant).toBe('primary')
-    expect(model.primary[1].key).toBe('assistant')
-    expect(model.primary[1].to).toBe('/assistant')
-    expect(model.primary[1].variant).toBe('secondary')
-  })
-
-  it('returns new-session and assistant primary CTAs for canonical /assistant', () => {
-    const model = buildNavModel('/assistant')
-    expect(model.primary).toHaveLength(2)
-    expect(model.primary[0].key).toBe('new-session')
-    expect(model.primary[0].onSelect).toBe('new-session')
-    expect(model.primary[0].variant).toBe('primary')
-    expect(model.primary[1].key).toBe('assistant')
-    expect(model.primary[1].to).toBe('/assistant')
-    expect(model.primary[1].variant).toBe('secondary')
-  })
-
-  it('returns new-schedule primary CTA for schedules routes', () => {
-    const model1 = buildNavModel('/schedules')
-    expect(model1.primary).toHaveLength(2)
-    expect(model1.primary[0].key).toBe('new-schedule')
-    expect(model1.primary[0].onSelect).toBe('new-schedule')
-    expect(model1.primary[1].key).toBe('assistant')
-    expect(model1.primary[1].to).toBe('/assistant')
-
-    const model2 = buildNavModel('/repos/5/schedules')
-    expect(model2.primary).toHaveLength(2)
-    expect(model2.primary[0].key).toBe('new-schedule')
-    expect(model2.primary[0].onSelect).toBe('new-schedule')
-    expect(model2.primary[1].key).toBe('assistant')
-    expect(model2.primary[1].to).toBe('/assistant')
-  })
-
-  it('returns assistant primary for unknown routes', () => {
-    const model = buildNavModel('/unknown/path')
-    expect(model.primary).toHaveLength(1)
-    expect(model.primary[0].key).toBe('assistant')
-    expect(model.primary[0].to).toBe('/assistant')
   })
 
   it('preserves backwards compatibility with buildMoreItems', () => {

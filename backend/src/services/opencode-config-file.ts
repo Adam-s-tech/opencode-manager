@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { promises as fs } from 'fs'
 import { readFile, readdir, rename, rm, stat } from 'fs/promises'
 import path from 'path'
 import { isDeepStrictEqual } from 'node:util'
@@ -23,6 +24,7 @@ import type {
 import { logger } from '../utils/logger'
 import { withFileLock } from '../utils/atomic-json'
 import { existingFileMode, writeFileAtomic } from '../utils/fs-safe'
+import { restoreEnforcementSections, type EnforcementRemovedSections } from './opencode/enforcement-config'
 import { ensureDirectoryExists } from './file-operations'
 
 export const OPENCODE_CONFIG_SEED = JSON.stringify({ $schema: 'https://opencode.ai/config.json' }, null, 2)
@@ -40,6 +42,8 @@ const OPENCODE_CONFIG_SNAPSHOT_VERSION = 1
 const OPENCODE_CONFIG_SNAPSHOT_MARKER = 'opencode-config-snapshot'
 
 const OPENCODE_CONFIG_SNAPSHOT_ARTIFACT_PREFIX = 'opencode-config-broken'
+
+const OPENCODE_CONFIG_LEGACY_BACKUP_SUFFIX = '.ocm-sandbox-backup'
 
 export type OpenCodeConfigUpdateMode = 'replace' | 'merge'
 
@@ -761,6 +765,62 @@ export async function foldLegacyConfigJsonSource(): Promise<boolean> {
     logger.warn(`Failed to fold legacy OpenCode config ${legacyPath}:`, error)
     return false
   }
+}
+
+export async function restoreLegacyOpenCodeConfigBackup(configPath: string): Promise<void> {
+  const backupPath = `${configPath}${OPENCODE_CONFIG_LEGACY_BACKUP_SUFFIX}`
+  await withFileLock(path.dirname(configPath), async () => {
+    let backupContent: string
+    try {
+      backupContent = await fs.readFile(backupPath, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw new Error(`cannot read legacy backup ${backupPath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    let currentContent: string
+    try {
+      currentContent = await fs.readFile(configPath, 'utf8')
+    } catch (error) {
+      throw new Error(`cannot read config ${configPath} while restoring legacy backup: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    let backupRecord: unknown
+    try {
+      backupRecord = parseJsonc(backupContent)
+    } catch (error) {
+      throw new Error(`cannot parse legacy backup ${backupPath}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (!isPlainObject(backupRecord)) {
+      throw new Error(`legacy backup ${backupPath} is malformed`)
+    }
+
+    const removed: EnforcementRemovedSections = isPlainObject(backupRecord.removedSections)
+      ? backupRecord.removedSections
+      : {
+        plugin: Array.isArray(backupRecord.originalPlugins)
+          ? backupRecord.originalPlugins
+          : Array.isArray(backupRecord.plugin) ? backupRecord.plugin : [],
+      }
+
+    let currentConfig: unknown
+    try {
+      currentConfig = parseJsonc(currentContent)
+    } catch (error) {
+      throw new Error(`cannot parse config ${configPath} while restoring legacy backup: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (!isPlainObject(currentConfig)) {
+      throw new Error(`config ${configPath} is not an object while restoring legacy backup`)
+    }
+
+    const restored = restoreEnforcementSections(currentConfig, removed)
+    const restoredContent = JSON.stringify(restored, null, 2)
+    if (restoredContent !== currentContent) {
+      const mode = await existingFileMode(configPath)
+      await writeFileAtomic(configPath, restoredContent, { mode })
+    }
+    await fs.rm(backupPath, { force: true })
+  })
 }
 
 export async function pruneHealthWatchDirectory(dirPath: string): Promise<void> {

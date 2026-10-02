@@ -47,6 +47,7 @@ interface ScheduleRunRow {
   status: string
   started_at: number
   finished_at: number | null
+  viewed_at: number | null
   created_at: number
   session_id: string | null
   session_title: string | null
@@ -133,6 +134,7 @@ function rowToScheduleRun(row: ScheduleRunRow): ScheduleRun {
     status: row.status,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
+    viewedAt: row.viewed_at,
     createdAt: row.created_at,
     sessionId: row.session_id,
     sessionTitle: row.session_title,
@@ -522,6 +524,7 @@ export function listScheduleRunsByJob(db: Database, repoId: number, jobId: numbe
       status,
       started_at,
       finished_at,
+      viewed_at,
       created_at,
       session_id,
       session_title,
@@ -540,10 +543,20 @@ export function listScheduleRunsByJob(db: Database, repoId: number, jobId: numbe
   return rows.map(rowToScheduleRun)
 }
 
+export interface ScheduleRunSummary {
+  id: number
+  status: ScheduleRunStatus
+  startedAt: number
+  finishedAt: number | null
+  viewedAt: number | null
+  preview: string | null
+}
+
 export interface ScheduleJobWithRepo extends ScheduleJob {
   repoName: string
   repoPath: string
   repoUrl: string
+  lastRun: ScheduleRunSummary | null
 }
 
 interface ScheduleJobWithRepoRow extends ScheduleJobRow {
@@ -551,6 +564,13 @@ interface ScheduleJobWithRepoRow extends ScheduleJobRow {
   repo_path: string | null
   repo_name: string | null
   repo_source_path: string | null
+  last_run_id: number | null
+  last_run_status: string | null
+  last_run_started_at: number | null
+  last_run_finished_at: number | null
+  last_run_viewed_at: number | null
+  last_run_error_text: string | null
+  last_run_response_head: string | null
 }
 
 interface RepoDisplayRow {
@@ -574,19 +594,46 @@ function resolveRepoDisplay(row: RepoDisplayRow): { repoName: string; repoPath: 
   return { repoName: displayName, repoPath: row.repo_path ?? '' }
 }
 
+function buildLastRunSummary(row: ScheduleJobWithRepoRow): ScheduleRunSummary | null {
+  if (row.last_run_id === null || row.last_run_id === undefined) {
+    return null
+  }
+
+  return {
+    id: row.last_run_id,
+    status: row.last_run_status as ScheduleRunStatus,
+    startedAt: row.last_run_started_at ?? 0,
+    finishedAt: row.last_run_finished_at,
+    viewedAt: row.last_run_viewed_at,
+    preview: extractReportPreview(row.last_run_status === 'failed' ? row.last_run_error_text : row.last_run_response_head),
+  }
+}
+
 function rowToScheduleJobWithRepo(row: ScheduleJobWithRepoRow): ScheduleJobWithRepo {
   return {
     ...rowToScheduleJob(row),
     ...resolveRepoDisplay(row),
     repoUrl: row.repo_url ?? '',
+    lastRun: buildLastRunSummary(row),
   }
 }
 
 export function listAllScheduleJobsWithRepos(db: Database): ScheduleJobWithRepo[] {
   const stmt = db.prepare(`
-    SELECT sj.*, r.repo_url, r.local_path as repo_path, r.name as repo_name, r.source_path as repo_source_path
+    SELECT
+      sj.*, r.repo_url, r.local_path as repo_path, r.name as repo_name, r.source_path as repo_source_path,
+      sr.id AS last_run_id,
+      sr.status AS last_run_status,
+      sr.started_at AS last_run_started_at,
+      sr.finished_at AS last_run_finished_at,
+      sr.viewed_at AS last_run_viewed_at,
+      substr(sr.error_text, 1, 600) AS last_run_error_text,
+      substr(sr.response_text, 1, 600) AS last_run_response_head
     FROM schedule_jobs sj
     LEFT JOIN repos r ON sj.repo_id = r.id
+    LEFT JOIN schedule_runs sr ON sr.id = (
+      SELECT id FROM schedule_runs WHERE job_id = sj.id ORDER BY started_at DESC LIMIT 1
+    )
     ORDER BY COALESCE(r.local_path, ''), sj.name
   `)
   const rows = stmt.all() as ScheduleJobWithRepoRow[]
@@ -623,10 +670,15 @@ export interface ListAllRunsOptions {
   jobId?: number
   triggerSource?: string
   runId?: number
+  search?: string
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`)
 }
 
 export function listAllScheduleRuns(db: Database, options: ListAllRunsOptions = {}): ScheduleRunWithContext[] {
-  const { limit = 50, offset = 0, status, repoId, jobId, triggerSource, runId } = options
+  const { limit = 50, offset = 0, status, repoId, jobId, triggerSource, runId, search } = options
   const conditions: string[] = []
   const params: (string | number)[] = []
 
@@ -650,6 +702,13 @@ export function listAllScheduleRuns(db: Database, options: ListAllRunsOptions = 
     conditions.push('sr.id = ?')
     params.push(runId)
   }
+  const searchTerm = search?.trim()
+  if (searchTerm) {
+    const pattern = `%${escapeLikePattern(searchTerm)}%`
+    const searchColumns = ['sj.name', 'sr.session_title', 'sr.error_text', 'sr.run_branch', 'r.name', 'r.local_path']
+    conditions.push(`(${searchColumns.map((column) => `${column} LIKE ? ESCAPE '\\'`).join(' OR ')})`)
+    params.push(...searchColumns.map(() => pattern))
+  }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
@@ -659,6 +718,7 @@ export function listAllScheduleRuns(db: Database, options: ListAllRunsOptions = 
       sr.started_at, sr.finished_at, sr.created_at,
       sr.session_id, sr.session_title,
       NULL AS log_text, NULL AS response_text, sr.error_text,
+      sr.viewed_at,
       sr.run_branch, sr.commit_hash, sr.worktree_path,
       sj.name AS job_name, r.local_path AS repo_path, r.name AS repo_name,
       r.repo_url AS repo_url, r.source_path AS repo_source_path
@@ -673,4 +733,100 @@ export function listAllScheduleRuns(db: Database, options: ListAllRunsOptions = 
   params.push(limit, offset)
   const rows = stmt.all(...params) as ScheduleRunWithContextRow[]
   return rows.map(rowToScheduleRunWithContext)
+}
+
+const REPORT_PREVIEW_MAX_LENGTH = 160
+
+function normalizeReportLine(rawLine: string): string {
+  return rawLine
+    .replace(/^\s*#{1,6}\s*/, '')
+    .replace(/^\s*>\s?/, '')
+    .replace(/^\s*(?:[-*]|\d+\.)\s+/, '')
+    .replace(/\*\*|__|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Reduces a finished run's markdown report to a single short, plain-text line
+ * suitable for a notification or list preview, preferring the first heading
+ * over any conversational preamble.
+ */
+export function extractReportPreview(text: string | null): string | null {
+  if (!text) {
+    return null
+  }
+
+  const rawLines = text.split('\n')
+  const headingLine = rawLines.find((rawLine) => /^\s*#{1,6}\s+\S/.test(rawLine))
+  const line = headingLine
+    ? normalizeReportLine(headingLine)
+    : rawLines.map(normalizeReportLine).find((candidate) => candidate.length > 0)
+
+  if (!line) {
+    return null
+  }
+
+  return line.length > REPORT_PREVIEW_MAX_LENGTH
+    ? `${line.slice(0, REPORT_PREVIEW_MAX_LENGTH).trimEnd()}…`
+    : line
+}
+
+export interface ScheduleRunWithUnreadPreview extends ScheduleRunWithContext {
+  preview: string | null
+}
+
+interface UnreadScheduleRunRow extends ScheduleRunWithContextRow {
+  response_head: string | null
+}
+
+export function listUnreadScheduleRuns(db: Database, limit: number = 20): ScheduleRunWithUnreadPreview[] {
+  const stmt = db.prepare(`
+    SELECT
+      sr.id, sr.job_id, sr.repo_id, sr.trigger_source, sr.status,
+      sr.started_at, sr.finished_at, sr.created_at,
+      sr.session_id, sr.session_title, sr.viewed_at,
+      NULL AS log_text, NULL AS response_text, sr.error_text,
+      sr.run_branch, sr.commit_hash, sr.worktree_path,
+      sj.name AS job_name, r.local_path AS repo_path, r.name AS repo_name,
+      r.repo_url AS repo_url, r.source_path AS repo_source_path,
+      substr(sr.response_text, 1, 600) AS response_head
+    FROM schedule_runs sr
+    JOIN schedule_jobs sj ON sr.job_id = sj.id
+    LEFT JOIN repos r ON sr.repo_id = r.id
+    WHERE sr.status IN ('completed', 'failed') AND sr.viewed_at IS NULL
+    ORDER BY (sr.status = 'failed') DESC, sr.finished_at DESC
+    LIMIT ?
+  `)
+  const rows = stmt.all(limit) as UnreadScheduleRunRow[]
+  return rows.map((row) => ({
+    ...rowToScheduleRunWithContext(row),
+    preview: extractReportPreview(row.status === 'failed' ? row.error_text : row.response_head),
+  }))
+}
+
+export function countUnreadScheduleRuns(db: Database): { total: number; failed: number } {
+  const stmt = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed
+    FROM schedule_runs
+    WHERE status IN ('completed', 'failed') AND viewed_at IS NULL
+  `)
+  const row = stmt.get() as { total: number; failed: number }
+  return { total: Number(row.total), failed: Number(row.failed) }
+}
+
+export function markScheduleRunViewed(db: Database, runId: number): boolean {
+  const result = db
+    .prepare("UPDATE schedule_runs SET viewed_at = ? WHERE id = ? AND viewed_at IS NULL AND status IN ('completed', 'failed')")
+    .run(Date.now(), runId)
+  return result.changes > 0
+}
+
+export function markAllScheduleRunsViewed(db: Database): number {
+  const result = db
+    .prepare("UPDATE schedule_runs SET viewed_at = ? WHERE viewed_at IS NULL AND status IN ('completed', 'failed')")
+    .run(Date.now())
+  return result.changes
 }

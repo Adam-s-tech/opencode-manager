@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   dialogSetters: {} as Record<string, ReturnType<typeof vi.fn>>,
   openSettings: vi.fn(),
   setSettingsTab: vi.fn(),
-  useSidebarAction: vi.fn(),
   useSessionStatusForSession: vi.fn(),
   compactSession: vi.fn(),
   listSessionMessages: vi.fn(),
@@ -137,10 +136,6 @@ vi.mock('@/hooks/useAutoScroll', () => ({
 
 vi.mock('@/hooks/useDialogParam', () => ({
   useDialogParam: vi.fn((name: string) => [false, mocks.dialogSetters[name]]),
-}))
-
-vi.mock('@/hooks/useSidebarAction', () => ({
-  useSidebarAction: vi.fn(() => {}),
 }))
 
 vi.mock('@/hooks/useAutoPlayLastResponse', () => ({
@@ -290,7 +285,6 @@ describe('SessionDetail command actions', () => {
       sourceControl: vi.fn(),
       resetPermissions: vi.fn(),
     }
-    mocks.useSidebarAction.mockReturnValue(undefined)
     mocks.useSessionStatusForSession.mockReturnValue({ type: 'idle' })
     mocks.compactSession.mockResolvedValue(undefined)
     mocks.listSessionMessages.mockResolvedValue({ messages: [] })

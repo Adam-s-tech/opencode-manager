@@ -8,6 +8,7 @@ import type { ScheduleRun } from '@opencode-manager/shared/types'
 
 const mocks = vi.hoisted(() => ({
   getRepo: vi.fn(),
+  useMarkScheduleRunViewed: vi.fn(),
 }))
 
 const apiMocks = vi.hoisted(() => ({
@@ -39,6 +40,10 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}</div>
 }
 
+vi.mock('@/hooks/useSchedules', () => ({
+  useMarkScheduleRunViewed: mocks.useMarkScheduleRunViewed,
+}))
+
 vi.mock('@/components/file-browser/FileBrowserSheet', () => ({
   FileBrowserSheet: ({ isOpen, initialSelectedFile }: { isOpen: boolean; initialSelectedFile?: string }) =>
     isOpen ? <div data-testid="file-browser-sheet" data-selected-file={initialSelectedFile} /> : null,
@@ -62,6 +67,7 @@ const run: ScheduleRun = {
   status: 'completed',
   startedAt: 0,
   finishedAt: null,
+  viewedAt: null,
   createdAt: 0,
   sessionId: null,
   sessionTitle: null,
@@ -73,7 +79,7 @@ const run: ScheduleRun = {
   worktreePath: null,
 }
 
-function renderPanel(activeRun: ScheduleRun = run) {
+function renderPanel(activeRun: ScheduleRun | null = run) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -106,6 +112,7 @@ function clickLink(name: string) {
 describe('RunDetailPanel local link handling', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.useMarkScheduleRunViewed.mockReturnValue({ mutate: vi.fn(), isPending: false })
   })
 
   it('prevents navigation and opens no sheet while the repo query is pending', async () => {
@@ -153,11 +160,32 @@ describe('RunDetailPanel local link handling', () => {
     expect(docs.getAttribute('target')).toBe('_blank')
     expect(docs.getAttribute('rel')).toBe('noopener noreferrer')
   })
+
+  it('marks an unread completed run viewed and skips running or already-viewed runs', () => {
+    const completedMutate = vi.fn()
+    mocks.useMarkScheduleRunViewed.mockReturnValue({ mutate: completedMutate, isPending: false })
+    const completed = renderPanel({ ...run, status: 'completed', viewedAt: null })
+    expect(completedMutate).toHaveBeenCalledTimes(1)
+    expect(completedMutate).toHaveBeenCalledWith(1)
+    completed.unmount()
+
+    const runningMutate = vi.fn()
+    mocks.useMarkScheduleRunViewed.mockReturnValue({ mutate: runningMutate, isPending: false })
+    const running = renderPanel({ ...run, status: 'running', viewedAt: null })
+    expect(runningMutate).not.toHaveBeenCalled()
+    running.unmount()
+
+    const viewedMutate = vi.fn()
+    mocks.useMarkScheduleRunViewed.mockReturnValue({ mutate: viewedMutate, isPending: false })
+    renderPanel({ ...run, status: 'completed', viewedAt: 123 })
+    expect(viewedMutate).not.toHaveBeenCalled()
+  })
 })
 
 describe('RunDetailPanel open session', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.useMarkScheduleRunViewed.mockReturnValue({ mutate: vi.fn(), isPending: false })
     mocks.getRepo.mockResolvedValue(repo)
   })
 

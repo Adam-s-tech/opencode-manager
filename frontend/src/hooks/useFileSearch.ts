@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { findFiles } from '@/api/opencode'
 
 export interface FileSearchResult {
@@ -13,12 +13,7 @@ export function useFileSearch(
   enabled: boolean = true,
   directory?: string
 ): FileSearchResult {
-  const [debouncedQuery, setDebouncedQuery] = useState(query)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(query), 300)
-    return () => clearTimeout(timer)
-  }, [query])
+  const debouncedQuery = useDebouncedValue(query, 300)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['file-search', debouncedQuery, directory],

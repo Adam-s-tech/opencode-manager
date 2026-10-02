@@ -2,19 +2,12 @@ import { promises as fs } from 'fs'
 import { lstat, realpath } from 'fs/promises'
 import path from 'path'
 import { OPENCODE_CONFIG_SOURCE_NAMES } from '@opencode-manager/shared'
-import { parseJsonc } from '@opencode-manager/shared/utils'
 import { logger } from '../utils/logger'
-import { existingFileMode, mkdirSafe, writeFileAtomic } from '../utils/fs-safe'
-import { withOpenCodeConfigLock } from './opencode-config-file'
+import { mkdirSafe } from '../utils/fs-safe'
+import { restoreLegacyOpenCodeConfigBackup } from './opencode-config-file'
 import { getOpenCodeHome } from './opencode-home'
 import { getOpenCodePluginDir } from './opencode/plugin-registry'
-import {
-  isRecord,
-  restoreEnforcementSections,
-  type EnforcementRemovedSections,
-} from './opencode/enforcement-config'
 
-const PLUGIN_CONFIG_BACKUP_SUFFIX = '.ocm-sandbox-backup'
 const QUARANTINE_CONFLICT_SUFFIX = '.ocm-conflict'
 const QUARANTINE_MANIFEST_FILENAME = '.ocm-quarantine-manifest.json'
 
@@ -238,55 +231,6 @@ async function restorePluginEntries(dir: string): Promise<void> {
   }
 }
 
-async function restoreEnforcementConfigSections(configPath: string): Promise<void> {
-  const backupPath = `${configPath}${PLUGIN_CONFIG_BACKUP_SUFFIX}`
-  if (!(await pathExists(backupPath))) return
-
-  let backupContent: string
-  try {
-    backupContent = await fs.readFile(backupPath, 'utf-8')
-  } catch (error) {
-    throw new Error(`cannot read legacy backup ${backupPath}: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  let currentContent: string
-  try {
-    currentContent = await fs.readFile(configPath, 'utf-8')
-  } catch (error) {
-    throw new Error(`cannot read config ${configPath} while restoring legacy backup: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
-  let backupRecord: Record<string, unknown>
-  try {
-    backupRecord = parseJsonc(backupContent) as Record<string, unknown>
-  } catch (error) {
-    throw new Error(`cannot parse legacy backup ${backupPath}: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  if (!isRecord(backupRecord)) {
-    throw new Error(`legacy backup ${backupPath} is malformed`)
-  }
-  const removed: EnforcementRemovedSections = isRecord(backupRecord.removedSections)
-    ? backupRecord.removedSections
-    : {
-      plugin: Array.isArray(backupRecord.originalPlugins)
-        ? backupRecord.originalPlugins
-        : Array.isArray(backupRecord.plugin) ? backupRecord.plugin : [],
-    }
-  let currentConfig: Record<string, unknown>
-  try {
-    currentConfig = parseJsonc(currentContent) as Record<string, unknown>
-  } catch (error) {
-    throw new Error(`cannot parse config ${configPath} while restoring legacy backup: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
-  const restored = restoreEnforcementSections(currentConfig, removed)
-  const restoredContent = JSON.stringify(restored, null, 2)
-  if (restoredContent !== currentContent) {
-    const mode = await existingFileMode(configPath)
-    await withOpenCodeConfigLock(() => writeFileAtomic(configPath, restoredContent, { mode }))
-  }
-  await fs.rm(backupPath, { force: true })
-}
-
 export async function restoreQuarantinedOpenCodePlugins(configHome: string, configPath: string): Promise<void> {
   for (const dir of getPluginDirs(configHome)) {
     await restorePluginEntries(dir)
@@ -295,6 +239,6 @@ export async function restoreQuarantinedOpenCodePlugins(configHome: string, conf
     await restorePluginEntries(dir)
   }
   for (const nativeConfigPath of getEnforcementConfigPaths(configHome, configPath)) {
-    await restoreEnforcementConfigSections(nativeConfigPath)
+    await restoreLegacyOpenCodeConfigBackup(nativeConfigPath)
   }
 }

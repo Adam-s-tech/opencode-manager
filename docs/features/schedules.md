@@ -97,10 +97,10 @@ Connections are made at the run's directory, so they do not affect other session
 
 Each scheduled run executes in a **throwaway git worktree** — an isolated working copy branched off the repository's base branch. This provides two key guarantees:
 
-- **No side effects on the main working tree** — file changes, branch switches, and experimentations during the run are confined to the worktree.
+- **Separate checkout** — ordinary checkout changes and branch switches happen in the run's worktree. A worktree is not a filesystem jail: shell commands may affect other accessible paths, including the main checkout.
 - **Clean state per run** — every run starts from a fresh branch (`schedule/{jobId}/run-{runId}`) based off the latest remote state.
 
-When the run completes or fails, the worktree is cleaned up automatically. The worktree is **never auto-pushed** — any changes an agent makes during a scheduled run stay local and are discarded after the run finishes. The real safety boundary is this disposal: modifications affect only the throwaway worktree and are not propagated back to the repository.
+When the run completes or fails, finalization commits changed files locally to the run branch (`schedule/{jobId}/run-{runId}`), records the commit hash, and removes the worktree. A branch with a commit is retained; a branch without a commit is deleted. Manager does not automatically push these commits, but an agent with shell access can push explicitly. Deleting a run or clearing its history removes the run branch; it does not guarantee immediate erasure of Git objects or outputs saved elsewhere.
 
 ### Branch Configuration
 
@@ -116,7 +116,13 @@ Every schedule includes a **Permissions** section in the General tab. These sett
 
 ### Allow Access Outside the Working Directory
 
-When **disabled** (the default), the agent's file operations are confined to the isolated worktree. Enable this if the schedule requires reading or writing files elsewhere on the system (e.g., accessing a shared configuration directory).
+When **disabled** (the default), OpenCode's `external_directory` permission is denied. This blocks file-tool operations that request that permission; it is not comprehensive filesystem confinement. Enable this if the schedule requires file tools to access paths outside its working directory (e.g., a shared configuration directory).
+
+This is a file-tool boundary, not a per-worktree jail for shell commands. A sandboxed `shell` command can read and write every project root mounted into the sandbox, including other repositories and worktrees; see [Agent Sandboxing](./sandboxing.md#mounts-and-secrets).
+
+### Allow Questions
+
+When **disabled** (the default), the agent's `question` tool is denied so an unattended run cannot stall waiting for an answer nobody is there to give. Enable it only when the run is supervised, since an unattended run that asks a question can stall waiting for an answer.
 
 ### Blocked Bash Commands
 
@@ -135,7 +141,7 @@ kill -9 *
 killall *
 ```
 
-These patterns prevent dangerous commands whose blast radius escapes the throwaway worktree. File-mutating commands (`rm -rf`, `git reset --hard`, etc.) are intentionally omitted because they only affect the disposable worktree.
+These patterns prevent dangerous commands whose blast radius escapes the throwaway worktree. File-mutating commands (`rm -rf`, `git reset --hard`, etc.) are intentionally omitted because the worktree itself is disposable; a shell command can still reach paths outside the worktree, so treat the deny list as a guard against the worst host-level commands rather than a complete sandbox.
 
 You can customize the deny list by adding or removing glob patterns. One pattern per line. Changes apply to all future runs of that schedule.
 

@@ -87,8 +87,10 @@ ocm logout
 Running `ocm` with no command computes the current git repo's OpenCode project
 id (the same identity OpenCode uses: normalized origin remote hash, else the
 cached id, else the root commit) and matches it against ready Manager repos. If
-one repo matches, it attaches OpenCode to that Manager repo. If no repo matches,
-it falls back to the last selected repo, then to local `opencode`.
+one repo matches, it attaches OpenCode to that Manager repo. If none matches
+while inside a git repo, it launches local `opencode` and does not consult the
+last selected repo. Only outside a git repo does it fall back to the last
+selected repo, then to local `opencode`.
 
 `ocm use <repoId|name>` selects a Manager repo, remembers it as the last repo,
 and attaches OpenCode to it.

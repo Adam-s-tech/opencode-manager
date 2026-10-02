@@ -1,9 +1,14 @@
 import { betterAuth } from 'better-auth'
+import { APIError } from 'better-auth/api'
 import { passkey } from '@better-auth/passkey'
 import { Database } from 'bun:sqlite'
 import { ENV } from '@opencode-manager/shared/config/env'
 
 export type AuthInstance = ReturnType<typeof createAuth>
+
+export function isAdminConfigured(): boolean {
+  return !!(ENV.AUTH.ADMIN_EMAIL && ENV.AUTH.ADMIN_PASSWORD)
+}
 
 export function createAuth(db: Database) {
   const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {}
@@ -44,6 +49,17 @@ export function createAuth(db: Database) {
       autoSignIn: true,
     },
     socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user, context) => {
+            if (isAdminConfigured() && (context?.request || user.email.toLowerCase() !== ENV.AUTH.ADMIN_EMAIL!.toLowerCase())) {
+              throw new APIError('FORBIDDEN', { message: 'Registration is disabled' })
+            }
+          },
+        },
+      },
+    },
     plugins: [
       passkey({
         rpID: ENV.AUTH.PASSKEY_RP_ID,

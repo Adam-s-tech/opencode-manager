@@ -18,7 +18,6 @@ const mocks = vi.hoisted(() => ({
   useMobile: vi.fn(),
   useAutoScroll: vi.fn(),
   useDialogParam: vi.fn(),
-  useSidebarAction: vi.fn(),
   useSessionStatusForSession: vi.fn(),
   showToast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), loading: vi.fn() },
 }))
@@ -97,10 +96,6 @@ vi.mock('@/hooks/useAutoScroll', () => ({
 
 vi.mock('@/hooks/useDialogParam', () => ({
   useDialogParam: vi.fn(() => [false, vi.fn()]),
-}))
-
-vi.mock('@/hooks/useSidebarAction', () => ({
-  useSidebarAction: vi.fn(() => {}),
 }))
 
 vi.mock('@/hooks/useAutoPlayLastResponse', () => ({
@@ -252,7 +247,6 @@ describe('SessionDetail form prompt session scoping', () => {
     mocks.useMobile.mockReturnValue(false)
     mocks.useAutoScroll.mockReturnValue({ scrollToBottom: vi.fn() })
     mocks.useDialogParam.mockReturnValue([false, vi.fn()])
-    mocks.useSidebarAction.mockReturnValue(undefined)
     mocks.useSessionStatusForSession.mockReturnValue({ type: 'idle' })
   })
 

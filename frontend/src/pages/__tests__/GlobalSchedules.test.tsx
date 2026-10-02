@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { GlobalSchedules } from '../GlobalSchedules'
@@ -12,8 +12,11 @@ const mocks = vi.hoisted(() => ({
   useDeleteRepoSchedule: vi.fn(),
   useRunRepoSchedule: vi.fn(),
   useCancelRepoScheduleRun: vi.fn(),
+  useUnreadScheduleRuns: vi.fn(),
   useScheduleUrlState: vi.fn(),
-  RunHistoryCards: vi.fn(() => null),
+  ScheduleJobsTable: vi.fn(() => null),
+  ScheduleRunsTable: vi.fn(() => null),
+  ScheduleRunDrawer: vi.fn(() => null),
 }))
 
 vi.mock('@/hooks/useSchedules', () => ({
@@ -24,15 +27,23 @@ vi.mock('@/hooks/useSchedules', () => ({
   useDeleteRepoSchedule: mocks.useDeleteRepoSchedule,
   useRunRepoSchedule: mocks.useRunRepoSchedule,
   useCancelRepoScheduleRun: mocks.useCancelRepoScheduleRun,
+  useUnreadScheduleRuns: mocks.useUnreadScheduleRuns,
 }))
 
 vi.mock('@/hooks/useScheduleUrlState', () => ({
   useScheduleUrlState: mocks.useScheduleUrlState,
 }))
 
+vi.mock('@/components/notifications/ScheduleReportsBell', () => ({
+  ScheduleReportsBell: vi.fn(() => null),
+}))
+
 vi.mock('@/components/schedules', () => ({
   ScheduleJobDialog: vi.fn(() => null),
-  RunHistoryCards: mocks.RunHistoryCards,
+  ScheduleJobsTable: mocks.ScheduleJobsTable,
+  ScheduleRunsTable: mocks.ScheduleRunsTable,
+  ScheduleRunDrawer: mocks.ScheduleRunDrawer,
+  ScheduleListToolbar: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   PromptsTab: vi.fn(() => null),
 }))
 
@@ -45,6 +56,7 @@ function makeRun(overrides: Record<string, unknown> = {}) {
     status: 'completed',
     startedAt: Date.UTC(2026, 2, 9, 12, 0, 0),
     finishedAt: Date.UTC(2026, 2, 9, 12, 5, 0),
+    viewedAt: 123,
     createdAt: Date.UTC(2026, 2, 9, 12, 0, 0),
     sessionId: 'ses-1',
     sessionTitle: 'Run title',
@@ -57,6 +69,36 @@ function makeRun(overrides: Record<string, unknown> = {}) {
     jobName: 'Weekly summary',
     repoName: 'my-repo',
     repoPath: '/home/user/my-repo',
+    ...overrides,
+  }
+}
+
+function makeJob(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 7,
+    repoId: 42,
+    name: 'Weekly summary',
+    description: 'Summarize the week',
+    enabled: true,
+    scheduleMode: 'interval',
+    intervalMinutes: 60,
+    cronExpression: null,
+    timezone: null,
+    agentSlug: null,
+    prompt: 'Summarize the week',
+    model: null,
+    skillMetadata: null,
+    permissionConfig: null,
+    mcpServers: [],
+    branch: null,
+    createdAt: 0,
+    updatedAt: 0,
+    lastRunAt: null,
+    nextRunAt: null,
+    repoName: 'my-repo',
+    repoPath: '/home/user/my-repo',
+    repoUrl: 'https://example.com/my-repo',
+    lastRun: null,
     ...overrides,
   }
 }
@@ -110,9 +152,22 @@ const renderGlobalSchedules = () => {
   )
 }
 
-const runHistoryProps = () => mocks.RunHistoryCards.mock.calls.at(-1)?.[0] as {
+const runsTableProps = () => mocks.ScheduleRunsTable.mock.calls.at(-1)?.[0] as {
   runs: Array<{ id: number }>
   selectedRunId: number | null
+}
+
+const drawerProps = () => mocks.ScheduleRunDrawer.mock.calls.at(-1)?.[0] as {
+  run: { id: number } | null
+  open: boolean
+  runLoading: boolean
+  runError: boolean
+  onRetry?: () => void
+  onClose: () => void
+}
+
+const jobsTableProps = () => mocks.ScheduleJobsTable.mock.calls.at(-1)?.[0] as {
+  onOpen: (job: unknown) => void
 }
 
 describe('GlobalSchedules run history', () => {
@@ -130,6 +185,7 @@ describe('GlobalSchedules run history', () => {
     mocks.useDeleteRepoSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false })
     mocks.useRunRepoSchedule.mockReturnValue({ mutate: vi.fn(), isPending: false })
     mocks.useCancelRepoScheduleRun.mockReturnValue({ mutate: vi.fn(), isPending: false })
+    mocks.useUnreadScheduleRuns.mockReturnValue({ data: { runs: [], total: 0, failed: 0 } })
     mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState())
   })
 
@@ -142,10 +198,10 @@ describe('GlobalSchedules run history', () => {
     renderGlobalSchedules()
 
     expect(mocks.useAllScheduleRuns).toHaveBeenCalledWith({ limit: 1, runId: 999 }, true)
-    const props = runHistoryProps()
+    const props = runsTableProps()
     expect(props.selectedRunId).toBe(999)
     expect(props.runs.some((run) => run.id === 999)).toBe(true)
-    expect(screen.queryByText('No runs found')).not.toBeInTheDocument()
+    expect(drawerProps().run?.id).toBe(999)
   })
 
   it('does not duplicate a selected run already present in history', () => {
@@ -155,54 +211,44 @@ describe('GlobalSchedules run history', () => {
     renderGlobalSchedules()
 
     expect(mocks.useAllScheduleRuns).toHaveBeenCalledWith({ limit: 1, runId: 5 }, false)
-    const props = runHistoryProps()
+    const props = runsTableProps()
     expect(props.runs.filter((run) => run.id === 5)).toHaveLength(1)
   })
 
-  it('shows loading instead of no runs while the selected run lookup is pending', () => {
+  it('reports loading through the drawer while the selected run lookup is pending', () => {
     selectedRunResult = { data: undefined, isLoading: true, isError: false }
     mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'runs', runId: 999 }))
 
-    const { container } = renderGlobalSchedules()
+    renderGlobalSchedules()
 
-    expect(screen.queryByText('No runs found')).not.toBeInTheDocument()
-    expect(container.querySelector('.animate-spin')).not.toBeNull()
-    expect(mocks.RunHistoryCards).not.toHaveBeenCalled()
+    expect(drawerProps().runLoading).toBe(true)
+    expect(drawerProps().run).toBeNull()
+    expect(mocks.ScheduleRunsTable).toHaveBeenCalled()
   })
 
-  it('shows run not found when the selected run lookup returns empty', () => {
+  it('reports not found through the drawer when the selected run lookup returns empty', () => {
     selectedRunResult = { data: [], isLoading: false, isError: false }
-    const selectRun = vi.fn()
-    mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'runs', runId: 999, selectRun }))
+    mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'runs', runId: 999 }))
 
     renderGlobalSchedules()
 
-    expect(screen.getByText('Run not found')).toBeInTheDocument()
-    expect(screen.queryByText('No runs found')).not.toBeInTheDocument()
-    expect(mocks.RunHistoryCards).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back to run history' }))
-
-    expect(selectRun).toHaveBeenCalledWith(null)
+    expect(drawerProps().run).toBeNull()
+    expect(drawerProps().runLoading).toBe(false)
+    expect(drawerProps().runError).toBe(false)
+    expect(mocks.ScheduleRunsTable).toHaveBeenCalled()
   })
 
-  it('shows an error with retry and back actions when the selected run lookup fails', () => {
+  it('reports an error with a retry through the drawer when the lookup fails', () => {
     const refetch = vi.fn()
     selectedRunResult = { data: undefined, isLoading: false, isError: true, refetch }
-    const selectRun = vi.fn()
-    mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'runs', runId: 999, selectRun }))
+    mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'runs', runId: 999 }))
 
     renderGlobalSchedules()
 
-    expect(screen.getByText('Failed to load run')).toBeInTheDocument()
-    expect(screen.queryByText('No runs found')).not.toBeInTheDocument()
-    expect(mocks.RunHistoryCards).not.toHaveBeenCalled()
+    expect(drawerProps().runError).toBe(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    drawerProps().onRetry?.()
     expect(refetch).toHaveBeenCalledTimes(1)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back to run history' }))
-    expect(selectRun).toHaveBeenCalledWith(null)
   })
 
   it('renders the cached selected run when a background refetch fails', () => {
@@ -211,10 +257,9 @@ describe('GlobalSchedules run history', () => {
 
     renderGlobalSchedules()
 
-    expect(screen.queryByText('Failed to load run')).not.toBeInTheDocument()
-    expect(screen.queryByText('Run not found')).not.toBeInTheDocument()
-    expect(mocks.RunHistoryCards).toHaveBeenCalled()
-    const props = runHistoryProps()
+    expect(drawerProps().runError).toBe(false)
+    expect(drawerProps().run?.id).toBe(999)
+    const props = runsTableProps()
     expect(props.selectedRunId).toBe(999)
     expect(props.runs.filter((run) => run.id === 999)).toHaveLength(1)
   })
@@ -238,7 +283,7 @@ describe('GlobalSchedules run history', () => {
     )
 
     expect(mocks.useAllScheduleRuns).toHaveBeenCalledWith({ limit: 1, runId: 1000 }, true)
-    expect(runHistoryProps().runs.some((run) => run.id === 1000)).toBe(true)
+    expect(runsTableProps().runs.some((run) => run.id === 1000)).toBe(true)
   })
 
   it('ignores cached selected run data when the selection is cleared', () => {
@@ -248,9 +293,9 @@ describe('GlobalSchedules run history', () => {
 
     const { rerender } = renderGlobalSchedules()
 
-    expect(runHistoryProps().runs.some((run) => run.id === 999)).toBe(true)
+    expect(runsTableProps().runs.some((run) => run.id === 999)).toBe(true)
 
-    mocks.RunHistoryCards.mockClear()
+    mocks.ScheduleRunsTable.mockClear()
     mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'runs', runId: null }))
 
     rerender(
@@ -259,15 +304,39 @@ describe('GlobalSchedules run history', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByText('No runs found')).toBeInTheDocument()
-    expect(mocks.RunHistoryCards).not.toHaveBeenCalled()
+    expect(drawerProps().open).toBe(false)
+    expect(runsTableProps().runs.some((run) => run.id === 999)).toBe(false)
   })
 
-  it('does not query the selected run when the runs tab is inactive', () => {
+  it('queries the selected run on the jobs tab as well', () => {
     mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'jobs', runId: 999 }))
 
     renderGlobalSchedules()
 
-    expect(mocks.useAllScheduleRuns).toHaveBeenCalledWith({ limit: 1, runId: 999 }, false)
+    expect(mocks.useAllScheduleRuns).toHaveBeenCalledWith({ limit: 1, runId: 999 }, true)
+  })
+
+  it('opens the report drawer from a job row that has a last run', () => {
+    const selectRun = vi.fn()
+    mocks.useAllSchedules.mockReturnValue({
+      data: [makeJob({ lastRun: { id: 5, status: 'completed', startedAt: 0, finishedAt: 1, viewedAt: 1, preview: null } })],
+      isLoading: false,
+      error: null,
+    })
+    mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'jobs', runId: null, selectRun }))
+
+    renderGlobalSchedules()
+
+    jobsTableProps().onOpen(makeJob({ lastRun: { id: 5 } }))
+
+    expect(selectRun).toHaveBeenCalledWith(5)
+  })
+
+  it('keeps the jobs tab visible with the empty state when there are no jobs', () => {
+    mocks.useScheduleUrlState.mockReturnValue(createMockScheduleUrlState({ scheduleTab: 'jobs', runId: null }))
+
+    renderGlobalSchedules()
+
+    expect(screen.getByText('No schedules yet')).toBeInTheDocument()
   })
 })

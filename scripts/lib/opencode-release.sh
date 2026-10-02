@@ -23,6 +23,10 @@ version_gte() {
   printf '%s\n%s\n' "$2" "$1" | sort -V -C
 }
 
+parse_opencode_version_output() {
+  printf '%s\n' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^[:space:]]*' | head -1 || true
+}
+
 is_supported_opencode_version() {
   local version="$1"
   is_stable_opencode_version "$version" || return 1

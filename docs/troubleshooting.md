@@ -129,8 +129,14 @@ ADMIN_PASSWORD=new-password
 ADMIN_PASSWORD_RESET=true
 ```
 
-2. Restart container
-3. Remove `ADMIN_PASSWORD_RESET=true` after reset
+2. Recreate the container so it picks up the new environment variables:
+```bash
+docker compose up -d --force-recreate app
+```
+3. Remove `ADMIN_PASSWORD_RESET=true` and recreate the container again:
+```bash
+docker compose up -d --force-recreate app
+```
 
 ## Git Issues
 
@@ -235,12 +241,19 @@ docker-compose restart
 
 **Solutions:**
 
-1. Stop container
-2. Backup database:
+1. Stop the container without removing it:
 ```bash
-cp ./data/opencode.db ./data/opencode.db.bak
+docker compose stop app
 ```
-3. Restart container
+2. Back up the data directory from the stopped container (`DATABASE_PATH=/app/data/opencode.db` in Compose), including any SQLite WAL/SHM sidecar files:
+```bash
+mkdir -p ./opencode-data-backup
+docker cp opencode-manager:/app/data/. ./opencode-data-backup/
+```
+3. Start the container again:
+```bash
+docker compose start app
+```
 
 ## Mobile Issues
 
