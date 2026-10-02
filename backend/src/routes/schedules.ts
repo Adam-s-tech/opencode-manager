@@ -66,10 +66,41 @@ export function createScheduleRoutes(scheduleService: ScheduleService) {
       })() : undefined
       const triggerSource = c.req.query('triggerSource') || undefined
       const runId = parseRunIdFilter(c.req.query('runId'))
-      const runs = scheduleService.listAllRuns({ limit, offset, status, repoId, jobId, triggerSource, runId })
+      const search = c.req.query('search')?.slice(0, 200) || undefined
+      const runs = scheduleService.listAllRuns({ limit, offset, status, repoId, jobId, triggerSource, runId, search })
       return c.json({ runs })
     } catch (error) {
       return handleServiceError(c, error, 'Failed to list all schedule runs', ScheduleServiceError)
+    }
+  })
+
+  app.get('/all/runs/unread', (c) => {
+    try {
+      const limit = parseRunListLimit(c.req.query('limit'))
+      const runs = scheduleService.listUnreadRuns(limit)
+      const counts = scheduleService.countUnreadRuns()
+      return c.json({ runs, total: counts.total, failed: counts.failed })
+    } catch (error) {
+      return handleServiceError(c, error, 'Failed to list unread schedule runs', ScheduleServiceError)
+    }
+  })
+
+  app.post('/all/runs/viewed', (c) => {
+    try {
+      const updated = scheduleService.markAllRunsViewed()
+      return c.json({ updated })
+    } catch (error) {
+      return handleServiceError(c, error, 'Failed to mark schedule runs viewed', ScheduleServiceError)
+    }
+  })
+
+  app.post('/all/runs/:runId/viewed', (c) => {
+    try {
+      const runId = parseId(c.req.param('runId'), 'run id', ScheduleServiceError)
+      const updated = scheduleService.markRunViewed(runId)
+      return c.json({ updated })
+    } catch (error) {
+      return handleServiceError(c, error, 'Failed to mark schedule run viewed', ScheduleServiceError)
     }
   })
 

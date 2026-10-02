@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useDesktop } from '@/hooks/useDesktop'
 import { useSidebarCollapsed, useSidebarSections } from '@/hooks/useSidebarCollapsed'
-import { emitSidebarAction } from '@/hooks/useSidebarAction'
 import { useAuth } from '@/hooks/useAuth'
 import { useUrlParams } from '@/hooks/useUrlParams'
 import { buildNavModel, type MoreDrawerItem, type NavPrimaryCta } from '@/components/navigation/moreDrawerItems'
@@ -39,15 +38,6 @@ export function DesktopSidebar() {
   }
 
   const { primary, items } = buildNavModel(location.pathname)
-  const desktopPrimary = primary.filter((item) => item.key !== 'new-repo')
-
-  const handlePrimaryClick = (item: NavPrimaryCta) => {
-    if (item.to) {
-      navigate(item.to)
-    } else if (item.onSelect) {
-      emitSidebarAction(item.onSelect)
-    }
-  }
 
   const handleItemClick = (item: MoreDrawerItem) => {
     if (item.to) {
@@ -85,15 +75,15 @@ export function DesktopSidebar() {
   return (
     <>
       <Sidebar collapsed={collapsed} onToggle={toggle} widthClass='w-72' className='mt-2'>
-        {desktopPrimary.length > 0 && (
+        {primary.length > 0 && (
           <SidebarSection collapsed={collapsed}>
-            {desktopPrimary.map((item: NavPrimaryCta) => (
+            {primary.map((item: NavPrimaryCta) => (
               <SidebarItem
                 key={item.key}
                 icon={item.icon}
                 label={item.label}
                 collapsed={collapsed}
-                onClick={() => handlePrimaryClick(item)}
+                onClick={() => navigate(item.to)}
                 asPrimary
                 variant={item.variant}
               />

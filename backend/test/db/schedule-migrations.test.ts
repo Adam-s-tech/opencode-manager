@@ -5,6 +5,7 @@ import migration008 from '../../src/db/migrations/008-schedule-cron-support'
 import migration015 from '../../src/db/migrations/015-schedule-worktree-isolation'
 import migration021 from '../../src/db/migrations/021-drop-schedule-run-workspace-id'
 import migration022 from '../../src/db/migrations/022-schedule-runs-session-index'
+import migration024 from '../../src/db/migrations/024-schedule-runs-viewed-at'
 
 describe('schedule migrations', () => {
   it('creates schedule jobs with nullable interval minutes in v7', () => {
@@ -233,6 +234,56 @@ describe('migration 022 - schedule run session index', () => {
 
     const indexes = (db.prepare('PRAGMA index_list(schedule_runs)').all() as { name: string }[]).map((index) => index.name)
     expect(indexes).not.toContain('idx_schedule_runs_session')
+
+    db.close()
+  })
+})
+
+describe('migration 024 - schedule runs viewed at', () => {
+  it('adds viewed_at, backfills finished runs, and creates the unread index', () => {
+    const db = new Database(':memory:')
+    db.run('CREATE TABLE schedule_runs (id INTEGER PRIMARY KEY, status TEXT NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER)')
+    db.run("INSERT INTO schedule_runs (id, status, started_at, finished_at) VALUES (1, 'completed', 100, 200)")
+    db.run("INSERT INTO schedule_runs (id, status, started_at, finished_at) VALUES (2, 'failed', 300, 400)")
+    db.run("INSERT INTO schedule_runs (id, status, started_at, finished_at) VALUES (3, 'running', 500, NULL)")
+    db.run("INSERT INTO schedule_runs (id, status, started_at, finished_at) VALUES (4, 'completed', 600, NULL)")
+
+    migration024.up(db)
+
+    const columns = (db.prepare('PRAGMA table_info(schedule_runs)').all() as { name: string }[]).map((column) => column.name)
+    expect(columns).toContain('viewed_at')
+
+    const rows = db.prepare('SELECT id, viewed_at FROM schedule_runs ORDER BY id').all() as { id: number; viewed_at: number | null }[]
+    expect(rows).toEqual([
+      { id: 1, viewed_at: 200 },
+      { id: 2, viewed_at: 400 },
+      { id: 3, viewed_at: null },
+      { id: 4, viewed_at: 600 },
+    ])
+
+    const indexes = (db.prepare('PRAGMA index_list(schedule_runs)').all() as { name: string }[]).map((index) => index.name)
+    expect(indexes).toContain('idx_schedule_runs_unread')
+
+    db.close()
+  })
+
+  it('is idempotent and drops the index and column on rollback', () => {
+    const db = new Database(':memory:')
+    db.run('CREATE TABLE schedule_runs (id INTEGER PRIMARY KEY, status TEXT NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER)')
+    db.run("INSERT INTO schedule_runs (id, status, started_at, finished_at) VALUES (1, 'completed', 100, 200)")
+
+    migration024.up(db)
+    migration024.up(db)
+
+    const columns = (db.prepare('PRAGMA table_info(schedule_runs)').all() as { name: string }[]).map((column) => column.name)
+    expect(columns).toContain('viewed_at')
+
+    migration024.down(db)
+
+    const droppedColumns = (db.prepare('PRAGMA table_info(schedule_runs)').all() as { name: string }[]).map((column) => column.name)
+    expect(droppedColumns).not.toContain('viewed_at')
+    const indexes = (db.prepare('PRAGMA index_list(schedule_runs)').all() as { name: string }[]).map((index) => index.name)
+    expect(indexes).not.toContain('idx_schedule_runs_unread')
 
     db.close()
   })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { getRepo } from '@/api/repos'
 import { getWorkspaceFilePath } from '@/lib/markdownLinks'
 import { getSessionPath } from '@/lib/navigation'
 import { getRepoDisplayName } from '@/lib/utils'
+import { useMarkScheduleRunViewed } from '@/hooks/useSchedules'
 import { Loader2 } from 'lucide-react'
 import type { ScheduleRun } from '@opencode-manager/shared/types'
 
@@ -27,6 +28,21 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
     queryKey: ['repo', repoId],
     queryFn: () => getRepo(repoId),
   })
+  const markRunViewed = useMarkScheduleRunViewed()
+  const viewedRunIdRef = useRef<number | null>(null)
+
+  const activeRunId = activeRun?.id ?? null
+  const activeRunStatus = activeRun?.status ?? null
+  const activeRunViewedAt = activeRun?.viewedAt ?? null
+
+  useEffect(() => {
+    if (activeRunId === null) return
+    if (activeRunStatus !== 'completed' && activeRunStatus !== 'failed') return
+    if (activeRunViewedAt !== null) return
+    if (viewedRunIdRef.current === activeRunId) return
+    viewedRunIdRef.current = activeRunId
+    markRunViewed.mutate(activeRunId)
+  }, [activeRunId, activeRunStatus, activeRunViewedAt, markRunViewed])
 
   const handleOpenLocalPath = (linkPath: string) => {
     if (!repo) return
@@ -54,30 +70,26 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
   return (
     <>
       <Tabs key={`${activeRun.id}-${String(activeRun.responseText ? 'response' : activeRun.errorText ? 'error' : 'log')}`} defaultValue={activeRun.responseText ? 'response' : activeRun.errorText ? 'error' : 'log'} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex items-center justify-center gap-2 px-2 py-1.5">
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3">
           <TabsList className="h-auto gap-0 rounded-none border-0 bg-transparent p-0">
-            <TabsTrigger value="log" className="rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Log</TabsTrigger>
-            <TabsTrigger value="response" disabled={!activeRun.responseText} className="rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Assistant Output</TabsTrigger>
-            <TabsTrigger value="error" disabled={!activeRun.errorText} className="rounded-none border-b-2 border-transparent px-3 py-1.5 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">{activeRun.status === 'cancelled' ? 'Details' : 'Error'}</TabsTrigger>
+            <TabsTrigger value="log" className="rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Log</TabsTrigger>
+            <TabsTrigger value="response" disabled={!activeRun.responseText} className="rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Assistant Output</TabsTrigger>
+            <TabsTrigger value="error" disabled={!activeRun.errorText} className="rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">{activeRun.status === 'cancelled' ? 'Details' : 'Error'}</TabsTrigger>
           </TabsList>
-        </div>
-        {(activeRun.status === 'running' || activeRun.sessionId) && (
-          <div className="flex items-center justify-between gap-2 px-3 py-2">
-            <div className="flex items-center gap-2">
-              {sessionId && (
-                <Button variant="outline" size="sm" onClick={() => navigate(getSessionPath(repoId, sessionId))}>
-                  Open session
-                </Button>
-              )}
-            </div>
+          <div className="flex items-center gap-2 py-1">
+            {sessionId && (
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => navigate(getSessionPath(repoId, sessionId))}>
+                Open session
+              </Button>
+            )}
             {activeRun.status === 'running' && (
-              <Button variant="outline" size="sm" onClick={onCancelRun} disabled={cancelRunPending}>
-                {cancelRunPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onCancelRun} disabled={cancelRunPending}>
+                {cancelRunPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                 Cancel run
               </Button>
             )}
           </div>
-        )}
+        </div>
         <TabsContent value="log" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 xl:[mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
           {selectedRunLoading && !activeRun ? (
             <div className="flex items-center justify-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

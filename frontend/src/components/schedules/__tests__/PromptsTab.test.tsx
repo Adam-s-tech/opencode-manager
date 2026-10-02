@@ -73,6 +73,22 @@ describe('PromptsTab', () => {
     vi.unstubAllGlobals()
   })
 
+  it('filters templates by search and shows an empty match state', async () => {
+    const user = userEvent.setup()
+    render(<PromptsTab {...createProps()} />, { wrapper: createWrapper() })
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search prompts' }), 'health')
+    expect(screen.getByText('Weekly Health Report')).toBeInTheDocument()
+
+    await user.clear(screen.getByRole('searchbox', { name: 'Search prompts' }))
+    await user.type(screen.getByRole('searchbox', { name: 'Search prompts' }), 'nothing here')
+    expect(screen.queryByText('Weekly Health Report')).not.toBeInTheDocument()
+    expect(screen.getByText('No matching templates')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(screen.getByText('Weekly Health Report')).toBeInTheDocument()
+  })
+
   it('renders the sample template title', () => {
     render(<PromptsTab {...createProps()} />, { wrapper: createWrapper() })
     expect(screen.getByText('Weekly Health Report')).toBeInTheDocument()
@@ -88,16 +104,13 @@ describe('PromptsTab', () => {
     expect(onNew).toHaveBeenCalledTimes(1)
   })
 
-  it('calls onDelete when the delete button on a template card is clicked', async () => {
+  it('calls onDelete from the row actions menu', async () => {
     const user = userEvent.setup()
     const onDelete = vi.fn()
-    const { container } = render(<PromptsTab {...createProps({ onDelete })} />, {
-      wrapper: createWrapper(),
-    })
+    render(<PromptsTab {...createProps({ onDelete })} />, { wrapper: createWrapper() })
 
-    const deleteButton = container.querySelector('.lucide-trash2')?.closest('button')
-    expect(deleteButton).toBeTruthy()
-    await user.click(deleteButton!)
+    await user.click(screen.getByRole('button', { name: 'More actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }))
     expect(onDelete).toHaveBeenCalledWith(sampleTemplate.id)
   })
 
@@ -117,16 +130,12 @@ describe('PromptsTab', () => {
     expect(mocks.deleteMutate).toHaveBeenCalledWith(sampleTemplate.id, expect.any(Object))
   })
 
-  it('calls onEdit when the edit button on a template card is clicked', async () => {
+  it('calls onEdit when a template row is clicked', async () => {
     const user = userEvent.setup()
     const onEdit = vi.fn()
-    const { container } = render(<PromptsTab {...createProps({ onEdit })} />, {
-      wrapper: createWrapper(),
-    })
+    render(<PromptsTab {...createProps({ onEdit })} />, { wrapper: createWrapper() })
 
-    const editButton = container.querySelector('.lucide-pencil')?.closest('button')
-    expect(editButton).toBeTruthy()
-    await user.click(editButton!)
+    await user.click(screen.getByText('Weekly Health Report'))
     expect(onEdit).toHaveBeenCalledWith(sampleTemplate.id)
   })
 

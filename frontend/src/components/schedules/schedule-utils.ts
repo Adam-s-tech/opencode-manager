@@ -263,7 +263,7 @@ export function formatScheduleSummary(job: ScheduleJob): string {
 
 export function formatScheduleShortLabel(job: ScheduleJob): string {
   if (job.scheduleMode === 'cron') {
-    return 'Cron schedule'
+    return formatCronHumanText(job.cronExpression) ?? 'Custom cron'
   }
 
   return formatIntervalLabel(job.intervalMinutes)
@@ -321,20 +321,15 @@ export function formatTimestamp(value: number | null): string {
   return `${new Date(value).toLocaleString()} (${formatDistanceToNow(value, { addSuffix: true })})`
 }
 
-export function getRunTone(run: ScheduleRun): string {
-  if (run.status === 'completed') {
-    return 'bg-success/15 text-success border-success/30'
-  }
+export function formatRunDuration(run: Pick<ScheduleRun, 'startedAt' | 'finishedAt'>, now: number = Date.now()): string {
+  const totalSeconds = Math.max(0, Math.round(((run.finishedAt ?? now) - run.startedAt) / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
 
-  if (run.status === 'failed') {
-    return 'bg-destructive/15 text-destructive border-destructive/30'
-  }
-
-  if (run.status === 'cancelled') {
-    return 'bg-muted text-muted-foreground border-border'
-  }
-
-  return 'bg-warning/15 text-warning border-warning/30'
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
 }
 
 export function getJobStatusTone(job: ScheduleJob): string {
@@ -349,4 +344,10 @@ export function hasSkillMetadata(job?: ScheduleJob | null): boolean {
   }
 
   return job.skillMetadata.skillSlugs.length > 0 || Boolean(job.skillMetadata.notes?.trim())
+}
+
+export function matchesScheduleJobSearch(job: ScheduleJob & { repoName?: string }, searchTerm: string): boolean {
+  const term = searchTerm.trim().toLowerCase()
+  if (!term) return true
+  return [job.name, job.description, job.repoName].some((field) => field?.toLowerCase().includes(term))
 }

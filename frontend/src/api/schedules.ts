@@ -4,19 +4,40 @@ import type {
   CreateScheduleJobRequest,
   ScheduleJob,
   ScheduleRun,
+  ScheduleRunStatus,
   UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
+
+export interface ScheduleRunSummary {
+  id: number
+  status: ScheduleRunStatus
+  startedAt: number
+  finishedAt: number | null
+  viewedAt: number | null
+  preview: string | null
+}
 
 export interface ScheduleJobWithRepo extends ScheduleJob {
   repoName: string
   repoPath: string
   repoUrl: string
+  lastRun: ScheduleRunSummary | null
 }
 
 export interface ScheduleRunWithContext extends ScheduleRun {
   jobName: string
   repoName: string
   repoPath: string
+}
+
+export interface UnreadScheduleRun extends ScheduleRunWithContext {
+  preview: string | null
+}
+
+export interface UnreadScheduleRunsResponse {
+  runs: UnreadScheduleRun[]
+  total: number
+  failed: number
 }
 
 export interface ListAllRunsParams {
@@ -27,6 +48,7 @@ export interface ListAllRunsParams {
   jobId?: number
   triggerSource?: string
   runId?: number
+  search?: string
 }
 
 export interface ScheduleCount {
@@ -47,12 +69,25 @@ export async function listAllScheduleRuns(params: ListAllRunsParams = {}): Promi
   if (params.jobId !== undefined) searchParams.set('jobId', String(params.jobId))
   if (params.triggerSource) searchParams.set('triggerSource', params.triggerSource)
   if (params.runId !== undefined) searchParams.set('runId', String(params.runId))
+  if (params.search) searchParams.set('search', params.search)
   const qs = searchParams.toString()
   return fetchWrapper(`${API_BASE_URL}/api/schedules/all/runs${qs ? `?${qs}` : ''}`)
 }
 
-export async function listRepoSchedules(repoId: number): Promise<{ jobs: ScheduleJob[] }> {
-  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules`)
+export async function listUnreadScheduleRuns(limit: number = 20): Promise<UnreadScheduleRunsResponse> {
+  return fetchWrapper(`${API_BASE_URL}/api/schedules/all/runs/unread?limit=${limit}`)
+}
+
+export async function markScheduleRunViewed(runId: number): Promise<{ updated: boolean }> {
+  return fetchWrapper(`${API_BASE_URL}/api/schedules/all/runs/${runId}/viewed`, {
+    method: 'POST',
+  })
+}
+
+export async function markAllScheduleRunsViewed(): Promise<{ updated: number }> {
+  return fetchWrapper(`${API_BASE_URL}/api/schedules/all/runs/viewed`, {
+    method: 'POST',
+  })
 }
 
 export async function getScheduleCounts(): Promise<Map<number, ScheduleCount>> {

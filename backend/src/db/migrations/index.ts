@@ -22,6 +22,7 @@ import migration020 from './020-drop-opencode-model-state'
 import migration021 from './021-drop-schedule-run-workspace-id'
 import migration022 from './022-schedule-runs-session-index'
 import migration023 from './023-schedule-mcp-servers'
+import migration024 from './024-schedule-runs-viewed-at'
 
 export const allMigrations: Migration[] = [
   migration001,
@@ -47,4 +48,5 @@ export const allMigrations: Migration[] = [
   migration021,
   migration022,
   migration023,
+  migration024,
 ]
