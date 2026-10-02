@@ -102,7 +102,7 @@ export function GlobalSchedules() {
   useEffect(() => {
     if (scheduleTab !== 'runs' && runId === null) return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'u') return
+      if (event.key !== 'u' || event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
       event.preventDefault()

@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent } from 'react'
+import type { MouseEvent } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { Loader2, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -97,14 +97,6 @@ export function ScheduleJobsTable({
     action?.(job)
   }
 
-  const handleKeyDown = (job: ScheduleJobWithRepo) => (event: KeyboardEvent<HTMLTableRowElement>) => {
-    if (event.target !== event.currentTarget) return
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onOpen(job)
-    }
-  }
-
   return (
     <table className="w-full text-sm">
       <thead className="sticky top-0 z-10 whitespace-nowrap bg-background text-xs uppercase text-muted-foreground">
@@ -162,9 +154,7 @@ export function ScheduleJobsTable({
           return (
             <tr
               key={job.id}
-              tabIndex={0}
               onClick={() => onOpen(job)}
-              onKeyDown={handleKeyDown(job)}
               className={cn(
                 'cursor-pointer transition-colors hover:bg-accent/40',
                 isPaused && 'opacity-60',
@@ -179,7 +169,17 @@ export function ScheduleJobsTable({
               </td>
               <td className="px-3 py-2.5">
                 <div className="flex min-w-0 flex-col">
-                  <span className="max-w-[11rem] truncate font-medium sm:max-w-[20rem]">{job.name}</span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onOpen(job)
+                    }}
+                    aria-label={`Open ${job.name}`}
+                    className="max-w-[11rem] truncate font-medium sm:max-w-[20rem] rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  >
+                    {job.name}
+                  </button>
                   {job.description && <span className="max-w-[11rem] truncate text-xs text-muted-foreground sm:max-w-[20rem]">{job.description}</span>}
                   <span className="max-w-[11rem] truncate text-xs text-muted-foreground sm:hidden" title={scheduleTitle}>{mobileDetail}</span>
                   <span className="mt-0.5 text-xs sm:hidden">

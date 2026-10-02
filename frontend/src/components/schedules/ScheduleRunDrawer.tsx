@@ -42,7 +42,6 @@ export function ScheduleRunDrawer({
   const title = run ? getRunTitle(run) : 'Run'
   const repoName = run ? getRunRepoName(run) : null
   const branch = activeRun ? formatRunBranch(activeRun) : null
-  const startedAt = activeRun ? activeRun.finishedAt ?? activeRun.startedAt : null
 
   const meta = activeRun ? (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -51,11 +50,9 @@ export function ScheduleRunDrawer({
         <span>{getRunStatusLabel(activeRun.status)}</span>
       </span>
       {repoName && <span className="truncate">{repoName}</span>}
-      {startedAt !== null && (
-        <span title={new Date(startedAt).toLocaleString()}>
-          {activeRun.status === 'running' ? 'Running' : formatDistanceToNow(startedAt, { addSuffix: true })}
-        </span>
-      )}
+      <span title={new Date(activeRun.startedAt).toLocaleString()}>
+        {activeRun.status === 'running' ? 'Running' : formatDistanceToNow(activeRun.startedAt, { addSuffix: true })}
+      </span>
       <span className="tabular-nums">{formatRunDuration(activeRun)}</span>
       {branch && <span className="truncate font-mono">{branch}</span>}
     </div>

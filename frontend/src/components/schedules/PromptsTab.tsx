@@ -145,20 +145,22 @@ export function PromptsTab({ promptDialog, templateId, onNew, onEdit, onDelete, 
                 {visibleTemplates.map((template) => (
                   <tr
                     key={template.id}
-                    tabIndex={0}
                     onClick={() => onEdit(template.id)}
-                    onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) return
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        onEdit(template.id)
-                      }
-                    }}
                     className="cursor-pointer transition-colors hover:bg-accent/40"
                   >
                     <td className="px-3 py-2.5">
                       <div className="flex min-w-0 flex-col">
-                        <span className="max-w-[32rem] truncate font-medium">{template.title}</span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onEdit(template.id)
+                          }}
+                          aria-label={`Edit ${template.title}`}
+                          className="max-w-[32rem] truncate font-medium rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                        >
+                          {template.title}
+                        </button>
                         {template.description && (
                           <span className="max-w-[32rem] truncate text-xs text-muted-foreground">{template.description}</span>
                         )}

@@ -57,7 +57,7 @@ export function RunHistoryTab({
     formatRunBranch(run),
     run.errorText,
   ].some((field) => field?.toLowerCase().includes(searchTerm)))
-  const activeRun = runId !== null ? runList.find((run) => run.id === runId) ?? null : null
+  const activeRun = runId !== null ? runs?.find((run) => run.id === runId) ?? null : null
   const activeIndex = activeRun ? runList.findIndex((run) => run.id === activeRun.id) : -1
 
   return (

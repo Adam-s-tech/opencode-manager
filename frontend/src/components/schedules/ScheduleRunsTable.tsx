@@ -65,21 +65,12 @@ export function ScheduleRunsTable({
         {runs.map((run) => {
           const isUnread = run.viewedAt === null && (run.status === 'completed' || run.status === 'failed')
           const isSelected = selectedRunId === run.id
-          const startedAt = run.finishedAt ?? run.startedAt
           const repoName = getRunRepoName(run)
 
           return (
             <tr
               key={run.id}
-              tabIndex={0}
               onClick={() => onSelectRun(run.id)}
-              onKeyDown={(event) => {
-                if (event.target !== event.currentTarget) return
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  onSelectRun(run.id)
-                }
-              }}
               className={cn('cursor-pointer transition-colors hover:bg-accent/40', isSelected && 'bg-accent/30')}
             >
               <td className="px-3 py-2.5">
@@ -91,7 +82,17 @@ export function ScheduleRunsTable({
               <td className="px-3 py-2.5">
                 <div className="flex min-w-0 flex-col">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className={cn('truncate', isUnread ? 'font-semibold' : 'font-medium')}>{getRunTitle(run)}</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onSelectRun(run.id)
+                      }}
+                      aria-label={`Open run ${getRunTitle(run)}`}
+                      className={cn('truncate rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50', isUnread ? 'font-semibold' : 'font-medium')}
+                    >
+                      {getRunTitle(run)}
+                    </button>
                     {isUnread && (
                       <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">NEW</span>
                     )}
@@ -110,8 +111,8 @@ export function ScheduleRunsTable({
               )}
               <td className="hidden px-3 py-2.5 capitalize text-muted-foreground sm:table-cell">{run.triggerSource}</td>
               <td className="px-3 py-2.5">
-                <span className="text-muted-foreground" title={new Date(startedAt).toLocaleString()}>
-                  {run.status === 'running' ? 'Running' : formatDistanceToNow(startedAt, { addSuffix: true })}
+                <span className="text-muted-foreground" title={new Date(run.startedAt).toLocaleString()}>
+                  {run.status === 'running' ? 'Running' : formatDistanceToNow(run.startedAt, { addSuffix: true })}
                 </span>
               </td>
               <td className="hidden px-3 py-2.5 tabular-nums text-muted-foreground sm:table-cell">{formatRunDuration(run)}</td>
