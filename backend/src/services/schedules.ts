@@ -7,7 +7,7 @@ import {
   type ScheduleRunTriggerSource,
   type UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
-import { assistantText, mcpStatusByName, openCodeLocation, sessionIDFromEvent, type SessionMessageAssistant, type SessionMessageInfo } from '@opencode-manager/shared/opencode'
+import { mcpStatusByName, openCodeLocation, sessionIDFromEvent } from '@opencode-manager/shared/opencode'
 import { buildSchedulePermissionRuleset } from '@opencode-manager/shared/schemas'
 import { getRepoById } from '../db/queries'
 import type { ScheduleJobWithRepo } from '../db/schedules'
@@ -46,6 +46,7 @@ import {
   computeNextRunAtForJob,
 } from './schedule-config'
 import { resolveOpenCodeModel } from './opencode-models'
+import { isSessionBusy, readLatestAssistantReply, type AssistantReplyState } from './session-reply'
 import type { OpenCodeClient } from './opencode/client'
 import type { ScheduleWorktreeManager } from './schedule-worktree'
 import type { Repo } from '../types/repo'
@@ -163,26 +164,6 @@ function buildRunStartedLog(input: {
     '',
     'Run started. Waiting for assistant response...',
   ].join('\n')
-}
-
-function getAssistantMessageState(messages: SessionMessageInfo[]): {
-  responseText: string | null
-  errorText: string | null
-  completed: boolean
-} | null {
-  const assistantMessage = messages.find(
-    (message): message is SessionMessageAssistant => message.type === 'assistant',
-  )
-
-  if (!assistantMessage) {
-    return null
-  }
-
-  return {
-    responseText: assistantText(assistantMessage.content, { stripThink: true }) || null,
-    errorText: assistantMessage.error?.message ?? null,
-    completed: Boolean(assistantMessage.time.completed),
-  }
 }
 
 function getSessionErrorText(event: SSEEvent): string | null {
@@ -1184,7 +1165,7 @@ export class ScheduleService {
       return { kind: 'busy' }
     }
 
-    const assistantState = getAssistantMessageState(await this.listSessionMessages(sessionId))
+    const assistantState = await this.readAssistantReply(sessionId)
     if (assistantState?.completed || assistantState?.errorText) {
       return { kind: 'settled', responseText: assistantState.responseText, errorText: assistantState.errorText }
     }
@@ -1209,9 +1190,9 @@ export class ScheduleService {
       const signal = await sessionMonitor.nextSignal()
 
       if (signal.errorText || signal.disposed) {
-        const messages = await this.listSessionMessages(sessionId)
+        const assistantState = await this.readAssistantReply(sessionId)
         return {
-          responseText: getAssistantMessageState(messages)?.responseText ?? null,
+          responseText: assistantState?.responseText ?? null,
           errorText: signal.errorText ?? SESSION_STOPPED_ERROR,
         }
       }
@@ -1230,14 +1211,9 @@ export class ScheduleService {
     }
   }
 
-  private async listSessionMessages(sessionId: string): Promise<SessionMessageInfo[]> {
+  private async readAssistantReply(sessionId: string): Promise<AssistantReplyState | null> {
     try {
-      const response = await this.openCodeClient.api.message.list({
-        sessionID: sessionId,
-        order: 'desc',
-        limit: 20,
-      })
-      return response.data
+      return await readLatestAssistantReply(this.openCodeClient, sessionId)
     } catch (error) {
       throw new ScheduleServiceError(getErrorMessage(error) || 'Failed to fetch session messages', 502)
     }
@@ -1245,8 +1221,7 @@ export class ScheduleService {
 
   private async isSessionActive(sessionId: string): Promise<boolean> {
     try {
-      const active = await this.openCodeClient.api.session.active()
-      return sessionId in active
+      return await isSessionBusy(this.openCodeClient, sessionId)
     } catch (error) {
       throw new ScheduleServiceError(getErrorMessage(error) || 'Failed to fetch active sessions', 502)
     }
