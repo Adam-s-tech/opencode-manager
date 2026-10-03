@@ -51,7 +51,7 @@ export function JobDetailTab({
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto pb-mobile-tabbar sm:pb-0">
       <section className="overflow-hidden rounded-xl bg-card/40">
         <div className="border-b border-border/60 bg-card px-3 py-4 sm:px-6 sm:py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

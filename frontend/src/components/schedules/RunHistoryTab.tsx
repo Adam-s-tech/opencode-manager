@@ -75,7 +75,7 @@ export function RunHistoryTab({
           <span className="hidden sm:inline">Clear history</span>
         </Button>
       </ScheduleListToolbar>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-mobile-tabbar sm:pb-2">
         <div className="min-h-0 overflow-auto rounded-lg border border-border/70">
           <ScheduleRunsTable
             runs={runList}

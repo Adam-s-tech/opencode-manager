@@ -249,7 +249,7 @@ export function Schedules() {
   }
 
   return (
-    <div className="h-dvh max-h-dvh overflow-hidden bg-background flex flex-col pb-mobile-tabbar sm:pb-0">
+    <div className="h-dvh max-h-dvh overflow-hidden bg-background flex flex-col">
       <Header>
         <Header.BackButton to={backHref} />
         <div className="min-w-0 flex-1 px-3">
@@ -293,7 +293,7 @@ export function Schedules() {
             {repoScheduleTab === 'jobs' && (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <ScheduleListToolbar search={jobSearch} onSearchChange={setJobSearch} searchPlaceholder="Search jobs" />
-                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-2">
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-2 pb-mobile-tabbar sm:pb-2">
                 <div className="min-h-0 overflow-auto rounded-lg border border-border/70">
                   <ScheduleJobsTable
                     jobs={(jobs ?? []).filter((job) => matchesScheduleJobSearch(job, jobSearch))}
