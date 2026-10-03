@@ -6,6 +6,9 @@ import type { PushNotificationPayload } from "@opencode-manager/shared/types";
 import {
   NotificationEventType,
   DEFAULT_NOTIFICATION_PREFERENCES,
+  type SessionGoal,
+  type SessionGoalStatus,
+  type SessionGoalStopReason,
 } from "@opencode-manager/shared/schemas";
 import {
   getPermissionLabel,
@@ -77,6 +80,55 @@ const RUN_OUTCOME_EVENTS = new Set<string>([
   NotificationEventType.SESSION_FAILED,
 ]);
 
+const GOAL_OUTCOME_TITLES: Record<SessionGoalStatus, string> = {
+  active: "Goal active",
+  paused: "Goal paused",
+  completed: "Goal completed",
+  blocked: "Goal blocked",
+  stopped: "Goal stopped",
+};
+
+const GOAL_STOP_REASON_LABELS: Record<SessionGoalStopReason, string> = {
+  cancelled: "Cancelled",
+  user_paused: "Paused by user",
+  continuation_limit: "Continuation limit reached",
+  token_budget: "Token budget reached",
+  turn_error: "Turn failed",
+  interrupted: "Interrupted",
+  audit_failed: "Audit failed",
+  session_deleted: "Session deleted",
+};
+
+function truncateNotificationBody(rawBody: string): string {
+  return rawBody.length > MAX_BODY_LENGTH
+    ? `${rawBody.slice(0, MAX_BODY_LENGTH - 1)}…`
+    : rawBody;
+}
+
+function truncateWithEllipsis(text: string, maxLength: number): string {
+  if (maxLength <= 0) return "";
+  if (text.length <= maxLength) return text;
+  if (maxLength === 1) return "…";
+  return `${text.slice(0, maxLength - 1)}…`;
+}
+
+function buildGoalOutcomeBody(goal: SessionGoal, repoName: string | undefined): string {
+  const reason = goal.stopReason
+    ? GOAL_STOP_REASON_LABELS[goal.stopReason]
+    : goal.lastReason?.trim() || undefined;
+  const prefix = repoName ? `${repoName} · ` : "";
+  const separator = " — ";
+
+  const reasonBudget = Math.max(0, MAX_BODY_LENGTH - prefix.length - separator.length);
+  const boundedReason = reason ? truncateWithEllipsis(reason, reasonBudget) : "";
+  const suffix = boundedReason ? `${separator}${boundedReason}` : "";
+
+  const objectiveBudget = Math.max(0, MAX_BODY_LENGTH - prefix.length - suffix.length);
+  const objective = truncateWithEllipsis(goal.objective, objectiveBudget);
+
+  return truncateNotificationBody(`${prefix}${objective}${suffix}`);
+}
+
 function resolveEventSessionId(event: SSEEvent): string | undefined {
   if (event.type === NotificationEventType.FORM_CREATED) {
     return event.data.form.sessionID;
@@ -117,10 +169,7 @@ export function buildEventNotificationPayload(
   const rawBody = context.repoName
     ? `${context.repoName} · ${detail}`
     : detail;
-  const body =
-    rawBody.length > MAX_BODY_LENGTH
-      ? `${rawBody.slice(0, MAX_BODY_LENGTH - 1)}…`
-      : rawBody;
+  const body = truncateNotificationBody(rawBody);
 
   return {
     title,
@@ -359,6 +408,45 @@ export class NotificationService {
 
       if (!notifPrefs.enabled) continue;
       if (!notifPrefs.events[config.preferencesKey]) continue;
+
+      await this.sendToUser(userId, payload);
+    }
+  }
+
+  async notifyGoalOutcome(goal: SessionGoal): Promise<void> {
+    if (!this.isConfigured()) return;
+
+    const userIds = this.getAllUserIds();
+    if (userIds.length === 0) return;
+
+    const repo = goal.directory
+      ? await this.resolveRepoForDirectory(goal.directory)
+      : null;
+    const repoName = repo ? getRepoName(repo) : undefined;
+
+    const payload: PushNotificationPayload = {
+      title: GOAL_OUTCOME_TITLES[goal.status],
+      body: buildGoalOutcomeBody(goal, repoName),
+      tag: `session-goal-${goal.id}`,
+      timestamp: Date.now(),
+      renotify: true,
+      data: {
+        eventType: "session.goal.outcome",
+        sessionId: goal.sessionId,
+        directory: goal.directory,
+        repoId: repo?.id,
+        repoName,
+        url: buildNotificationUrl(repo, goal.sessionId),
+      },
+    };
+
+    for (const userId of userIds) {
+      const settings = this.settingsService.getSettings(userId);
+      const notifPrefs =
+        settings.preferences.notifications ?? DEFAULT_NOTIFICATION_PREFERENCES;
+
+      if (!notifPrefs.enabled) continue;
+      if (notifPrefs.events.goalOutcome === false) continue;
 
       await this.sendToUser(userId, payload);
     }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Database } from 'bun:sqlite'
 import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
-import { getSessionGoalById, listOpenSessionGoals } from '../../src/db/session-goals'
+import { getSessionGoalById, listOpenSessionGoals, transitionSessionGoal } from '../../src/db/session-goals'
 import { SessionGoalService, type SessionGoalServiceOptions } from '../../src/services/session-goals'
 import { SettingsService } from '../../src/services/settings'
 import type { SSEEvent } from '../../src/services/sse-aggregator'
@@ -893,5 +893,177 @@ describe('SessionGoalService audit loop', () => {
     expect(latest?.lastVerdict).toBe('continue')
     expect(fake.auditorCalls).toHaveLength(2)
     expect(fake.promptCalls).toHaveLength(1)
+  })
+})
+
+describe('SessionGoalService recovery', () => {
+  let db: Database
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    db = createTestDb()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    db.close()
+  })
+
+  it('resumes auditing a running goal on recovery and leaves a waiting goal alone', async () => {
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    const waiting = await createService(db).start({ sessionId: 'ses_wait', directory: DIRECTORY, objective: 'Later' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient()
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+
+    await restarted.recoverOpenGoals()
+    await vi.runAllTimersAsync()
+
+    expect(fake.auditorCalls).toHaveLength(1)
+    expect(fake.auditorCalls[0]?.prompt).toContain('Ship it')
+    expect(getSessionGoalById(db, waiting.id)?.turnState).toBe('waiting')
+    expect(fake.auditorCalls[0]?.prompt).not.toContain('Later')
+  })
+
+  it('leaves a running goal alone while the session is busy', async () => {
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient()
+    fake.setBusy('ses_run', true)
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+
+    await restarted.recoverOpenGoals()
+    await vi.runAllTimersAsync()
+
+    expect(fake.auditorCalls).toHaveLength(0)
+    expect(getSessionGoalById(db, running.id)?.status).toBe('active')
+  })
+
+  it('stops a running goal when its session no longer exists', async () => {
+    const outcomes: string[] = []
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient()
+    fake.setSessionMissing('ses_run', true)
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), {
+      quietMs: 0,
+      onOutcome: (goal) => outcomes.push(goal.status),
+    })
+
+    await restarted.recoverOpenGoals()
+    await vi.runAllTimersAsync()
+
+    const latest = restarted.getLatest('ses_run')
+    expect(latest?.status).toBe('stopped')
+    expect(latest?.stopReason).toBe('session_deleted')
+    expect(fake.auditorCalls).toHaveLength(0)
+    expect(outcomes).toEqual(['stopped'])
+  })
+
+  it('reports whether a session has an active goal', async () => {
+    const service = createService(db)
+    const started = await service.start({ sessionId: 'ses_1', directory: DIRECTORY, objective: 'Ship it' })
+
+    expect(service.hasActiveGoal('ses_1')).toBe(true)
+    expect(service.hasActiveGoal('ses_missing')).toBe(false)
+
+    service.pause(started.id)
+
+    expect(service.hasActiveGoal('ses_1')).toBe(false)
+  })
+
+  it('retries recovery after a transient session lookup failure without session events', async () => {
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient({ failSessionGet: true })
+    fake.setAuditorReplies(['{"verdict":"done","reason":"finished"}'])
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+
+    await restarted.recoverOpenGoals()
+    expect(fake.auditorCalls).toHaveLength(0)
+    expect(restarted.getLatest('ses_run')?.status).toBe('active')
+
+    fake.setFailSessionGet(false)
+    await vi.runAllTimersAsync()
+
+    expect(fake.auditorCalls).toHaveLength(1)
+    expect(restarted.getLatest('ses_run')?.status).toBe('completed')
+  })
+
+  it('retries recovery after a transient busy-check failure without session events', async () => {
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient()
+    fake.setAuditorReplies(['{"verdict":"done","reason":"finished"}'])
+    fake.setFailSessionActive(true)
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+
+    await restarted.recoverOpenGoals()
+    expect(fake.auditorCalls).toHaveLength(0)
+
+    fake.setFailSessionActive(false)
+    await vi.runAllTimersAsync()
+
+    expect(fake.auditorCalls).toHaveLength(1)
+    expect(restarted.getLatest('ses_run')?.status).toBe('completed')
+  })
+
+  it('stops with session_deleted when the session disappears before the recovery retry', async () => {
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient({ failSessionGet: true })
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+
+    await restarted.recoverOpenGoals()
+    fake.setFailSessionGet(false)
+    fake.setSessionMissing('ses_run', true)
+    await vi.runAllTimersAsync()
+
+    const latest = restarted.getLatest('ses_run')
+    expect(latest?.status).toBe('stopped')
+    expect(latest?.stopReason).toBe('session_deleted')
+    expect(fake.auditorCalls).toHaveLength(0)
+  })
+
+  it('does not audit a goal paused during the recovery retry delay', async () => {
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient({ failSessionGet: true })
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+
+    await restarted.recoverOpenGoals()
+    restarted.pause(running.id)
+
+    fake.setFailSessionGet(false)
+    await vi.runAllTimersAsync()
+
+    expect(restarted.getLatest('ses_run')?.status).toBe('paused')
+    expect(fake.auditorCalls).toHaveLength(0)
+  })
+
+  it('does not audit a goal cancelled during the recovery retry delay', async () => {
+    const running = await createService(db).start({ sessionId: 'ses_run', directory: DIRECTORY, objective: 'Ship it' })
+    transitionSessionGoal(db, running.id, ['active'], { turnState: 'running' })
+
+    const fake = createFakeSessionGoalClient({ failSessionGet: true })
+    const restarted = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+
+    await restarted.recoverOpenGoals()
+    restarted.cancel(running.id)
+
+    fake.setFailSessionGet(false)
+    await vi.runAllTimersAsync()
+
+    const latest = restarted.getLatest('ses_run')
+    expect(latest?.status).toBe('stopped')
+    expect(latest?.stopReason).toBe('cancelled')
+    expect(fake.auditorCalls).toHaveLength(0)
   })
 })

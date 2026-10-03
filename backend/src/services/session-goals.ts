@@ -7,7 +7,12 @@ import {
   type SessionGoalTurnState,
   type StartSessionGoalRequest,
 } from '@opencode-manager/shared/schemas'
-import { parseOpenCodeModelRef, sessionIDFromEvent, type ModelRef } from '@opencode-manager/shared/opencode'
+import {
+  isSessionNotFoundError,
+  parseOpenCodeModelRef,
+  sessionIDFromEvent,
+  type ModelRef,
+} from '@opencode-manager/shared/opencode'
 import {
   getLatestSessionGoal,
   getSessionGoalById,
@@ -33,6 +38,7 @@ import type { SSEEvent } from './sse-aggregator'
 const DEFAULT_QUIET_MS = 3000
 const BLOCKED_LIMIT = 3
 const AUDITOR_ATTEMPTS = 2
+const RECOVERY_RETRY_MS = 5000
 
 type PrerequisiteResult<T> = { ok: true; value: T } | { ok: false }
 
@@ -79,6 +85,7 @@ export function toSessionGoal(record: SessionGoalRecord): SessionGoal {
 export class SessionGoalService {
   private readonly goalBySession = new Map<string, number>()
   private readonly auditTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly auditing = new Set<number>()
   private readonly auditRequested = new Set<number>()
   private readonly auditGeneration = new Map<string, number>()
@@ -99,6 +106,76 @@ export class SessionGoalService {
     this.goalBySession.clear()
     for (const record of listOpenSessionGoals(this.db)) {
       this.goalBySession.set(record.sessionId, record.id)
+    }
+  }
+
+  async recoverOpenGoals(): Promise<void> {
+    for (const record of listOpenSessionGoals(this.db)) {
+      if (record.status !== 'active' || record.turnState !== 'running') {
+        continue
+      }
+      try {
+        await this.recoverRunningGoal(record)
+      } catch (error) {
+        logger.error(`Session goal recovery failed for goal ${record.id}:`, error)
+      }
+    }
+  }
+
+  private async recoverRunningGoal(record: SessionGoalRecord): Promise<void> {
+    const generation = this.currentAuditGeneration(record.sessionId)
+    try {
+      await this.openCodeClient.api.session.get({ sessionID: record.sessionId })
+    } catch (error) {
+      if (isSessionNotFoundError(error)) {
+        this.finishGoal(record.id, 'stopped', 'session_deleted')
+        return
+      }
+      logger.error(`Session goal recovery could not read session ${record.sessionId}:`, error)
+      this.scheduleRecoveryRetry(record.sessionId, record.id, generation)
+      return
+    }
+
+    const busy = await this.readPrerequisite(record.id, 'busy check', () =>
+      isSessionBusy(this.openCodeClient, record.sessionId),
+    )
+    if (!busy.ok) {
+      this.scheduleRecoveryRetry(record.sessionId, record.id, generation)
+      return
+    }
+    if (busy.value) {
+      return
+    }
+    this.scheduleAudit(record.sessionId, record.id, 0)
+  }
+
+  private scheduleRecoveryRetry(sessionId: string, goalId: number, generation: number): void {
+    this.clearRecoveryTimer(sessionId)
+    const timer = setTimeout(() => {
+      this.recoveryTimers.delete(sessionId)
+      void this.retryRecovery(sessionId, goalId, generation).catch((error) => {
+        logger.error(`Session goal recovery retry failed for goal ${goalId}:`, error)
+      })
+    }, RECOVERY_RETRY_MS)
+    this.recoveryTimers.set(sessionId, timer)
+  }
+
+  private async retryRecovery(sessionId: string, goalId: number, generation: number): Promise<void> {
+    const record = getSessionGoalById(this.db, goalId)
+    if (!record || record.status !== 'active' || record.turnState !== 'running') {
+      return
+    }
+    if (this.currentAuditGeneration(sessionId) !== generation) {
+      return
+    }
+    await this.recoverRunningGoal(record)
+  }
+
+  private clearRecoveryTimer(sessionId: string): void {
+    const timer = this.recoveryTimers.get(sessionId)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      this.recoveryTimers.delete(sessionId)
     }
   }
 
@@ -129,6 +206,10 @@ export class SessionGoalService {
   getLatest(sessionId: string): SessionGoal | null {
     const record = getLatestSessionGoal(this.db, sessionId)
     return record ? toSessionGoal(record) : null
+  }
+
+  hasActiveGoal(sessionId: string): boolean {
+    return getLatestSessionGoal(this.db, sessionId)?.status === 'active'
   }
 
   pause(id: number): SessionGoal {
@@ -226,6 +307,7 @@ export class SessionGoalService {
   }
 
   private scheduleAudit(sessionId: string, goalId: number, delay: number): void {
+    this.clearRecoveryTimer(sessionId)
     this.clearAuditTimer(sessionId)
     const timer = setTimeout(() => {
       this.auditTimers.delete(sessionId)
@@ -538,6 +620,9 @@ export class SessionGoalService {
     } else {
       this.goalBySession.delete(record.sessionId)
       this.clearAuditTimer(record.sessionId)
+    }
+    if (record.status !== 'active') {
+      this.clearRecoveryTimer(record.sessionId)
     }
   }
 

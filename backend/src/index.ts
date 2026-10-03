@@ -232,7 +232,13 @@ const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
 
 const notificationService = new NotificationService(db)
 const sessionPermissionModeService = new SessionPermissionModeService(db, openCodeClient, settingsServiceForSchedules)
-const sessionGoalService = new SessionGoalService(db, openCodeClient, settingsServiceForSchedules)
+const sessionGoalService = new SessionGoalService(db, openCodeClient, settingsServiceForSchedules, {
+  onOutcome: (goal) => {
+    void notificationService.notifyGoalOutcome(goal).catch((error) => {
+      logger.error('Goal outcome notification error:', error)
+    })
+  },
+})
 sessionGoalService.loadOpenGoals()
 
 sseAggregator.onEvent((directory, event) => {
@@ -247,6 +253,11 @@ sseAggregator.onEvent((directory, event) => {
 notificationService.addEventSuppressor(async (event, sessionId) => {
   if (event.type !== 'permission.asked' || !sessionId) return false
   return (await sessionPermissionModeService.getEffectiveMode(sessionId)).mode === 'auto'
+})
+
+notificationService.addEventSuppressor(async (event, sessionId) => {
+  if (event.type !== 'session.idle' || !sessionId) return false
+  return sessionGoalService.hasActiveGoal(sessionId)
 })
 
 if (ENV.VAPID.PUBLIC_KEY && ENV.VAPID.PRIVATE_KEY) {
@@ -271,6 +282,10 @@ if (ENV.VAPID.PUBLIC_KEY && ENV.VAPID.PRIVATE_KEY) {
 sseAggregator.setPendingActionsFetcher(openCodeClient)
 sseAggregator.setPasswordResolver(() => new SettingsService(db).getOpenCodeServerPassword())
 sseAggregator.start()
+
+void sessionGoalService.recoverOpenGoals().catch((error) => {
+  logger.error('Session goal recovery error:', error)
+})
 
 sseAggregator.setScheduledSessionsResolver(
   () => scheduleService.getActiveRunSessions(),

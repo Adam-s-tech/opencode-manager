@@ -5,9 +5,12 @@ import { allMigrations } from '../../src/db/migrations'
 import { createRepo } from '../../src/db/queries'
 import { createScheduleRun, updateScheduleRunMetadata } from '../../src/db/schedules'
 import { NotificationService } from '../../src/services/notification'
+import { SessionGoalService } from '../../src/services/session-goals'
 import { SettingsService } from '../../src/services/settings'
 import { sseAggregator, type SSEEvent } from '../../src/services/sse-aggregator'
 import type { PushNotificationPayload } from '@opencode-manager/shared/types'
+import type { SessionGoal } from '@opencode-manager/shared/schemas'
+import { createFakeSessionGoalClient } from '../helpers/fake-session-goal-client'
 
 const DIRECTORY = '/abs/repo'
 const USER_ID = 'user-1'
@@ -178,6 +181,157 @@ describe('NotificationService.handleSSEEvent session routing', () => {
 
     await service.handleSSEEvent(DIRECTORY, permissionAskedEvent('ses_perm'))
 
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('NotificationService goal outcomes', () => {
+  beforeEach(() => {
+    sseAggregator.shutdown()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function sessionIdleEvent(sessionID: string): SSEEvent {
+    return {
+      id: `evt_idle_${sessionID}`,
+      created: 1700000000000,
+      type: 'session.idle',
+      location: { directory: DIRECTORY },
+      data: { sessionID },
+    } as SSEEvent
+  }
+
+  const completedGoal: SessionGoal = {
+    id: 1,
+    sessionId: 'ses_goal',
+    directory: DIRECTORY,
+    objective: 'Ship the feature',
+    status: 'completed',
+    stopReason: null,
+    turnState: 'running',
+    continuationCount: 1,
+    maxContinuations: 5,
+    tokenBudget: null,
+    tokensUsed: 0,
+    consecutiveBlocked: 0,
+    lastVerdict: 'done',
+    lastReason: 'Objective achieved',
+    createdAt: 1,
+    updatedAt: 2,
+    finishedAt: 3,
+  }
+
+  it('notifies a goal outcome when the preference is unset', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.notifyGoalOutcome(completedGoal)
+
+    expect(send).toHaveBeenCalledTimes(1)
+    const payload = send.mock.calls[0]?.[1] as PushNotificationPayload
+    expect(payload.title).toBe('Goal completed')
+    expect(payload.body).toContain('Ship the feature')
+    expect(payload.body).toContain('Objective achieved')
+    expect(payload.tag).toBe('session-goal-1')
+    expect(payload.data?.eventType).toBe('session.goal.outcome')
+    expect(payload.data?.sessionId).toBe('ses_goal')
+    expect(payload.data?.url).toBe('/repos/1/sessions/ses_goal')
+  })
+
+  it('reports the stop reason instead of a stale verdict reason', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.notifyGoalOutcome({
+      ...completedGoal,
+      id: 2,
+      status: 'stopped',
+      stopReason: 'token_budget',
+      lastVerdict: 'continue',
+      lastReason: 'Keep working on the tests',
+    })
+
+    const payload = send.mock.calls[0]?.[1] as PushNotificationPayload
+    expect(payload.title).toBe('Goal stopped')
+    expect(payload.body).toContain('Token budget reached')
+    expect(payload.body).not.toContain('Keep working on the tests')
+  })
+
+  it('states the pause cause when a paused goal has no verdict reason', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.notifyGoalOutcome({
+      ...completedGoal,
+      id: 3,
+      status: 'paused',
+      stopReason: 'audit_failed',
+      lastVerdict: null,
+      lastReason: null,
+    })
+
+    const payload = send.mock.calls[0]?.[1] as PushNotificationPayload
+    expect(payload.title).toBe('Goal paused')
+    expect(payload.body).toContain('Audit failed')
+  })
+
+  it('keeps the reason visible for a long objective within the body limit', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.notifyGoalOutcome({
+      ...completedGoal,
+      id: 4,
+      objective: 'Ship the entire feature '.repeat(20),
+      status: 'stopped',
+      stopReason: 'continuation_limit',
+    })
+
+    const payload = send.mock.calls[0]?.[1] as PushNotificationPayload
+    expect(payload.body.length).toBeLessThanOrEqual(140)
+    expect(payload.body).toContain('Continuation limit reached')
+    expect(payload.body).toContain('…')
+  })
+
+  it('respects a disabled goalOutcome preference', async () => {
+    const db = new Database(':memory:')
+    const service = createService(db)
+    new SettingsService(db).updateSettings(
+      {
+        notifications: {
+          enabled: true,
+          events: { permissionAsked: true, questionAsked: true, sessionError: true, sessionIdle: true, goalOutcome: false },
+        },
+      },
+      USER_ID,
+    )
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.notifyGoalOutcome(completedGoal)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('suppresses session.idle while the session goal is active and notifies once it ends', async () => {
+    const db = new Database(':memory:')
+    const service = createService(db)
+    const fake = createFakeSessionGoalClient()
+    const goalService = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
+    service.addEventSuppressor(async (event, sessionId) => {
+      if (event.type !== 'session.idle' || !sessionId) return false
+      return goalService.hasActiveGoal(sessionId)
+    })
+    const started = await goalService.start({ sessionId: 'ses_goal', directory: DIRECTORY, objective: 'Ship it' })
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.handleSSEEvent(DIRECTORY, sessionIdleEvent('ses_goal'))
+    expect(send).not.toHaveBeenCalled()
+
+    goalService.pause(started.id)
+    await service.handleSSEEvent(DIRECTORY, sessionIdleEvent('ses_goal'))
     expect(send).toHaveBeenCalledTimes(1)
   })
 })

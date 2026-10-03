@@ -54,12 +54,14 @@ export interface FakeSessionGoalClient {
   setFailSessionGet(fail: boolean): void
   setFailSessionActive(fail: boolean): void
   setFailMessageList(fail: boolean): void
+  setSessionMissing(sessionId: string, missing: boolean): void
 }
 
 export function createFakeSessionGoalClient(options: FakeSessionGoalClientOptions = {}): FakeSessionGoalClient {
   const tokens = new Map<string, FakeSessionGoalTokens>(Object.entries(options.tokens ?? {}))
   const messages = new Map<string, SessionMessageInfo[]>(Object.entries(options.messages ?? {}))
   const busySessions = new Set<string>(options.busySessions ?? [])
+  const missingSessions = new Set<string>()
   const promptCalls: FakeSessionGoalPromptCall[] = []
   const auditorCalls: FakeSessionGoalAuditorCall[] = []
   const pendingAuditorCalls: FakeSessionGoalAuditorDeferral[] = []
@@ -78,6 +80,9 @@ export function createFakeSessionGoalClient(options: FakeSessionGoalClientOption
     api: {
       session: {
         get: async ({ sessionID }: { sessionID: string }) => {
+          if (missingSessions.has(sessionID)) {
+            throw Object.assign(new Error('Session not found'), { _tag: 'SessionNotFoundError' })
+          }
           if (sessionGetFails) {
             throw new Error('upstream unavailable')
           }
@@ -196,6 +201,13 @@ export function createFakeSessionGoalClient(options: FakeSessionGoalClientOption
     },
     setFailMessageList: (fail) => {
       messageListFails = fail
+    },
+    setSessionMissing: (sessionId, missing) => {
+      if (missing) {
+        missingSessions.add(sessionId)
+      } else {
+        missingSessions.delete(sessionId)
+      }
     },
   }
 }
