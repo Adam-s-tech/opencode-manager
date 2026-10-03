@@ -111,7 +111,7 @@ export interface SuccessResponse {
 }
 
 export type { SSHHostKeyRequest, SSHHostKeyResponse, TrustedSSHHost } from '../schemas/ssh'
-export type { GitCredential } from '../schemas/settings'
+export type { GitCredential, GitIdentity, GitIdentityProfile } from '../schemas/settings'
 export type {
   ProviderApiConfig,
   ModelConfig,

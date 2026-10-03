@@ -4,7 +4,7 @@ import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
 import { SettingsService } from '../../src/services/settings'
 import { CredentialProvider } from '../../src/services/credential-provider'
-import { createRepo, setRepoGitCredentialId, setRepoSandboxGitCredentials } from '../../src/db/queries'
+import { createRepo, setRepoGitCredentialId, setRepoGitIdentityId, setRepoSandboxGitCredentials } from '../../src/db/queries'
 import { SANDBOX_MAX_FORWARDED_GIT_CONFIGS } from '../../src/services/sandbox/shell-shim'
 import type { GitCredential } from '@opencode-manager/shared'
 
@@ -314,6 +314,67 @@ describe('CredentialProvider', () => {
       } finally {
         getSettingsSpy.mockRestore()
       }
+    })
+  })
+
+  describe('shell env', () => {
+    function createGithubRepo() {
+      return createRepo(db, {
+        repoUrl: 'https://github.com/acme/repo.git',
+        localPath: 'repo',
+        defaultBranch: 'main',
+        cloneStatus: 'ready',
+        clonedAt: Date.now(),
+      })
+    }
+
+    beforeEach(() => {
+      settingsService.updateSettings({
+        gitCredentials: [createPatCredential('github', 'github.com', 'ghp_test_token', undefined, 'github-id')],
+        gitIdentities: [{ id: 'identity-1', name: 'Alice', email: 'alice@example.com' }],
+      })
+    })
+
+    it('getShellEnv returns only the GH CLI env without an assigned identity', () => {
+      expect(provider.getShellEnv()).toEqual({ GH_TOKEN: 'ghp_test_token', GITHUB_TOKEN: 'ghp_test_token' })
+    })
+
+    it('getAssignedGitIdentityEnv returns an empty object without an assignment', () => {
+      const repo = createGithubRepo()
+      expect(provider.getAssignedGitIdentityEnv({ cwd: repo.fullPath })).toEqual({})
+    })
+
+    it('getAssignedGitIdentityEnv returns the identity env for an assigned profile', () => {
+      const repo = createGithubRepo()
+      setRepoGitIdentityId(db, repo.id, 'identity-1')
+
+      expect(provider.getAssignedGitIdentityEnv({ cwd: repo.fullPath })).toEqual({
+        GIT_AUTHOR_NAME: 'Alice',
+        GIT_AUTHOR_EMAIL: 'alice@example.com',
+        GIT_COMMITTER_NAME: 'Alice',
+        GIT_COMMITTER_EMAIL: 'alice@example.com',
+      })
+    })
+
+    it('getShellEnv merges the GH CLI env with the assigned identity env', () => {
+      const repo = createGithubRepo()
+      setRepoGitIdentityId(db, repo.id, 'identity-1')
+
+      expect(provider.getShellEnv({ cwd: repo.fullPath })).toEqual({
+        GH_TOKEN: 'ghp_test_token',
+        GITHUB_TOKEN: 'ghp_test_token',
+        GIT_AUTHOR_NAME: 'Alice',
+        GIT_AUTHOR_EMAIL: 'alice@example.com',
+        GIT_COMMITTER_NAME: 'Alice',
+        GIT_COMMITTER_EMAIL: 'alice@example.com',
+      })
+    })
+
+    it('getAssignedGitIdentityEnv ignores a dangling assigned identity', () => {
+      const repo = createGithubRepo()
+      setRepoGitIdentityId(db, repo.id, 'missing-identity')
+
+      expect(provider.getAssignedGitIdentityEnv({ cwd: repo.fullPath })).toEqual({})
     })
   })
 })

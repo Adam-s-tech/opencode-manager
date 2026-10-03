@@ -32,6 +32,8 @@ vi.mock('../../src/services/repo', () => ({
   createBranch: vi.fn(),
   deleteRepoFiles: vi.fn(),
   getSiblingRepos: vi.fn(),
+  resolveRepoOrAssistant: vi.fn(),
+  findSiblingByDirectory: vi.fn(),
 }))
 
 vi.mock('../../src/services/assistant-mode', () => ({
@@ -79,6 +81,7 @@ import type { AssistantModeStatus, Repo } from '@opencode-manager/shared/types'
 import type { OpenCodeApi } from '@opencode-manager/shared/opencode'
 import { ClientError } from '@opencode-manager/shared/opencode'
 import { getAssistantModeStatus, ensureAssistantMode, buildAssistantRepo } from '../../src/services/assistant-mode'
+import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 
 const mockGitAuthService = {
   getGitEnvironment: vi.fn().mockReturnValue({})
@@ -118,6 +121,9 @@ describe('Repo Routes', () => {
       updatedAt: Date.now(),
     })
     vi.mocked(db.getRepoGitCredentialId).mockReturnValue(null)
+    vi.mocked(repoService.resolveRepoOrAssistant).mockImplementation(
+      (_database, id) => vi.mocked(db.getRepoById)(_database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null),
+    )
   })
 
   describe('POST /:id/access', () => {

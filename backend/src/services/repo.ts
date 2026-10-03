@@ -7,7 +7,7 @@ import type { Database } from 'bun:sqlite'
 import type { Repo, CreateRepoInput } from '../types/repo'
 import { logger } from '../utils/logger'
 import { getReposPath, getScheduleWorktreesPath } from '@opencode-manager/shared/config/env'
-import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, SCP_STYLE_URL_PATTERN } from '@opencode-manager/shared/utils'
+import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, SCP_STYLE_URL_PATTERN, ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 import type { GitAuthService } from './git-auth'
 import { isGitHubHttpsUrl } from '../utils/git-auth'
 import path from 'path'
@@ -18,6 +18,7 @@ import { resolveProjectId, isGitMainCheckout } from './project-id-resolver'
 import { listRepos } from '../db/queries'
 import { listActiveScheduleRunWorktreePaths } from '../db/schedules'
 import { SettingsService } from './settings'
+import { buildAssistantRepo } from './assistant-mode'
 import type { OpenCodeClient } from './opencode/client'
 import { openCodeLocation } from '@opencode-manager/shared/opencode'
 import { canonicalPathSync, mkdirSafe } from '../utils/fs-safe'
@@ -1166,6 +1167,26 @@ export function isRepoInUse(db: Database, repoId: number): boolean {
 export async function resolveRepoProjectId(openCodeClient: OpenCodeClient, directory: string): Promise<string> {
   const { project } = await openCodeClient.api.location.get(openCodeLocation(directory))
   return project.id
+}
+
+export function resolveRepoOrAssistant(database: Database, id: number): Repo | null {
+  return getRepoById(database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null)
+}
+
+export function findSiblingByDirectory<T extends { fullPath: string }>(siblings: T[], directory: string): T | undefined {
+  const requestedDirectory = canonicalPathSync(path.resolve(directory))
+  return siblings.find((sibling) => canonicalPathSync(path.resolve(sibling.fullPath)) === requestedDirectory)
+}
+
+export async function resolveRepoWorkingDirectory(
+  repo: Repo,
+  directory: string | undefined,
+  loadSiblings: () => Promise<Array<{ fullPath: string }>>,
+): Promise<string | null> {
+  if (directory === undefined) return repo.fullPath
+  if (canonicalPathSync(path.resolve(directory)) === canonicalPathSync(path.resolve(repo.fullPath))) return repo.fullPath
+
+  return findSiblingByDirectory(await loadSiblings(), directory)?.fullPath ?? null
 }
 
 export async function getSiblingRepos(

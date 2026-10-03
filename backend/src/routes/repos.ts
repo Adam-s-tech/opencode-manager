@@ -18,13 +18,8 @@ import { createRepoGitRoutes } from './repo-git'
 import { createScheduleRoutes } from './schedules'
 import type { GitAuthService } from '../services/git-auth'
 import { ScheduleService } from '../services/schedules'
-import { ensureAssistantMode, getAssistantModeStatus, buildAssistantRepo } from '../services/assistant-mode'
-import { canonicalPathSync } from '../utils/fs-safe'
+import { ensureAssistantMode, getAssistantModeStatus } from '../services/assistant-mode'
 import path from 'path'
-
-function resolveRepo(database: Database, id: number): Repo | null {
-  return getRepoById(database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null)
-}
 
 const DeleteWorkspaceRequestSchema = z.object({
   directory: z.string().trim().min(1),
@@ -150,7 +145,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)
@@ -270,10 +265,7 @@ app.get('/', async (c) => {
       const directory = parsed.data.directory
 
       const siblings = await repoService.getSiblingRepos(database, id, gitAuthService.getGitEnvironment(), openCodeClient)
-      const requestedDirectory = canonicalPathSync(path.resolve(directory))
-      const worktree = siblings.find(
-        (sibling) => isWorktreeSibling(sibling) && canonicalPathSync(path.resolve(sibling.fullPath)) === requestedDirectory,
-      )
+      const worktree = repoService.findSiblingByDirectory(siblings.filter(isWorktreeSibling), directory)
       if (!worktree) return c.json({ error: 'Not a deletable worktree of this repo' }, 400)
 
       try {
@@ -491,7 +483,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)
@@ -509,7 +501,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)

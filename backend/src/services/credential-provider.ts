@@ -6,6 +6,7 @@ import {
   getSSHCredentialsForHost,
   createGitEnv,
   createGhCliEnv,
+  createGitIdentityEnv,
   findGitHubCredential,
   type ResolvedGitCredential,
 } from '../utils/git-auth'
@@ -14,6 +15,7 @@ import { logger } from '../utils/logger'
 import {
   getRepoByDirectory,
   getRepoGitCredentialId,
+  getRepoGitIdentityId,
   getRepoSandboxGitCredentials,
   listRepos,
 } from '../db/queries'
@@ -93,6 +95,21 @@ export class CredentialProvider {
 
   getGhCliEnv(options: CredentialResolutionOptions = {}): Record<string, string> {
     return this.getGhCliEnvForContext(this.resolveContext(options))
+  }
+
+  getShellEnv(options: CredentialResolutionOptions = {}): Record<string, string> {
+    return { ...this.getGhCliEnv(options), ...this.getAssignedGitIdentityEnv(options) }
+  }
+
+  getAssignedGitIdentityEnv(options: CredentialResolutionOptions = {}): Record<string, string> {
+    const repo = this.resolveRepo(options)
+    if (!repo) return {}
+
+    const identityId = getRepoGitIdentityId(this.database, repo.id)
+    if (!identityId) return {}
+
+    const profile = this.getPreferences().gitIdentities?.find((identity) => identity.id === identityId)
+    return profile ? createGitIdentityEnv(profile) : {}
   }
 
   private resolveContext(options: CredentialResolutionOptions, repo = this.resolveRepo(options)): CredentialResolutionContext {

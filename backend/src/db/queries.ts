@@ -23,6 +23,8 @@ interface RepoRow {
 
 const REPO_GIT_CREDENTIAL_SETTING_KEY = 'gitCredentialId'
 
+const REPO_GIT_IDENTITY_SETTING_KEY = 'gitIdentityId'
+
 const REPO_SANDBOX_GIT_CREDENTIALS_SETTING_KEY = 'sandboxGitCredentials'
 
 function rowToRepo(row: RepoRow): Repo {
@@ -80,6 +82,14 @@ export function getRepoGitCredentialId(db: Database, repoId: number): string | n
 
 export function setRepoGitCredentialId(db: Database, repoId: number, credentialId: string | null): void {
   setRepoSetting(db, repoId, REPO_GIT_CREDENTIAL_SETTING_KEY, credentialId)
+}
+
+export function getRepoGitIdentityId(db: Database, repoId: number): string | null {
+  return getRepoSetting(db, repoId, REPO_GIT_IDENTITY_SETTING_KEY)
+}
+
+export function setRepoGitIdentityId(db: Database, repoId: number, identityId: string | null): void {
+  setRepoSetting(db, repoId, REPO_GIT_IDENTITY_SETTING_KEY, identityId)
 }
 
 export function getRepoSandboxGitCredentials(db: Database, repoId: number): boolean | null {
