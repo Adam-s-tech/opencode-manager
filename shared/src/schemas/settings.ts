@@ -145,13 +145,17 @@ export const DEFAULT_SANDBOX_PREFERENCES: SandboxPreferences = {
 
 export const SessionDefaultsSchema = z.object({
   permissionMode: SessionPermissionModeSchema,
+  goalMaxContinuations: z.number().int().min(1).max(200).optional(),
+  goalTokenBudget: z.number().int().positive().optional(),
+  goalAuditorModel: z.string().optional(),
 });
 
 export type SessionDefaults = z.infer<typeof SessionDefaultsSchema>;
 
-export const DEFAULT_SESSION_DEFAULTS: SessionDefaults = {
+export const DEFAULT_SESSION_DEFAULTS = {
   permissionMode: 'ask',
-};
+  goalMaxContinuations: 20,
+} satisfies SessionDefaults;
 
 export const UserPreferencesSchema = z.object({
   theme: z.enum(["dark", "light", "system"]),

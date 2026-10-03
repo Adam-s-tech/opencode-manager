@@ -37,6 +37,7 @@ import { createAuthMiddleware } from './auth/middleware'
 import { createPromptTemplateRoutes } from './routes/prompt-templates'
 import { createSessionPinRoutes } from './routes/session-pins'
 import { createSessionPermissionModeRoutes } from './routes/session-permission-modes'
+import { createSessionGoalRoutes } from './routes/session-goals'
 import { createLogRoutes } from './routes/logs'
 import { createInternalRoutes } from './routes/internal'
 import { sweepStaleUploadSessions } from './routes/internal/repo-mirror-helpers'
@@ -46,6 +47,7 @@ import { sseAggregator } from './services/sse-aggregator'
 import { ensureDirectoryExists, writeFileContent, fileExists } from './services/file-operations'
 import { SettingsService } from './services/settings'
 import { SessionPermissionModeService } from './services/session-permission-modes'
+import { SessionGoalService } from './services/session-goals'
 import { opencodeServerManager } from './services/opencode-single-server'
 import { createOpenCodeClient } from './services/opencode/client'
 import { NotificationService } from './services/notification'
@@ -230,6 +232,7 @@ const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
 
 const notificationService = new NotificationService(db)
 const sessionPermissionModeService = new SessionPermissionModeService(db, openCodeClient, settingsServiceForSchedules)
+const sessionGoalService = new SessionGoalService(db, openCodeClient, settingsServiceForSchedules)
 
 sseAggregator.onEvent((directory, event) => {
   sessionPermissionModeService.handleEvent(directory, event).catch((err) => {
@@ -298,6 +301,7 @@ protectedApi.route('/notifications', createNotificationRoutes(notificationServic
 protectedApi.route('/prompt-templates', createPromptTemplateRoutes(db))
 protectedApi.route('/session-pins', createSessionPinRoutes(db))
 protectedApi.route('/session-permission-modes', createSessionPermissionModeRoutes(sessionPermissionModeService))
+protectedApi.route('/session-goals', createSessionGoalRoutes(sessionGoalService))
 protectedApi.route('/schedules', createScheduleRoutes(scheduleService))
 protectedApi.route('/logs', createLogRoutes())
 
