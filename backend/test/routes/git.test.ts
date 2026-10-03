@@ -6,6 +6,7 @@ import type { Database } from 'bun:sqlite'
 import type { Repo } from '../../../shared/src/types'
 import type { GitAuthService } from '../../src/services/git-auth'
 import type { ScheduleService } from '../../src/services/schedules'
+import type { TerminalService } from '../../src/services/terminal'
 import { createStubOpenCodeClient } from '../helpers/stub-opencode-client'
 
 vi.mock('bun:sqlite', () => ({
@@ -60,7 +61,7 @@ describe('Git Routes', () => {
     mockGitAuthService = {
       getGitEnvironment: vi.fn().mockReturnValue({}),
     } as unknown as GitAuthService
-    app = createRepoRoutes(mockDatabase, mockGitAuthService, {} as unknown as ScheduleService, createStubOpenCodeClient())
+    app = createRepoRoutes(mockDatabase, mockGitAuthService, {} as unknown as ScheduleService, createStubOpenCodeClient(), {} as unknown as TerminalService)
   })
 
   describe('GET /:id/git/status', () => {

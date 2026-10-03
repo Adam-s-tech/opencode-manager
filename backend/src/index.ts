@@ -49,6 +49,7 @@ import { createOpenCodeClient } from './services/opencode/client'
 import { NotificationService } from './services/notification'
 import { ScheduleRunner, ScheduleService } from './services/schedules'
 import { CredentialProvider } from './services/credential-provider'
+import { TerminalService } from './services/terminal'
 import { ScheduleWorktreeManager } from './services/schedule-worktree'
 import { migrateGlobalSkills } from './services/skills'
 import { installAssistantWorkspace } from './services/assistant-mode'
@@ -222,6 +223,7 @@ try {
 
 const settingsServiceForSchedules = new SettingsService(db)
 const credentialProvider = new CredentialProvider(db)
+const terminalService = new TerminalService(openCodeClient, credentialProvider)
 const scheduleWorktreeManager = new ScheduleWorktreeManager(gitAuthService, settingsServiceForSchedules, credentialProvider, db)
 const scheduleService = new ScheduleService(db, openCodeClient, scheduleWorktreeManager)
 const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
@@ -270,7 +272,7 @@ app.route('/api/opencode-proxy', createOpenCodeProxyRoutes(db, settingsService))
 const protectedApi = new Hono()
 protectedApi.use('/*', requireAuth)
 
-protectedApi.route('/repos', createRepoRoutes(db, gitAuthService, scheduleService, openCodeClient))
+protectedApi.route('/repos', createRepoRoutes(db, gitAuthService, scheduleService, openCodeClient, terminalService))
 protectedApi.route('/settings', createSettingsRoutes(db, gitAuthService, openCodeClient, openCodeSupervisor))
   protectedApi.route('/files', createFileRoutes())
   protectedApi.route('/filesystem', createFilesystemRoutes())

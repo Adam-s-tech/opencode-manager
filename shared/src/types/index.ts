@@ -158,3 +158,10 @@ export {
   InstallSkillUploadRequestSchema,
   InstallSkillUploadManifestEntrySchema,
 } from '../schemas/skills'
+
+export type {
+  TerminalKind,
+  TerminalInfo,
+  CreateTerminalRequest,
+  ResizeTerminalRequest,
+} from '../schemas/terminal'

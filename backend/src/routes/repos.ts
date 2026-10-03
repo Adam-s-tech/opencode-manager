@@ -15,8 +15,10 @@ import { handleOpenCodeError } from '../utils/route-helpers'
 import { ASSISTANT_REPO_ID, isWorktreeSibling } from '@opencode-manager/shared/utils'
 import { isWorktreeError, openCodeLocation } from '@opencode-manager/shared/opencode'
 import { createRepoGitRoutes } from './repo-git'
+import { createRepoTerminalRoutes } from './repo-terminals'
 import { createScheduleRoutes } from './schedules'
 import type { GitAuthService } from '../services/git-auth'
+import type { TerminalService } from '../services/terminal'
 import { ScheduleService } from '../services/schedules'
 import { ensureAssistantMode, getAssistantModeStatus } from '../services/assistant-mode'
 import path from 'path'
@@ -32,15 +34,25 @@ function withRepoSettings(database: Database, repo: Repo): Repo {
   }
 }
 
+async function removeDirectoryTerminals(terminalService: TerminalService, directory: string): Promise<void> {
+  try {
+    await terminalService.removeAll(directory)
+  } catch (error: unknown) {
+    logger.warn(`Failed to remove terminals for ${directory}:`, error)
+  }
+}
+
 export function createRepoRoutes(
   database: Database,
   gitAuthService: GitAuthService,
   scheduleService: ScheduleService,
   openCodeClient: OpenCodeClient,
+  terminalService: TerminalService,
 ) {
   const app = new Hono()
 
   app.route('/', createRepoGitRoutes(database, gitAuthService))
+  app.route('/', createRepoTerminalRoutes(database, gitAuthService, openCodeClient, terminalService))
   app.route('/:id/schedules', createScheduleRoutes(scheduleService))
 
   app.post('/', async (c) => {
@@ -268,6 +280,8 @@ app.get('/', async (c) => {
       const worktree = repoService.findSiblingByDirectory(siblings.filter(isWorktreeSibling), directory)
       if (!worktree) return c.json({ error: 'Not a deletable worktree of this repo' }, 400)
 
+      await removeDirectoryTerminals(terminalService, worktree.fullPath)
+
       try {
         const projectID = await repoService.resolveRepoProjectId(openCodeClient, repo.fullPath)
         await openCodeClient.api.worktree.remove({ projectID, directory: worktree.fullPath, force: true })
@@ -325,7 +339,9 @@ app.get('/', async (c) => {
       }
       
       scheduleService.prepareRepoDelete(id)
-      
+
+      await removeDirectoryTerminals(terminalService, repo.fullPath)
+
       await repoService.deleteRepoFiles(database, id)
       
       return c.json({ success: true })

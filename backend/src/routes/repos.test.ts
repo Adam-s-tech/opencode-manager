@@ -7,6 +7,7 @@ import { createRepoRoutes } from './repos'
 import { createRepo, getRepoById } from '../db/queries'
 import { createStubOpenCodeClient } from '../../test/helpers/stub-opencode-client'
 import type { GitAuthService } from '../services/git-auth'
+import type { TerminalService } from '../services/terminal'
 import type { OpenCodeClient } from '../services/opencode/client'
 import type { Repo } from '@opencode-manager/shared/types'
 import { getReposPath } from '@opencode-manager/shared/config/env'
@@ -28,6 +29,10 @@ const stubGitAuthService = {
   getGitCredentials: async () => [],
 } as unknown as GitAuthService
 
+const stubTerminalService = {
+  removeAll: mock(async () => undefined),
+} as unknown as TerminalService
+
 function createTestApp(db: Database, openCodeClient: OpenCodeClient = createStubOpenCodeClient()): Hono {
   const app = new Hono()
   const scheduleService = {
@@ -38,7 +43,7 @@ function createTestApp(db: Database, openCodeClient: OpenCodeClient = createStub
     deleteSchedule: () => {},
     prepareRepoDelete: () => {},
   } as any
-  app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient))
+  app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient, stubTerminalService))
   return app
 }
 
