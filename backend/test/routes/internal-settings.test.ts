@@ -153,6 +153,18 @@ describe('internal/settings routes', () => {
     expect(res.status).toBe(400)
   })
 
+  it('PATCH /api/internal/settings with { sessionDefaults: { permissionMode: "auto" } } returns 400 (strict reject)', async () => {
+    const res = await app.request('/api/internal/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ sessionDefaults: { permissionMode: 'auto' } }),
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+    })
+    expect(res.status).toBe(400)
+  })
+
   it('PATCH /api/internal/settings with { theme: "rainbow" } returns 400 (enum reject)', async () => {
     const res = await app.request('/api/internal/settings', {
       method: 'PATCH',

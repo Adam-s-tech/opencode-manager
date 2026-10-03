@@ -36,6 +36,7 @@ import { createAuth } from './auth'
 import { createAuthMiddleware } from './auth/middleware'
 import { createPromptTemplateRoutes } from './routes/prompt-templates'
 import { createSessionPinRoutes } from './routes/session-pins'
+import { createSessionPermissionModeRoutes } from './routes/session-permission-modes'
 import { createLogRoutes } from './routes/logs'
 import { createInternalRoutes } from './routes/internal'
 import { sweepStaleUploadSessions } from './routes/internal/repo-mirror-helpers'
@@ -44,6 +45,7 @@ import { createAuthenticatedOpenCodeProxyRoutes } from './routes/opencode-auth-p
 import { sseAggregator } from './services/sse-aggregator'
 import { ensureDirectoryExists, writeFileContent, fileExists } from './services/file-operations'
 import { SettingsService } from './services/settings'
+import { SessionPermissionModeService } from './services/session-permission-modes'
 import { opencodeServerManager } from './services/opencode-single-server'
 import { createOpenCodeClient } from './services/opencode/client'
 import { NotificationService } from './services/notification'
@@ -227,6 +229,7 @@ const scheduleService = new ScheduleService(db, openCodeClient, scheduleWorktree
 const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
 
 const notificationService = new NotificationService(db)
+const sessionPermissionModeService = new SessionPermissionModeService(db, openCodeClient, settingsServiceForSchedules)
 
 if (ENV.VAPID.PUBLIC_KEY && ENV.VAPID.PRIVATE_KEY) {
   if (!ENV.VAPID.SUBJECT) {
@@ -283,6 +286,7 @@ protectedApi.route('/ssh', createSSHRoutes(gitAuthService))
 protectedApi.route('/notifications', createNotificationRoutes(notificationService))
 protectedApi.route('/prompt-templates', createPromptTemplateRoutes(db))
 protectedApi.route('/session-pins', createSessionPinRoutes(db))
+protectedApi.route('/session-permission-modes', createSessionPermissionModeRoutes(sessionPermissionModeService))
 protectedApi.route('/schedules', createScheduleRoutes(scheduleService))
 protectedApi.route('/logs', createLogRoutes())
 

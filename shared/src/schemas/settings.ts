@@ -2,6 +2,7 @@ import { z } from "zod";
 import { NotificationPreferencesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from "./notifications";
 import { OPENCODE_CONFIG_SOURCE_NAMES } from "../config/defaults";
 import { ColorThemeIdSchema, MANAGER_COLOR_THEME_ID } from "../themes";
+import { SessionPermissionModeSchema } from "./session-permissions";
 
 export const CustomCommandSchema = z.object({
   name: z.string(),
@@ -142,6 +143,16 @@ export const DEFAULT_SANDBOX_PREFERENCES: SandboxPreferences = {
   gitCredentials: false,
 };
 
+export const SessionDefaultsSchema = z.object({
+  permissionMode: SessionPermissionModeSchema,
+});
+
+export type SessionDefaults = z.infer<typeof SessionDefaultsSchema>;
+
+export const DEFAULT_SESSION_DEFAULTS: SessionDefaults = {
+  permissionMode: 'ask',
+};
+
 export const UserPreferencesSchema = z.object({
   theme: z.enum(["dark", "light", "system"]),
   colorTheme: ColorThemeIdSchema.optional(),
@@ -168,6 +179,7 @@ export const UserPreferencesSchema = z.object({
   repoSortMode: z.enum(['recent', 'manual', 'name']).optional(),
   serverEnvVars: z.array(ServerEnvVarSchema).optional(),
   sandbox: SandboxPreferencesSchema.optional(),
+  sessionDefaults: SessionDefaultsSchema.optional(),
   disabledDefaultServerEnvVars: z.array(z.string()).optional(),
 });
 
@@ -220,6 +232,7 @@ export const DEFAULT_USER_PREFERENCES = {
   repoSortMode: 'recent' as const,
   serverEnvVars: [] as ServerEnvVar[],
   sandbox: DEFAULT_SANDBOX_PREFERENCES,
+  sessionDefaults: DEFAULT_SESSION_DEFAULTS,
 };
 
 export const SettingsResponseSchema = z.object({
