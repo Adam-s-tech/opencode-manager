@@ -61,6 +61,26 @@ export const UpdateWorktreeSetupRequestSchema = z.object({
   commands: WorktreeSetupCommandsSchema,
 })
 
+export const TrustRepoConfigRequestSchema = z.object({
+  directory: z.string().optional(),
+  hash: z.string().regex(/^[a-f0-9]{64}$/),
+})
+
+export const MoveProjectItemRequestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('action'),
+    id: z.string(),
+    to: ProjectItemSourceSchema,
+    directory: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('setup'),
+    command: z.string(),
+    to: ProjectItemSourceSchema,
+    directory: z.string().optional(),
+  }),
+])
+
 export type ProjectActionIcon = z.infer<typeof ProjectActionIconSchema>
 export type ProjectAction = z.infer<typeof ProjectActionSchema>
 export type WorktreeSetupCommands = z.infer<typeof WorktreeSetupCommandsSchema>
@@ -69,3 +89,5 @@ export type RepoProjectFile = z.infer<typeof RepoProjectFileSchema>
 export type ProjectConfigResponse = z.infer<typeof ProjectConfigResponseSchema>
 export type UpdateProjectActionsRequest = z.infer<typeof UpdateProjectActionsRequestSchema>
 export type UpdateWorktreeSetupRequest = z.infer<typeof UpdateWorktreeSetupRequestSchema>
+export type TrustRepoConfigRequest = z.infer<typeof TrustRepoConfigRequestSchema>
+export type MoveProjectItemRequest = z.infer<typeof MoveProjectItemRequestSchema>

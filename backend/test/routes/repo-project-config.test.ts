@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Hono } from 'hono'
 import { Database } from 'bun:sqlite'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
 import { createRepo } from '../../src/db/queries'
@@ -171,5 +174,114 @@ describe('Repo Project Config Routes', () => {
 
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Directory is not part of this repository' })
+  })
+
+  it('returns 400 for an invalid trust request', async () => {
+    seedRepo(db)
+
+    const res = await app.request('/1/project-config/trust', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ hash: 'not-a-hash' }),
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 409 when trusting a stale hash', async () => {
+    seedRepo(db)
+
+    const res = await app.request('/1/project-config/trust', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ hash: 'a'.repeat(64) }),
+    })
+
+    expect(res.status).toBe(409)
+    expect((await res.json() as { code: string }).code).toBe('REPO_CONFIG_CHANGED')
+  })
+
+  it('returns 400 for an invalid move request', async () => {
+    seedRepo(db)
+
+    const res = await app.request('/1/project-config/move', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ kind: 'action', id: 'serve', to: 'nowhere' }),
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when moving an unknown item', async () => {
+    seedRepo(db)
+
+    const res = await app.request('/1/project-config/move', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ kind: 'action', id: 'missing', to: 'repo' }),
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('moves a personal action into the repo file and returns it as trusted', async () => {
+    seedRepo(db)
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-route-move-'))
+    vi.mocked(resolveRepoWorkingDirectory).mockResolvedValue(directory)
+    const action = { id: 'serve', name: 'Serve', command: 'pnpm dev', autoOpenUrl: false }
+
+    try {
+      await app.request('/1/project-config/actions', {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ actions: [action] }),
+      })
+
+      const res = await app.request('/1/project-config/move', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ kind: 'action', id: 'serve', to: 'repo' }),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as { actions: unknown[]; repoFile: { exists: boolean; trusted: boolean } }
+      expect(body.repoFile.exists).toBe(true)
+      expect(body.repoFile.trusted).toBe(true)
+      expect(body.actions).toEqual([{ ...action, source: 'repo' }])
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('returns 409 when moving a setup command into a repository already at capacity', async () => {
+    seedRepo(db)
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-route-move-'))
+    vi.mocked(resolveRepoWorkingDirectory).mockResolvedValue(directory)
+
+    try {
+      await app.request('/1/project-config/worktree-setup', {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ commands: ['personal-cmd'] }),
+      })
+      const repoFileDir = path.join(directory, '.ocm')
+      fs.mkdirSync(repoFileDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(repoFileDir, 'project.json'),
+        JSON.stringify({ version: 1, setupWorktree: Array.from({ length: 20 }, (_, index) => `repo-${index}`) }),
+      )
+
+      const res = await app.request('/1/project-config/move', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ kind: 'setup', command: 'personal-cmd', to: 'repo' }),
+      })
+
+      expect(res.status).toBe(409)
+      expect((await res.json() as { code: string }).code).toBe('PROJECT_CONFIG_LIMIT_EXCEEDED')
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

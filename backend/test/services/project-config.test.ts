@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
 import { Database } from 'bun:sqlite'
 import { execSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -191,5 +191,357 @@ describe('ProjectConfigService worktree resolution', () => {
     const config = await service.getConfig(worktreeRepo, worktreePath)
 
     expect(config.worktreeSetup).toEqual([{ command: 'pnpm install', source: 'personal' }])
+  })
+})
+
+describe('ProjectConfigService repository file', () => {
+  let db: Database
+  let service: ProjectConfigService
+  let repo: Repo
+  let directory: string
+
+  function repoFilePath(): string {
+    return path.join(directory, '.ocm', 'project.json')
+  }
+
+  function writeRepoFile(content: unknown): void {
+    fs.mkdirSync(path.dirname(repoFilePath()), { recursive: true })
+    fs.writeFileSync(repoFilePath(), typeof content === 'string' ? content : JSON.stringify(content, null, 2))
+  }
+
+  beforeEach(() => {
+    db = new Database(':memory:')
+    migrate(db, allMigrations)
+    service = createService(db)
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-repo-file-'))
+    repo = createRepo(db, {
+      localPath: directory,
+      sourcePath: directory,
+      defaultBranch: 'main',
+      cloneStatus: 'ready',
+      clonedAt: Date.now(),
+      isLocal: true,
+    })
+  })
+
+  afterEach(() => {
+    db.close()
+    fs.rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('reports an untrusted repository file with a hash and its items', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'repo-serve', name: 'Serve', command: 'pnpm dev' }] })
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.exists).toBe(true)
+    expect(config.repoFile.trusted).toBe(false)
+    expect(config.repoFile.hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(config.actions).toEqual([
+      { id: 'repo-serve', name: 'Serve', command: 'pnpm dev', autoOpenUrl: false, source: 'repo' },
+    ])
+  })
+
+  it('rejects trusting a stale hash', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+
+    await expect(service.trustRepoFile(repo, directory, 'a'.repeat(64))).rejects.toMatchObject({
+      status: 409,
+      code: 'REPO_CONFIG_CHANGED',
+    })
+  })
+
+  it('keeps trust across a name-only edit and drops it on a command edit', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+    const first = await service.getConfig(repo, directory)
+    await service.trustRepoFile(repo, directory, first.repoFile.hash ?? '')
+    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(true)
+
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve renamed', command: 'pnpm dev' }] })
+    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(true)
+
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve renamed', command: 'pnpm dev --host' }] })
+    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(false)
+  })
+
+  it('reports invalid JSON with an error and no repository items', async () => {
+    writeRepoFile('{not json')
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.exists).toBe(true)
+    expect(config.repoFile.error).toBeTruthy()
+    expect(config.repoFile.hash).toBeNull()
+    expect(config.actions).toEqual([])
+  })
+
+  it('reports a schema-invalid file with an error and no repository items', async () => {
+    writeRepoFile({ version: 2 })
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.error).toBeTruthy()
+    expect(config.actions).toEqual([])
+  })
+
+  it('moves an action personal to repo preserving unknown keys and marking it trusted', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    writeRepoFile({ version: 1, customKey: 'keep-me' })
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })
+
+    const raw = JSON.parse(fs.readFileSync(repoFilePath(), 'utf8')) as { customKey: string; projectActions: unknown[] }
+    expect(raw.customKey).toBe('keep-me')
+    expect(raw.projectActions).toEqual([createAction()])
+    expect(service.getPersonalActions(repo)).toEqual([])
+
+    const config = await service.getConfig(repo, directory)
+    expect(config.repoFile.trusted).toBe(true)
+    expect(config.actions).toEqual([{ ...createAction(), source: 'repo' }])
+  })
+
+  it('deletes the file and .ocm directory when the last item moves back', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })
+
+    expect(fs.existsSync(repoFilePath())).toBe(false)
+    expect(fs.existsSync(path.join(directory, '.ocm'))).toBe(false)
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
+  })
+
+  it('moves a setup command personal to repo and back', async () => {
+    service.setPersonalSetup(repo, ['pnpm install'])
+
+    await service.moveItem(repo, directory, { kind: 'setup', command: 'pnpm install', to: 'repo' })
+    let config = await service.getConfig(repo, directory)
+    expect(config.worktreeSetup).toEqual([{ command: 'pnpm install', source: 'repo' }])
+    expect(config.repoFile.trusted).toBe(true)
+
+    await service.moveItem(repo, directory, { kind: 'setup', command: 'pnpm install', to: 'personal' })
+    config = await service.getConfig(repo, directory)
+    expect(config.worktreeSetup).toEqual([{ command: 'pnpm install', source: 'personal' }])
+    expect(config.repoFile.exists).toBe(false)
+  })
+
+  it('drops a colliding repository action and warns', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Repo Serve', command: 'pnpm repo-dev' }] })
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.actions).toEqual([{ ...createAction(), source: 'personal' }])
+    expect(config.repoFile.warnings).toHaveLength(1)
+    expect(config.repoFile.warnings[0]).toContain('serve')
+  })
+
+  it('rejects moving an unknown personal action', async () => {
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'missing', to: 'repo' })).rejects.toMatchObject({
+      status: 404,
+    })
+  })
+
+  it('rejects moving an unknown repository action', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'missing', to: 'personal' })).rejects.toMatchObject({
+      status: 404,
+    })
+  })
+
+  it('rejects moving a setup command into a repository already at capacity', async () => {
+    const repoCommands = Array.from({ length: 20 }, (_, index) => `repo-${index}`)
+    writeRepoFile({ version: 1, setupWorktree: repoCommands })
+    const first = await service.getConfig(repo, directory)
+    await service.trustRepoFile(repo, directory, first.repoFile.hash ?? '')
+    const originalBytes = fs.readFileSync(repoFilePath(), 'utf8')
+    service.setPersonalSetup(repo, ['personal-cmd'])
+
+    await expect(
+      service.moveItem(repo, directory, { kind: 'setup', command: 'personal-cmd', to: 'repo' }),
+    ).rejects.toMatchObject({ status: 409, code: 'PROJECT_CONFIG_LIMIT_EXCEEDED' })
+
+    expect(fs.readFileSync(repoFilePath(), 'utf8')).toBe(originalBytes)
+    expect(service.getPersonalSetup(repo)).toEqual(['personal-cmd'])
+    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(true)
+  })
+
+  it('rejects moving a setup command into personal storage already at capacity', async () => {
+    const personalCommands = Array.from({ length: 20 }, (_, index) => `personal-${index}`)
+    service.setPersonalSetup(repo, personalCommands)
+    writeRepoFile({ version: 1, setupWorktree: ['repo-cmd'] })
+    const first = await service.getConfig(repo, directory)
+    await service.trustRepoFile(repo, directory, first.repoFile.hash ?? '')
+    const originalBytes = fs.readFileSync(repoFilePath(), 'utf8')
+
+    await expect(
+      service.moveItem(repo, directory, { kind: 'setup', command: 'repo-cmd', to: 'personal' }),
+    ).rejects.toMatchObject({ status: 409, code: 'PROJECT_CONFIG_LIMIT_EXCEEDED' })
+
+    expect(fs.readFileSync(repoFilePath(), 'utf8')).toBe(originalBytes)
+    expect(service.getPersonalSetup(repo)).toEqual(personalCommands)
+    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(true)
+  })
+
+  it('allows a setup command to fill the repository up to its capacity', async () => {
+    writeRepoFile({ version: 1, setupWorktree: Array.from({ length: 19 }, (_, index) => `repo-${index}`) })
+    service.setPersonalSetup(repo, ['personal-cmd'])
+
+    await service.moveItem(repo, directory, { kind: 'setup', command: 'personal-cmd', to: 'repo' })
+
+    const raw = JSON.parse(fs.readFileSync(repoFilePath(), 'utf8')) as { setupWorktree: string[] }
+    expect(raw.setupWorktree).toHaveLength(20)
+    expect(service.getPersonalSetup(repo)).toEqual([])
+  })
+
+  it('allows a setup command to fill personal storage up to its capacity', async () => {
+    service.setPersonalSetup(repo, Array.from({ length: 19 }, (_, index) => `personal-${index}`))
+    writeRepoFile({ version: 1, setupWorktree: ['repo-cmd'] })
+
+    await service.moveItem(repo, directory, { kind: 'setup', command: 'repo-cmd', to: 'personal' })
+
+    expect(service.getPersonalSetup(repo)).toHaveLength(20)
+    expect(fs.existsSync(repoFilePath())).toBe(false)
+  })
+
+  it('restores the repository file and personal settings when the file write fails', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('disk full')
+    })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })).rejects.toThrow('disk full')
+    renameSpy.mockRestore()
+
+    expect(fs.existsSync(repoFilePath())).toBe(false)
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })
+    expect(service.getPersonalActions(repo)).toEqual([])
+    expect(fs.existsSync(repoFilePath())).toBe(true)
+  })
+
+  it('keeps the repository file and personal settings when the delete fails', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+    const originalBytes = fs.readFileSync(repoFilePath(), 'utf8')
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementationOnce(() => {
+      throw new Error('read-only')
+    })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })).rejects.toThrow(
+      'read-only',
+    )
+    rmSpy.mockRestore()
+
+    expect(fs.readFileSync(repoFilePath(), 'utf8')).toBe(originalBytes)
+    expect(service.getPersonalActions(repo)).toEqual([])
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })
+    expect(fs.existsSync(repoFilePath())).toBe(false)
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
+  })
+
+  it('keeps the repository file when the file write fails moving back', async () => {
+    writeRepoFile({
+      version: 1,
+      projectActions: [
+        { id: 'serve', name: 'Serve', command: 'pnpm dev' },
+        { id: 'test', name: 'Test', command: 'pnpm test' },
+      ],
+    })
+    const originalBytes = fs.readFileSync(repoFilePath(), 'utf8')
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('disk full')
+    })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })).rejects.toThrow(
+      'disk full',
+    )
+    renameSpy.mockRestore()
+
+    expect(fs.readFileSync(repoFilePath(), 'utf8')).toBe(originalBytes)
+    expect(service.getPersonalActions(repo)).toEqual([])
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
+  })
+
+  it('restores the repository file and personal settings when the settings write fails', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const setSpy = vi.spyOn(service, 'setPersonalActions').mockImplementationOnce(() => {
+      throw new Error('settings write failed')
+    })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })).rejects.toThrow(
+      'settings write failed',
+    )
+    setSpy.mockRestore()
+
+    expect(fs.existsSync(repoFilePath())).toBe(false)
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })
+    expect(fs.existsSync(repoFilePath())).toBe(true)
+    expect(service.getPersonalActions(repo)).toEqual([])
+  })
+
+  it('restores the repository file and rolls back personal settings when the trust write fails', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const trustSeam = service as unknown as { setRepoTrust(repo: Repo, hash: string | null): void }
+    const trustSpy = vi.spyOn(trustSeam, 'setRepoTrust').mockImplementationOnce(() => {
+      throw new Error('trust write failed')
+    })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })).rejects.toThrow(
+      'trust write failed',
+    )
+    trustSpy.mockRestore()
+
+    expect(fs.existsSync(repoFilePath())).toBe(false)
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
+    expect((await service.getConfig(repo, directory)).repoFile.exists).toBe(false)
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })
+    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(true)
+  })
+
+  it('keeps the repository file when the settings write fails moving back', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+    const originalBytes = fs.readFileSync(repoFilePath(), 'utf8')
+    const setSpy = vi.spyOn(service, 'setPersonalActions').mockImplementationOnce(() => {
+      throw new Error('settings write failed')
+    })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })).rejects.toThrow(
+      'settings write failed',
+    )
+    setSpy.mockRestore()
+
+    expect(fs.readFileSync(repoFilePath(), 'utf8')).toBe(originalBytes)
+    expect(service.getPersonalActions(repo)).toEqual([])
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
+    expect(fs.existsSync(repoFilePath())).toBe(false)
+  })
+
+  it('keeps the repository file when the trust write fails moving back', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+    const originalBytes = fs.readFileSync(repoFilePath(), 'utf8')
+    const trustSeam = service as unknown as { setRepoTrust(repo: Repo, hash: string | null): void }
+    const trustSpy = vi.spyOn(trustSeam, 'setRepoTrust').mockImplementationOnce(() => {
+      throw new Error('trust write failed')
+    })
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })).rejects.toThrow(
+      'trust write failed',
+    )
+    trustSpy.mockRestore()
+
+    expect(fs.readFileSync(repoFilePath(), 'utf8')).toBe(originalBytes)
+    expect(service.getPersonalActions(repo)).toEqual([])
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
   })
 })

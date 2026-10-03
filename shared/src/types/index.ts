@@ -175,4 +175,6 @@ export type {
   ProjectConfigResponse,
   UpdateProjectActionsRequest,
   UpdateWorktreeSetupRequest,
+  TrustRepoConfigRequest,
+  MoveProjectItemRequest,
 } from '../schemas/project-config'

@@ -3,7 +3,7 @@ import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { Database } from 'bun:sqlite'
 import type { Repo } from '@opencode-manager/shared/types'
-import { UpdateProjectActionsRequestSchema, UpdateWorktreeSetupRequestSchema } from '@opencode-manager/shared/schemas'
+import { UpdateProjectActionsRequestSchema, UpdateWorktreeSetupRequestSchema, TrustRepoConfigRequestSchema, MoveProjectItemRequestSchema } from '@opencode-manager/shared/schemas'
 import * as repoService from '../services/repo'
 import { resolveRepoWorkingDirectory } from '../services/repo'
 import { getRepoById } from '../db/queries'
@@ -123,6 +123,42 @@ export function createRepoProjectConfigRoutes(
     try {
       const projectRepo = await deps.projectConfigService.resolveProjectRepo(resolved.repo)
       deps.projectConfigService.setPersonalSetup(projectRepo, parsed.data.commands)
+      return c.json(await deps.projectConfigService.getConfig(resolved.repo, resolved.directory))
+    } catch (error: unknown) {
+      return handleProjectConfigError(c, error)
+    }
+  })
+
+  app.post('/:id/project-config/trust', async (c) => {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = TrustRepoConfigRequestSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid request', details: parsed.error.flatten() }, 400)
+    }
+
+    const resolved = await resolveRepoDirectory(c, c.req.param('id'), parsed.data.directory)
+    if (resolved instanceof Response) return resolved
+
+    try {
+      await deps.projectConfigService.trustRepoFile(resolved.repo, resolved.directory, parsed.data.hash)
+      return c.json(await deps.projectConfigService.getConfig(resolved.repo, resolved.directory))
+    } catch (error: unknown) {
+      return handleProjectConfigError(c, error)
+    }
+  })
+
+  app.post('/:id/project-config/move', async (c) => {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = MoveProjectItemRequestSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid request', details: parsed.error.flatten() }, 400)
+    }
+
+    const resolved = await resolveRepoDirectory(c, c.req.param('id'), parsed.data.directory)
+    if (resolved instanceof Response) return resolved
+
+    try {
+      await deps.projectConfigService.moveItem(resolved.repo, resolved.directory, parsed.data)
       return c.json(await deps.projectConfigService.getConfig(resolved.repo, resolved.directory))
     } catch (error: unknown) {
       return handleProjectConfigError(c, error)
