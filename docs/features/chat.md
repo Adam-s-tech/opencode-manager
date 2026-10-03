@@ -94,6 +94,43 @@ Toggle between two operational modes:
 
 Toggle modes using the mode selector in the chat header.
 
+## Permission modes
+
+Control who answers OpenCode permission requests for a session. The shield button in the composer toggles between two modes:
+
+- **Ask every time** (default) - each permission request waits for you in the permission dialog.
+- **Accept everything** - every "ask" request is answered automatically.
+
+The mode is owned by the backend, so a session in Accept everything keeps working while the browser is closed. Accept everything answers each request once and never saves a permanent rule, and it never overrides a `deny` rule. When you switch a session to Accept everything, requests already waiting are answered immediately.
+
+Child sessions inherit the mode of their root session and cannot change it. Sessions started by a scheduled run always use their schedule's own permission configuration.
+
+To change the default for new sessions, go to **Settings → General → Sessions** and pick a **Default permission mode for new sessions**. The default is stamped onto a session when it is created, so changing it only affects sessions created afterwards, never existing ones.
+
+Auto-accepted requests send no push notification, so you are not alerted for a request the session answered itself.
+
+## Session goals
+
+A goal keeps a session working on an objective until an auditor model decides it is done or blocked, without you sending follow-up messages.
+
+Arm goal mode with the target button in the composer, then send your message. That message becomes the goal objective, and it is sent to the session as usual. While a goal is active, each time the session goes idle the auditor decides the next step:
+
+- **done** - the objective is verifiably achieved, and the goal completes.
+- **blocked** - the agent needs a decision or access it cannot obtain. Three consecutive blocked verdicts stop the goal as blocked.
+- **continue** - the agent keeps working toward the objective.
+
+The auditor only sees the objective and the agent's latest reply; it cannot run tools or read files. Automatic continuations are capped by **Max automatic continuations**, and you can also set a **Token budget per goal** to stop a goal once it has spent that many tokens. A failed turn stops the goal, an interrupted turn pauses it, and deleting the session stops it.
+
+The goal is persisted and driven by the backend, so it survives closing the browser and a Manager restart: an active goal resumes auditing once the session is idle again.
+
+A status bar above the message list shows the goal state, the turn count, token usage, and the latest reason, with **Pause** (or **Resume**), **Cancel**, and **Dismiss** actions.
+
+Goal settings live in **Settings → General → Sessions**:
+
+- **Goal auditor model** - the model that decides whether the goal is done, as `provider/model`. Leave empty to use the OpenCode default model.
+- **Max automatic continuations** - how many times a goal may continue before it stops (1-200, default 20).
+- **Token budget per goal** - stop once the goal has spent this many tokens. Empty means no limit.
+
 ## Mermaid Diagrams
 
 AI responses can include Mermaid diagrams that render automatically:
