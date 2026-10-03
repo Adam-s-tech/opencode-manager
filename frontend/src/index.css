@@ -353,6 +353,10 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+@utility pb-mobile-tabbar {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
+}
+
 /* Prevent iOS zoom on all input elements */
 @media (max-width: 768px) {
   input[type="text"],

@@ -51,11 +51,11 @@ export function ScheduleRunsTable({
     <table className="w-full text-sm">
       <thead className="sticky top-0 z-10 whitespace-nowrap bg-background text-xs uppercase text-muted-foreground">
         <tr className="border-b border-border/60">
-          <th scope="col" className="px-3 py-2.5 text-left font-medium">Status</th>
+          <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Status</th>
           <th scope="col" className="px-3 py-2.5 text-left font-medium">Run</th>
           {showRepo && <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Repo</th>}
           <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Trigger</th>
-          <th scope="col" className="px-3 py-2.5 text-left font-medium">Started</th>
+          <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Started</th>
           <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Duration</th>
           <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Branch</th>
           <th scope="col" className="w-px px-3 py-2.5 text-right font-medium">Actions</th>
@@ -66,6 +66,9 @@ export function ScheduleRunsTable({
           const isUnread = run.viewedAt === null && (run.status === 'completed' || run.status === 'failed')
           const isSelected = selectedRunId === run.id
           const repoName = getRunRepoName(run)
+          const startedLabel = run.status === 'running' ? 'Running' : formatDistanceToNow(run.startedAt, { addSuffix: true })
+          const startedTitle = new Date(run.startedAt).toLocaleString()
+          const mobileDetail = repoName ? `${startedLabel} · ${repoName}` : startedLabel
 
           return (
             <tr
@@ -73,15 +76,16 @@ export function ScheduleRunsTable({
               onClick={() => onSelectRun(run.id)}
               className={cn('cursor-pointer transition-colors hover:bg-accent/40', isSelected && 'bg-accent/30')}
             >
-              <td className="px-3 py-2.5">
+              <td className="hidden px-3 py-2.5 sm:table-cell">
                 <span className="flex items-center gap-2">
                   {getRunStatusIcon(run.status)}
-                  <span className="hidden text-xs text-muted-foreground sm:inline">{getRunStatusLabel(run.status)}</span>
+                  <span className="text-xs text-muted-foreground">{getRunStatusLabel(run.status)}</span>
                 </span>
               </td>
-              <td className="px-3 py-2.5">
+              <td className="w-full max-w-0 px-3 py-2.5 sm:w-auto sm:max-w-none">
                 <div className="flex min-w-0 flex-col">
                   <span className="flex min-w-0 items-center gap-2">
+                    <span className="flex shrink-0 items-center sm:hidden">{getRunStatusIcon(run.status)}</span>
                     <button
                       type="button"
                       onClick={(event) => {
@@ -89,7 +93,7 @@ export function ScheduleRunsTable({
                         onSelectRun(run.id)
                       }}
                       aria-label={`Open run ${getRunTitle(run)}`}
-                      className={cn('truncate rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50', isUnread ? 'font-semibold' : 'font-medium')}
+                      className={cn('min-w-0 truncate rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50', isUnread ? 'font-semibold' : 'font-medium')}
                     >
                       {getRunTitle(run)}
                     </button>
@@ -98,10 +102,11 @@ export function ScheduleRunsTable({
                     )}
                   </span>
                   {run.errorText && (
-                    <span className={cn('truncate text-xs', run.status === 'cancelled' ? 'text-muted-foreground' : 'text-destructive/80')}>
+                    <span className={cn('truncate text-xs sm:max-w-[24rem]', run.status === 'cancelled' ? 'text-muted-foreground' : 'text-destructive/80')}>
                       {run.errorText}
                     </span>
                   )}
+                  <span className="truncate text-xs text-muted-foreground sm:hidden" title={startedTitle}>{mobileDetail}</span>
                 </div>
               </td>
               {showRepo && (
@@ -110,10 +115,8 @@ export function ScheduleRunsTable({
                 </td>
               )}
               <td className="hidden px-3 py-2.5 capitalize text-muted-foreground sm:table-cell">{run.triggerSource}</td>
-              <td className="px-3 py-2.5">
-                <span className="text-muted-foreground" title={new Date(run.startedAt).toLocaleString()}>
-                  {run.status === 'running' ? 'Running' : formatDistanceToNow(run.startedAt, { addSuffix: true })}
-                </span>
+              <td className="hidden whitespace-nowrap px-3 py-2.5 sm:table-cell">
+                <span className="text-muted-foreground" title={startedTitle}>{startedLabel}</span>
               </td>
               <td className="hidden px-3 py-2.5 tabular-nums text-muted-foreground sm:table-cell">{formatRunDuration(run)}</td>
               <td className="hidden px-3 py-2.5 font-mono text-xs text-muted-foreground sm:table-cell">{formatRunBranch(run) ?? '—'}</td>

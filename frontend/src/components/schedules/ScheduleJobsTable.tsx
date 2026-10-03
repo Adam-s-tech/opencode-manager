@@ -101,7 +101,7 @@ export function ScheduleJobsTable({
     <table className="w-full text-sm">
       <thead className="sticky top-0 z-10 whitespace-nowrap bg-background text-xs uppercase text-muted-foreground">
         <tr className="border-b border-border/60">
-          <th scope="col" className="px-3 py-2.5 text-left font-medium">Status</th>
+          <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Status</th>
           <th scope="col" className="px-3 py-2.5 text-left font-medium">Job</th>
           {showRepo && <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Repo</th>}
           <th scope="col" className="hidden px-3 py-2.5 text-left font-medium sm:table-cell">Schedule</th>
@@ -161,27 +161,32 @@ export function ScheduleJobsTable({
                 isSelected && 'bg-accent/30',
               )}
             >
-              <td className="px-3 py-2.5">
+              <td className="hidden px-3 py-2.5 sm:table-cell">
                 <span className="flex items-center gap-2">
                   <ScheduleJobStatusIndicator job={job} />
-                  <span className="hidden text-xs text-muted-foreground sm:inline">{statusLabel}</span>
+                  <span className="text-xs text-muted-foreground">{statusLabel}</span>
                 </span>
               </td>
-              <td className="px-3 py-2.5">
+              <td className="w-full max-w-0 px-3 py-2.5 sm:w-auto sm:max-w-none">
                 <div className="flex min-w-0 flex-col">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onOpen(job)
-                    }}
-                    aria-label={`Open ${job.name}`}
-                    className="max-w-[11rem] truncate font-medium sm:max-w-[20rem] rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  >
-                    {job.name}
-                  </button>
-                  {job.description && <span className="max-w-[11rem] truncate text-xs text-muted-foreground sm:max-w-[20rem]">{job.description}</span>}
-                  <span className="max-w-[11rem] truncate text-xs text-muted-foreground sm:hidden" title={scheduleTitle}>{mobileDetail}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="flex shrink-0 items-center sm:hidden">
+                      <ScheduleJobStatusIndicator job={job} />
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onOpen(job)
+                      }}
+                      aria-label={`Open ${job.name}`}
+                      className="min-w-0 truncate rounded-sm text-left font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:max-w-[20rem]"
+                    >
+                      {job.name}
+                    </button>
+                  </span>
+                  {job.description && <span className="truncate text-xs text-muted-foreground sm:max-w-[20rem]">{job.description}</span>}
+                  <span className="truncate text-xs text-muted-foreground sm:hidden" title={scheduleTitle}>{mobileDetail}</span>
                   <span className="mt-0.5 text-xs sm:hidden">
                     <ScheduleJobLastResult lastRun={lastRun} />
                   </span>

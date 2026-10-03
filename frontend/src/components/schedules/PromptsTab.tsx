@@ -148,7 +148,7 @@ export function PromptsTab({ promptDialog, templateId, onNew, onEdit, onDelete, 
                     onClick={() => onEdit(template.id)}
                     className="cursor-pointer transition-colors hover:bg-accent/40"
                   >
-                    <td className="px-3 py-2.5">
+                    <td className="w-full max-w-0 px-3 py-2.5 sm:w-auto sm:max-w-none">
                       <div className="flex min-w-0 flex-col">
                         <button
                           type="button"
@@ -157,12 +157,12 @@ export function PromptsTab({ promptDialog, templateId, onNew, onEdit, onDelete, 
                             onEdit(template.id)
                           }}
                           aria-label={`Edit ${template.title}`}
-                          className="max-w-[32rem] truncate font-medium rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          className="truncate font-medium sm:max-w-[32rem] rounded-sm text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                         >
                           {template.title}
                         </button>
                         {template.description && (
-                          <span className="max-w-[32rem] truncate text-xs text-muted-foreground">{template.description}</span>
+                          <span className="truncate text-xs sm:max-w-[32rem] text-muted-foreground">{template.description}</span>
                         )}
                         <span className="truncate text-xs text-muted-foreground sm:hidden">
                           {template.category} · {template.cadenceHint}
