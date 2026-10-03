@@ -3,7 +3,7 @@ import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { Database } from 'bun:sqlite'
 import type { Repo } from '@opencode-manager/shared/types'
-import { UpdateProjectActionsRequestSchema, UpdateWorktreeSetupRequestSchema, TrustRepoConfigRequestSchema, MoveProjectItemRequestSchema } from '@opencode-manager/shared/schemas'
+import { UpdateProjectActionsRequestSchema, UpdateWorktreeSetupRequestSchema, TrustRepoConfigRequestSchema, MoveProjectItemRequestSchema, RunProjectActionRequestSchema } from '@opencode-manager/shared/schemas'
 import * as repoService from '../services/repo'
 import { resolveRepoWorkingDirectory } from '../services/repo'
 import { getRepoById } from '../db/queries'
@@ -160,6 +160,29 @@ export function createRepoProjectConfigRoutes(
     try {
       await deps.projectConfigService.moveItem(resolved.repo, resolved.directory, parsed.data)
       return c.json(await deps.projectConfigService.getConfig(resolved.repo, resolved.directory))
+    } catch (error: unknown) {
+      return handleProjectConfigError(c, error)
+    }
+  })
+
+  app.post('/:id/project-config/actions/:actionId/run', async (c) => {
+    const body = await c.req.json().catch(() => ({}))
+    const parsed = RunProjectActionRequestSchema.safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid request', details: parsed.error.flatten() }, 400)
+    }
+
+    const resolved = await resolveRepoDirectory(c, c.req.param('id'), parsed.data.directory)
+    if (resolved instanceof Response) return resolved
+
+    try {
+      const response = await deps.projectConfigService.runAction(
+        resolved.repo,
+        resolved.directory,
+        c.req.param('actionId'),
+        deps.terminalService,
+      )
+      return c.json(response)
     } catch (error: unknown) {
       return handleProjectConfigError(c, error)
     }

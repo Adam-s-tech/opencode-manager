@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TerminalInfoSchema } from './terminal'
 
 export const ProjectActionIconSchema = z.enum([
   'play',
@@ -81,6 +82,17 @@ export const MoveProjectItemRequestSchema = z.discriminatedUnion('kind', [
   }),
 ])
 
+export const RunProjectActionRequestSchema = z.object({
+  directory: z.string().optional(),
+})
+
+export const RunProjectActionResponseSchema = z.object({
+  terminal: TerminalInfoSchema,
+  alreadyRunning: z.boolean(),
+  resolvedUrl: z.string().optional(),
+  autoOpenUrl: z.boolean(),
+})
+
 export type ProjectActionIcon = z.infer<typeof ProjectActionIconSchema>
 export type ProjectAction = z.infer<typeof ProjectActionSchema>
 export type WorktreeSetupCommands = z.infer<typeof WorktreeSetupCommandsSchema>
@@ -91,3 +103,5 @@ export type UpdateProjectActionsRequest = z.infer<typeof UpdateProjectActionsReq
 export type UpdateWorktreeSetupRequest = z.infer<typeof UpdateWorktreeSetupRequestSchema>
 export type TrustRepoConfigRequest = z.infer<typeof TrustRepoConfigRequestSchema>
 export type MoveProjectItemRequest = z.infer<typeof MoveProjectItemRequestSchema>
+export type RunProjectActionRequest = z.infer<typeof RunProjectActionRequestSchema>
+export type RunProjectActionResponse = z.infer<typeof RunProjectActionResponseSchema>

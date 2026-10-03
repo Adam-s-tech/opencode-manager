@@ -10,8 +10,10 @@ import { createRepo, setRepoSetting } from '../../src/db/queries'
 import { createGitService } from '../../src/services/git/GitService'
 import { ProjectConfigService, ProjectConfigError } from '../../src/services/project-config'
 import type { GitAuthService } from '../../src/services/git-auth'
+import type { CreateTerminalInput, TerminalService } from '../../src/services/terminal'
+import { formatTerminalTitle } from '@opencode-manager/shared/utils'
 import type { ProjectAction } from '@opencode-manager/shared/schemas'
-import type { Repo } from '@opencode-manager/shared/types'
+import type { Repo, TerminalInfo } from '@opencode-manager/shared/types'
 
 const gitAuthService = { getGitEnvironment: () => ({}) } as unknown as GitAuthService
 
@@ -21,6 +23,41 @@ function createService(db: Database): ProjectConfigService {
 
 function createAction(overrides: Partial<ProjectAction> = {}): ProjectAction {
   return { id: 'serve', name: 'Serve', command: 'pnpm dev', autoOpenUrl: false, ...overrides }
+}
+
+function createDeferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
+async function flushAsync(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve))
+}
+
+function createStatefulTerminalService(gate: { promise: Promise<void> } | null) {
+  const terminals: TerminalInfo[] = []
+  let created = 0
+  const list = vi.fn(async (target: string) => terminals.filter((terminal) => terminal.cwd === target))
+  const create = vi.fn(async (target: string, input: CreateTerminalInput): Promise<TerminalInfo> => {
+    if (gate) {
+      await gate.promise
+    }
+    created += 1
+    const terminal: TerminalInfo = {
+      id: `pty-${created}`,
+      title: formatTerminalTitle({ kind: input.kind, name: input.name, actionId: input.actionId }),
+      kind: input.kind,
+      ...(input.actionId ? { actionId: input.actionId } : {}),
+      cwd: target,
+      status: 'running',
+    }
+    terminals.push(terminal)
+    return terminal
+  })
+  return { service: { list, create } as unknown as TerminalService, list, create, terminals }
 }
 
 describe('ProjectConfigService personal settings', () => {
@@ -543,5 +580,232 @@ describe('ProjectConfigService repository file', () => {
 
     await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })
     expect(service.getPersonalActions(repo)).toEqual([createAction()])
+  })
+})
+
+describe('ProjectConfigService runAction', () => {
+  let db: Database
+  let service: ProjectConfigService
+  let repo: Repo
+  let directory: string
+
+  function writeRepoFile(content: unknown): void {
+    const filePath = path.join(directory, '.ocm', 'project.json')
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, JSON.stringify(content, null, 2))
+  }
+
+  function createFakeTerminalService(terminals: TerminalInfo[] = []) {
+    const list = vi.fn(async () => terminals)
+    const create = vi.fn(
+      async (target: string, input: CreateTerminalInput): Promise<TerminalInfo> => ({
+        id: 'pty-1',
+        title: formatTerminalTitle({ kind: input.kind, name: input.name, actionId: input.actionId }),
+        kind: input.kind,
+        ...(input.actionId ? { actionId: input.actionId } : {}),
+        cwd: target,
+        status: 'running',
+      }),
+    )
+    return { service: { list, create } as unknown as TerminalService, list, create }
+  }
+
+  beforeEach(() => {
+    db = new Database(':memory:')
+    migrate(db, allMigrations)
+    service = createService(db)
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-run-action-'))
+    repo = createRepo(db, {
+      localPath: directory,
+      sourcePath: directory,
+      defaultBranch: 'main',
+      cloneStatus: 'ready',
+      clonedAt: Date.now(),
+      isLocal: true,
+    })
+  })
+
+  afterEach(() => {
+    db.close()
+    fs.rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('creates an action terminal with /bin/sh -c and the encoded action id', async () => {
+    service.setPersonalActions(repo, [createAction({ url: 'http://localhost:5173/{worktree}' })])
+    const terminalService = createFakeTerminalService()
+
+    const response = await service.runAction(repo, directory, 'serve', terminalService.service)
+
+    expect(terminalService.create).toHaveBeenCalledWith(directory, {
+      kind: 'action',
+      actionId: 'serve',
+      name: 'Serve',
+      command: '/bin/sh',
+      args: ['-c', 'pnpm dev'],
+    })
+    expect(response).toEqual({
+      terminal: {
+        id: 'pty-1',
+        title: 'ocm:action:serve:Serve',
+        kind: 'action',
+        actionId: 'serve',
+        cwd: directory,
+        status: 'running',
+      },
+      alreadyRunning: false,
+      resolvedUrl: `http://localhost:5173/${path.basename(directory)}`,
+      autoOpenUrl: false,
+    })
+  })
+
+  it('returns an already running action terminal without creating another', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const running: TerminalInfo = {
+      id: 'pty-existing',
+      title: 'Serve',
+      kind: 'action',
+      actionId: 'serve',
+      cwd: directory,
+      status: 'running',
+    }
+    const terminalService = createFakeTerminalService([running])
+
+    const response = await service.runAction(repo, directory, 'serve', terminalService.service)
+
+    expect(terminalService.create).not.toHaveBeenCalled()
+    expect(response.alreadyRunning).toBe(true)
+    expect(response.terminal).toEqual(running)
+  })
+
+  it('returns 404 for an unknown action', async () => {
+    const terminalService = createFakeTerminalService()
+
+    await expect(service.runAction(repo, directory, 'missing', terminalService.service)).rejects.toMatchObject({
+      status: 404,
+    })
+    expect(terminalService.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects an untrusted repository action with the current hash', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'repo-serve', name: 'Serve', command: 'pnpm dev' }] })
+    const terminalService = createFakeTerminalService()
+
+    let caught: unknown
+    try {
+      await service.runAction(repo, directory, 'repo-serve', terminalService.service)
+    } catch (error: unknown) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(ProjectConfigError)
+    expect((caught as ProjectConfigError).status).toBe(409)
+    expect((caught as ProjectConfigError).code).toBe('REPO_CONFIG_UNTRUSTED')
+    expect((caught as ProjectConfigError).details).toMatchObject({ hash: expect.stringMatching(/^[a-f0-9]{64}$/) })
+    expect(terminalService.create).not.toHaveBeenCalled()
+  })
+
+  it('runs a trusted repository action', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'repo-serve', name: 'Serve', command: 'pnpm dev' }] })
+    const first = await service.getConfig(repo, directory)
+    await service.trustRepoFile(repo, directory, first.repoFile.hash ?? '')
+    const terminalService = createFakeTerminalService()
+
+    const response = await service.runAction(repo, directory, 'repo-serve', terminalService.service)
+
+    expect(response.alreadyRunning).toBe(false)
+    expect(terminalService.create).toHaveBeenCalledWith(directory, expect.objectContaining({ actionId: 'repo-serve' }))
+  })
+
+  it('resolves {worktree} and {branch} against a real git checkout', async () => {
+    const gitDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-run-branch-'))
+    try {
+      execSync(`git init "${gitDirectory}"`)
+      execSync(`git -C "${gitDirectory}" config user.email test@test.com`)
+      execSync(`git -C "${gitDirectory}" config user.name Test`)
+      execSync(`git -C "${gitDirectory}" commit --allow-empty -m "Initial commit"`)
+      execSync(`git -C "${gitDirectory}" checkout -b feature/auth`)
+
+      const url = await service.resolveActionUrl('http://localhost:3000/{worktree}/{branch}', gitDirectory)
+
+      expect(url).toBe(`http://localhost:3000/${path.basename(gitDirectory)}/feature/auth`)
+    } finally {
+      fs.rmSync(gitDirectory, { recursive: true, force: true })
+    }
+  })
+
+  it('returns the template unchanged when the branch cannot be resolved', async () => {
+    const template = 'http://localhost:3000/{branch}'
+
+    await expect(service.resolveActionUrl(template, directory)).resolves.toBe(template)
+  })
+
+  it('creates exactly one terminal when the same action runs concurrently in one directory', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const gate = createDeferred()
+    const terminalService = createStatefulTerminalService(gate)
+
+    const first = service.runAction(repo, directory, 'serve', terminalService.service)
+    const second = service.runAction(repo, directory, 'serve', terminalService.service)
+    await flushAsync()
+    gate.resolve()
+
+    const [firstResult, secondResult] = await Promise.all([first, second])
+
+    expect(terminalService.create).toHaveBeenCalledTimes(1)
+    expect(firstResult.alreadyRunning).toBe(false)
+    expect(secondResult.alreadyRunning).toBe(true)
+    expect(secondResult.terminal.id).toBe(firstResult.terminal.id)
+  })
+
+  it('releases the run key after a failed create so a retry can start', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const terminals: TerminalInfo[] = []
+    let attempts = 0
+    const list = vi.fn(async (target: string) => terminals.filter((terminal) => terminal.cwd === target))
+    const create = vi.fn(async (target: string, input: CreateTerminalInput): Promise<TerminalInfo> => {
+      attempts += 1
+      if (attempts === 1) {
+        throw new Error('spawn failed')
+      }
+      const terminal: TerminalInfo = {
+        id: `pty-${attempts}`,
+        title: formatTerminalTitle({ kind: input.kind, name: input.name, actionId: input.actionId }),
+        kind: input.kind,
+        ...(input.actionId ? { actionId: input.actionId } : {}),
+        cwd: target,
+        status: 'running',
+      }
+      terminals.push(terminal)
+      return terminal
+    })
+    const terminalService = { list, create } as unknown as TerminalService
+
+    await expect(service.runAction(repo, directory, 'serve', terminalService)).rejects.toThrow('spawn failed')
+
+    const response = await service.runAction(repo, directory, 'serve', terminalService)
+
+    expect(response.alreadyRunning).toBe(false)
+    expect(response.terminal.id).toBe('pty-2')
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not serialize runs for different directories', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const otherDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-run-action-other-'))
+    try {
+      const gate = createDeferred()
+      const terminalService = createStatefulTerminalService(gate)
+
+      const first = service.runAction(repo, directory, 'serve', terminalService.service)
+      const second = service.runAction(repo, otherDirectory, 'serve', terminalService.service)
+      await flushAsync()
+
+      expect(terminalService.create).toHaveBeenCalledTimes(2)
+
+      gate.resolve()
+      await Promise.all([first, second])
+    } finally {
+      fs.rmSync(otherDirectory, { recursive: true, force: true })
+    }
   })
 })

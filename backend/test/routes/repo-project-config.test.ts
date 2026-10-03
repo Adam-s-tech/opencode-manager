@@ -11,8 +11,10 @@ import { createRepoProjectConfigRoutes } from '../../src/routes/repo-project-con
 import { ProjectConfigService } from '../../src/services/project-config'
 import { createGitService } from '../../src/services/git/GitService'
 import { createStubOpenCodeClient } from '../helpers/stub-opencode-client'
+import { formatTerminalTitle } from '@opencode-manager/shared/utils'
 import type { GitAuthService } from '../../src/services/git-auth'
-import type { TerminalService } from '../../src/services/terminal'
+import type { CreateTerminalInput, TerminalService } from '../../src/services/terminal'
+import type { TerminalInfo } from '@opencode-manager/shared/types'
 
 vi.mock('../../src/services/repo', () => ({
   resolveRepoWorkingDirectory: vi.fn(),
@@ -23,7 +25,18 @@ import { resolveRepoWorkingDirectory, getSiblingRepos } from '../../src/services
 
 const gitAuthService = { getGitEnvironment: () => ({}) } as unknown as GitAuthService
 const openCodeClient = createStubOpenCodeClient()
-const terminalService = {} as unknown as TerminalService
+const terminalList = vi.fn(async (): Promise<TerminalInfo[]> => [])
+const terminalCreate = vi.fn(
+  async (directory: string, input: CreateTerminalInput): Promise<TerminalInfo> => ({
+    id: 'pty-1',
+    title: formatTerminalTitle({ kind: input.kind, name: input.name, actionId: input.actionId }),
+    kind: input.kind,
+    ...(input.actionId ? { actionId: input.actionId } : {}),
+    cwd: directory,
+    status: 'running',
+  }),
+)
+const terminalService = { list: terminalList, create: terminalCreate } as unknown as TerminalService
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
 function createApp(db: Database): Hono {
@@ -283,5 +296,59 @@ describe('Repo Project Config Routes', () => {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true })
     }
+  })
+
+  it('runs a personal action and returns the response shape', async () => {
+    seedRepo(db)
+    const action = { id: 'serve', name: 'Serve', command: 'pnpm dev', autoOpenUrl: false }
+
+    await app.request('/1/project-config/actions', {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify({ actions: [action] }),
+    })
+
+    const res = await app.request('/1/project-config/actions/serve/run', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({}),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as {
+      terminal: unknown
+      alreadyRunning: boolean
+      autoOpenUrl: boolean
+      resolvedUrl?: string
+    }
+    expect(body.alreadyRunning).toBe(false)
+    expect(body.autoOpenUrl).toBe(false)
+    expect(body.resolvedUrl).toBeUndefined()
+    expect(body.terminal).toMatchObject({
+      id: 'pty-1',
+      title: 'ocm:action:serve:Serve',
+      kind: 'action',
+      actionId: 'serve',
+      status: 'running',
+    })
+    expect(terminalCreate).toHaveBeenCalledWith(expect.any(String), {
+      kind: 'action',
+      actionId: 'serve',
+      name: 'Serve',
+      command: '/bin/sh',
+      args: ['-c', 'pnpm dev'],
+    })
+  })
+
+  it('returns 404 when running an unknown action', async () => {
+    seedRepo(db)
+
+    const res = await app.request('/1/project-config/actions/missing/run', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({}),
+    })
+
+    expect(res.status).toBe(404)
   })
 })

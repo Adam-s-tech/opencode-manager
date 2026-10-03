@@ -12,11 +12,15 @@ import {
   type ProjectAction,
   type ProjectConfigResponse,
   type RepoProjectFile,
+  type RunProjectActionResponse,
 } from '@opencode-manager/shared/schemas'
 import { getRepoByDirectory, getRepoSetting, setRepoSetting } from '../db/queries'
+import { executeCommand } from '../utils/process'
 import { getErrorMessage } from '../utils/error-utils'
+import { canonicalPathSync } from '../utils/fs-safe'
 import type { GitService } from './git/GitService'
 import type { GitAuthService } from './git-auth'
+import type { TerminalService } from './terminal'
 
 const PROJECT_ACTIONS_KEY = 'projectActions'
 const WORKTREE_SETUP_KEY = 'worktreeSetupCommands'
@@ -55,6 +59,8 @@ export class ProjectConfigError extends Error {
 }
 
 export class ProjectConfigService {
+  private readonly actionRunQueues = new Map<string, Promise<void>>()
+
   constructor(
     private readonly database: Database,
     private readonly git: GitService,
@@ -124,8 +130,14 @@ export class ProjectConfigService {
       repoFile.hash !== null &&
       repoFile.hash === getRepoSetting(this.database, projectRepo.id, REPO_CONFIG_TRUST_KEY)
 
+    const resolvedActions = await Promise.all(
+      actions.map(async (action) =>
+        action.url ? { ...action, resolvedUrl: await this.resolveActionUrl(action.url, directory) } : action,
+      ),
+    )
+
     return {
-      actions,
+      actions: resolvedActions,
       worktreeSetup,
       repoFile: {
         path: '.ocm/project.json',
@@ -136,6 +148,89 @@ export class ProjectConfigService {
         warnings,
       },
     }
+  }
+
+  async resolveActionUrl(template: string, directory: string): Promise<string> {
+    const withWorktree = template.replaceAll('{worktree}', path.basename(directory))
+    if (!withWorktree.includes('{branch}')) {
+      return withWorktree
+    }
+
+    try {
+      const branch = (
+        await executeCommand(['git', '-C', directory, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+          env: this.gitAuthService.getGitEnvironment(),
+          silent: true,
+        })
+      ).trim()
+      return withWorktree.replaceAll('{branch}', branch)
+    } catch {
+      return template
+    }
+  }
+
+  async runAction(
+    repo: Repo,
+    directory: string,
+    actionId: string,
+    terminalService: TerminalService,
+  ): Promise<RunProjectActionResponse> {
+    const config = await this.getConfig(repo, directory)
+    const action = config.actions.find((item) => item.id === actionId)
+    if (!action) {
+      throw new ProjectConfigError(404, 'Action not found')
+    }
+
+    if (action.source === 'repo' && !config.repoFile.trusted) {
+      throw new ProjectConfigError(409, 'Repository commands are not trusted', 'REPO_CONFIG_UNTRUSTED', {
+        hash: config.repoFile.hash,
+      })
+    }
+
+    const key = this.actionRunKey(directory, actionId)
+    return this.enqueueActionRun(key, async () => {
+      const terminals = await terminalService.list(directory)
+      const running = terminals.find(
+        (terminal) => terminal.kind === 'action' && terminal.actionId === actionId && terminal.status === 'running',
+      )
+      const terminal =
+        running ??
+        (await terminalService.create(directory, {
+          kind: 'action',
+          actionId,
+          name: action.name,
+          command: '/bin/sh',
+          args: ['-c', action.command],
+        }))
+
+      return {
+        terminal,
+        alreadyRunning: running !== undefined,
+        ...(action.resolvedUrl ? { resolvedUrl: action.resolvedUrl } : {}),
+        autoOpenUrl: action.autoOpenUrl,
+      }
+    })
+  }
+
+  private actionRunKey(directory: string, actionId: string): string {
+    const canonical = canonicalPathSync(path.resolve(directory))
+    return `${canonical}\u0000${actionId}`
+  }
+
+  private enqueueActionRun<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.actionRunQueues.get(key) ?? Promise.resolve()
+    const result = previous.then(operation, operation)
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.actionRunQueues.set(key, tail)
+    void tail.then(() => {
+      if (this.actionRunQueues.get(key) === tail) {
+        this.actionRunQueues.delete(key)
+      }
+    })
+    return result
   }
 
   readRepoFile(directory: string): RepoFileState {
