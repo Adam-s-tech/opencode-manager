@@ -72,7 +72,12 @@ Actions defined in the repository file never run until trusted (see [Trust](#tru
 
 - `version` is required and must be `1`.
 - `projectActions` and `setupWorktree` are optional. Up to 50 actions and 20 setup commands are allowed.
-- A repository action whose `id` matches a personal action is ignored, and the dialog reports a warning, so personal actions always win.
+- An action `url` must start with `http://` or `https://`.
+- A repository action whose `id` matches a personal action is not listed or run, and the dialog reports a warning, so personal actions always win. It is still part of the file's trusted content (see [Trust](#trust)).
+- `.ocm` and `.ocm/project.json` must be regular files and directories. A symbolic link at either path is reported as an invalid file and is never written through.
+- The file is read from the selected repository or workspace directory, so each worktree can carry its own version. Trust is stored once per project, so trusting the file in one worktree does not trust a different version of it in another.
+
+Project actions are not available in the Assistant workspace.
 
 ## Moving Actions and Setup Commands
 
@@ -87,8 +92,9 @@ Moves are transactional: if the file write or the settings update fails, the fil
 
 Commands in `.ocm/project.json` run on your machine, so the Manager does not run them until you trust the file:
 
-- Trust is a hash of the file's **executable content only**: each action's `id`, `command` and `url`, plus the setup commands. Changing an action's name, icon, or `autoOpenUrl` does not affect trust; changing a command, URL, or setup command does.
-- Trusting requires echoing the exact hash shown, so a file cannot be swapped between review and trust.
+- Trust covers everything in the file that can run or open: each action's `id`, `name`, `command`, `url` and `autoOpenUrl` (including actions hidden because a personal action has the same `id`), plus every setup command. Changing any of these resets trust; changing an icon does not.
+- Both trust prompts — **Trust these commands** in the dialog and **Trust and run** in the header menu — list every action and setup command that trusting covers, not only the one you clicked.
+- Trusting requires echoing the exact hash of the content shown, so a file cannot be swapped between review and trust.
 - Untrusted repository commands never run — not from the header menu, and not as worktree setup commands.
 - The dialog shows the untrusted commands and a **Trust these commands** button. Attempting to run an untrusted action prompts for trust first.
 - Moving an item into the file auto-trusts it, because the user authored it.

@@ -14,22 +14,18 @@ const RESIZE_DEBOUNCE_MS = 150
 
 const MONOSPACE_FONT = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
 
-function defaultOpenLink(uri: string) {
-  window.open(uri, '_blank', 'noopener,noreferrer')
-}
-
 export interface TerminalViewHandle {
   send: (data: string) => void
 }
 
-export interface TerminalViewProps {
+interface TerminalViewProps {
   repoId: number
   directory: string | undefined
   ptyID: string
   active: boolean
   ctrlArmed: boolean
   onCtrlConsumed: () => void
-  onOpenLink?: (uri: string) => void
+  onOpenLink: (uri: string) => void
   onExited: () => void
 }
 
@@ -53,12 +49,15 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
   const onExitedRef = useRef(onExited)
   const isMobile = useMobile()
   const isMobileRef = useRef(isMobile)
+  const activeRef = useRef(active)
+  const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
 
   ctrlArmedRef.current = ctrlArmed
   onCtrlConsumedRef.current = onCtrlConsumed
   onOpenLinkRef.current = onOpenLink
   onExitedRef.current = onExited
   isMobileRef.current = isMobile
+  activeRef.current = active
 
   const handleOutput = useCallback((text: string) => {
     terminalRef.current?.write(text)
@@ -105,8 +104,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(
       new WebLinksAddon((_event, uri) => {
-        const openLink = onOpenLinkRef.current ?? defaultOpenLink
-        openLink(uri)
+        onOpenLinkRef.current(uri)
       }),
     )
     terminal.open(container)
@@ -161,12 +159,18 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(fu
         const terminal = terminalRef.current
         const fitAddon = fitAddonRef.current
         if (!terminal || !fitAddon) return
+        if (!activeRef.current) return
+        if (container.clientWidth === 0 || container.clientHeight === 0) return
         try {
           fitAddon.fit()
         } catch {
           return
         }
-        resizeTerminal(repoId, ptyID, { directory, cols: terminal.cols, rows: terminal.rows }).catch(() => {})
+        const size = { cols: terminal.cols, rows: terminal.rows }
+        const lastSize = lastSizeRef.current
+        if (lastSize && lastSize.cols === size.cols && lastSize.rows === size.rows) return
+        lastSizeRef.current = size
+        resizeTerminal(repoId, ptyID, { directory, cols: size.cols, rows: size.rows }).catch(() => {})
       }, RESIZE_DEBOUNCE_MS)
     }
 

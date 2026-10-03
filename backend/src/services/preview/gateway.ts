@@ -2,17 +2,28 @@ import { randomBytes } from 'node:crypto'
 import { Hono } from 'hono'
 import type { Context, MiddlewareHandler } from 'hono'
 import { createNodeWebSocket, type NodeWebSocket } from '@hono/node-ws'
+import type { PreviewPort } from '@opencode-manager/shared/schemas'
+import { AUTH_COOKIE_PREFIX } from '../../auth/cookies'
 import { buildProxyResponseHeaders, filterProxyHeaders } from '../../utils/proxy-headers'
-import { bridgeWebSocket, type WebSocketBridge } from '../../utils/websocket-bridge'
+import {
+  bridgeWebSocket,
+  forwardPeerMessage,
+  peerBufferedAmount,
+  type WebSocketBridge,
+} from '../../utils/websocket-bridge'
 
 export const PREVIEW_COOKIE = 'ocm_preview'
 
 const START_TOKEN_TTL_MS = 60_000
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
 
-const MANAGER_COOKIE_PREFIXES = ['opencode.', '__Secure-opencode.', '__Host-opencode.']
+const MANAGER_COOKIE_PREFIXES = [
+  `${AUTH_COOKIE_PREFIX}.`,
+  `__Secure-${AUTH_COOKIE_PREFIX}.`,
+  `__Host-${AUTH_COOKIE_PREFIX}.`,
+]
 
-export type PreviewHost = '127.0.0.1' | '::1'
+export type PreviewHost = PreviewPort['host']
 
 export interface PreviewSession {
   id: string
@@ -76,19 +87,30 @@ export class PreviewSessionStore {
   }
 }
 
-export function stripManagerCookies(cookieHeader: string | undefined): string | undefined {
+function readCookieName(cookie: string): string {
+  const separator = cookie.indexOf('=')
+  return (separator === -1 ? cookie : cookie.slice(0, separator)).trim()
+}
+
+function isManagerCookieName(name: string): boolean {
+  return name === PREVIEW_COOKIE || MANAGER_COOKIE_PREFIXES.some((prefix) => name.startsWith(prefix))
+}
+
+function stripManagerCookies(cookieHeader: string | undefined): string | undefined {
   if (!cookieHeader) return undefined
   const kept = cookieHeader
     .split(';')
     .map((part) => part.trim())
-    .filter((part) => {
-      if (!part) return false
-      const separator = part.indexOf('=')
-      const name = separator === -1 ? part : part.slice(0, separator)
-      if (name === PREVIEW_COOKIE) return false
-      return !MANAGER_COOKIE_PREFIXES.some((prefix) => name.startsWith(prefix))
-    })
+    .filter((part) => part.length > 0 && !isManagerCookieName(readCookieName(part)))
   return kept.length > 0 ? kept.join('; ') : undefined
+}
+
+function stripPreviewSetCookies(headers: Headers): void {
+  const kept = headers.getSetCookie().filter((cookie) => !isManagerCookieName(readCookieName(cookie)))
+  headers.delete('set-cookie')
+  for (const cookie of kept) {
+    headers.append('set-cookie', cookie)
+  }
 }
 
 function readPreviewCookie(cookieHeader: string | undefined): string | null {
@@ -140,8 +162,24 @@ function isWebSocketUpgrade(c: Context): boolean {
 }
 
 function upstreamWebSocketUrl(session: PreviewSession, requestUrl: URL): string {
+  return `${previewUpstreamOrigin(session, 'ws')}${requestUrl.pathname}${requestUrl.search}`
+}
+
+function previewUpstreamOrigin(session: PreviewSession, protocol: 'http' | 'ws'): string {
   const targetHost = session.host === '::1' ? '[::1]' : 'localhost'
-  return `ws://${targetHost}:${session.port}${requestUrl.pathname}${requestUrl.search}`
+  return `${protocol}://${targetHost}:${session.port}`
+}
+
+function resolveRedirectPath(requestUrl: URL, requestedPath: string): string {
+  if (!requestedPath) return '/'
+  let resolved: URL
+  try {
+    resolved = new URL(requestedPath, requestUrl)
+  } catch {
+    return '/'
+  }
+  if (resolved.origin !== requestUrl.origin) return '/'
+  return `${resolved.pathname}${resolved.search}${resolved.hash}`
 }
 
 function parseProtocols(header: string | undefined): string[] {
@@ -163,10 +201,11 @@ export function createPreviewGatewayApp(store: PreviewSessionStore, fetchFn: typ
     }
 
     const requestedPath = c.req.query('path') ?? ''
-    const location = requestedPath.startsWith('/') && !requestedPath.startsWith('//') ? requestedPath : '/'
+    const requestUrl = new URL(c.req.url)
+    const location = resolveRedirectPath(requestUrl, requestedPath)
 
     const forwardedProto = c.req.header('x-forwarded-proto')?.toLowerCase()
-    const isSecure = forwardedProto === 'https' || new URL(c.req.url).protocol === 'https:'
+    const isSecure = forwardedProto === 'https' || requestUrl.protocol === 'https:'
     const cookie = `${PREVIEW_COOKIE}=${sessionId}; HttpOnly; SameSite=Lax; Path=/${isSecure ? '; Secure' : ''}`
 
     return new Response(null, { status: 302, headers: { location, 'set-cookie': cookie } })
@@ -212,22 +251,12 @@ export function createPreviewGatewayApp(store: PreviewSessionStore, fetchFn: typ
           bridge = bridgeWebSocket(upstream, {
             send: (data) => ws.send(data),
             close: (code, reason) => ws.close(code, reason),
+            bufferedAmount: () => peerBufferedAmount(ws),
           })
         },
         async onMessage(event) {
           if (!bridge) return
-          const data = event.data
-          if (typeof data === 'string') {
-            bridge.send(data)
-            return
-          }
-          if (data instanceof Blob) {
-            bridge.send(await data.arrayBuffer())
-            return
-          }
-          if (data instanceof ArrayBuffer) {
-            bridge.send(data)
-          }
+          await forwardPeerMessage(bridge, event.data)
         },
         onClose() {
           bridge?.close()
@@ -245,8 +274,7 @@ export function createPreviewGatewayApp(store: PreviewSessionStore, fetchFn: typ
     }
 
     const url = new URL(c.req.url)
-    const targetHost = session.host === '::1' ? '[::1]' : 'localhost'
-    const target = `http://${targetHost}:${session.port}${url.pathname}${url.search}`
+    const target = `${previewUpstreamOrigin(session, 'http')}${url.pathname}${url.search}`
 
     const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD'
 
@@ -256,6 +284,7 @@ export function createPreviewGatewayApp(store: PreviewSessionStore, fetchFn: typ
       headers['content-encoding'] = contentEncoding
     }
     headers['host'] = `localhost:${session.port}`
+    headers['accept-encoding'] = 'identity'
     const strippedCookies = stripManagerCookies(cookieHeader)
     if (strippedCookies) {
       headers['cookie'] = strippedCookies
@@ -275,6 +304,7 @@ export function createPreviewGatewayApp(store: PreviewSessionStore, fetchFn: typ
       })
 
       const responseHeaders = buildProxyResponseHeaders(upstreamResponse.headers)
+      stripPreviewSetCookies(responseHeaders)
       const location = responseHeaders.get('location')
       if (location) {
         const rewritten = rewriteLocalLocation(location, session.port)

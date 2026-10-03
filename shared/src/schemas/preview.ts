@@ -6,6 +6,7 @@ export const PreviewPortSchema = z.object({
   pid: z.number().int().nullable(),
   command: z.string().nullable(),
   cwd: z.string().nullable(),
+  inDirectory: z.boolean(),
 })
 
 export const PreviewPortsResponseSchema = z.object({

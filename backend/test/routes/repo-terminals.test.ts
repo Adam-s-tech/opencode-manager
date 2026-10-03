@@ -22,6 +22,7 @@ const gitAuthService = { getGitEnvironment: vi.fn(() => ({})) } as unknown as Gi
 const openCodeClient: OpenCodeClient = createStubOpenCodeClient()
 
 const readyRepo = { id: 1, fullPath: '/tmp/repo', cloneStatus: 'ready' } as Repo
+const assistantRepo = { id: 0, fullPath: '/tmp/repo', cloneStatus: 'ready' } as Repo
 
 const shellTerminal = {
   id: 'pty-1',
@@ -54,7 +55,9 @@ const jsonHeaders = { 'Content-Type': 'application/json' }
 describe('Repo Terminal Routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(resolveRepoOrAssistant).mockImplementation((_db, id) => (id === 1 ? readyRepo : null))
+    vi.mocked(resolveRepoOrAssistant).mockImplementation((_db, id) =>
+      id === 1 ? readyRepo : id === 0 ? assistantRepo : null,
+    )
     vi.mocked(resolveRepoWorkingDirectory).mockImplementation(async (_repo, directory) => {
       if (directory === undefined || directory === '/tmp/repo') return '/tmp/repo'
       return null
@@ -76,6 +79,15 @@ describe('Repo Terminal Routes', () => {
     it('returns 400 for a non-numeric repo id', async () => {
       const res = await createApp(createService()).request('/abc/terminals')
       expect(res.status).toBe(400)
+    })
+
+    it('resolves the assistant repo when assistant access is allowed', async () => {
+      const terminals = [{ ...shellTerminal }]
+      const list = vi.fn(async () => terminals)
+      const res = await createApp(createService({ list })).request('/0/terminals')
+
+      expect(res.status).toBe(200)
+      expect(list).toHaveBeenCalledWith('/tmp/repo')
     })
 
     it('returns 404 for an unknown repo', async () => {

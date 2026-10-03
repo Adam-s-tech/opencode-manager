@@ -6,15 +6,34 @@ import { canonicalPathSync } from '../utils/fs-safe'
 import { listListeningPorts, isReservedPreviewPort, type PreviewPortEntry } from '../services/preview/ports'
 import { PreviewSessionStore } from '../services/preview/gateway'
 
+export interface PreviewAvailability {
+  isEnabled: () => boolean
+  markAvailable: () => void
+  markUnavailable: () => void
+}
+
+/**
+ * Tracks whether the preview gateway is usable at request time. It starts in
+ * the given state and is flipped by the server lifecycle: available once the
+ * port is bound, unavailable after a bind error.
+ */
+export function createPreviewAvailability(initialEnabled: boolean): PreviewAvailability {
+  let enabled = initialEnabled
+  return {
+    isEnabled: () => enabled,
+    markAvailable: () => { enabled = true },
+    markUnavailable: () => { enabled = false },
+  }
+}
+
 export interface PreviewRoutesDeps {
-  enabled: boolean
+  isEnabled: () => boolean
   listPorts: () => Promise<PreviewPortEntry[]>
   store: PreviewSessionStore
 }
 
-function isInsideDirectory(cwd: string | null, canonicalDirectory: string | null): boolean {
-  if (!cwd || !canonicalDirectory) return false
-  const canonicalCwd = canonicalPathSync(cwd)
+function isInsideDirectory(canonicalCwd: string | null, canonicalDirectory: string | null): boolean {
+  if (!canonicalCwd || !canonicalDirectory) return false
   if (canonicalCwd === canonicalDirectory) return true
   const prefix = canonicalDirectory.endsWith(path.sep) ? canonicalDirectory : `${canonicalDirectory}${path.sep}`
   return canonicalCwd.startsWith(prefix)
@@ -22,7 +41,7 @@ function isInsideDirectory(cwd: string | null, canonicalDirectory: string | null
 
 export function createPreviewRoutes(deps: Partial<PreviewRoutesDeps> = {}) {
   const resolvedDeps: PreviewRoutesDeps = {
-    enabled: deps.enabled ?? ENV.PREVIEW.PORT > 0,
+    isEnabled: deps.isEnabled ?? (() => ENV.PREVIEW.PORT > 0),
     listPorts: deps.listPorts ?? (() => listListeningPorts()),
     store: deps.store ?? new PreviewSessionStore(),
   }
@@ -32,13 +51,15 @@ export function createPreviewRoutes(deps: Partial<PreviewRoutesDeps> = {}) {
     const directory = c.req.query('directory')
     const canonicalDirectory = directory ? canonicalPathSync(directory) : null
     const ports = await resolvedDeps.listPorts()
-    const sorted = [...ports].sort((left, right) => {
-      const leftMatch = isInsideDirectory(left.cwd, canonicalDirectory)
-      const rightMatch = isInsideDirectory(right.cwd, canonicalDirectory)
-      if (leftMatch !== rightMatch) return leftMatch ? -1 : 1
+    const decorated = ports.map((entry) => ({
+      ...entry,
+      inDirectory: isInsideDirectory(entry.cwd ? canonicalPathSync(entry.cwd) : null, canonicalDirectory),
+    }))
+    decorated.sort((left, right) => {
+      if (left.inDirectory !== right.inDirectory) return left.inDirectory ? -1 : 1
       return left.port - right.port
     })
-    return c.json({ enabled: resolvedDeps.enabled, ports: sorted })
+    return c.json({ enabled: resolvedDeps.isEnabled(), ports: decorated })
   })
 
   app.post('/sessions', async (c) => {
@@ -48,7 +69,7 @@ export function createPreviewRoutes(deps: Partial<PreviewRoutesDeps> = {}) {
       return c.json({ error: 'Invalid request' }, 400)
     }
 
-    if (!resolvedDeps.enabled) {
+    if (!resolvedDeps.isEnabled()) {
       return c.json({ error: 'Preview is disabled' }, 503)
     }
 

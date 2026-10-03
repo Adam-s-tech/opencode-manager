@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Plug, Sparkles, ShieldOff, CalendarClock, GitCommitHorizontal, SquareTerminal, Settings, LogOut, Bot, Folder, Home, Play, Globe } from 'lucide-react'
+import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 import { getAssistantPath, isAssistantPath } from '@/lib/navigation'
 
 export interface MoreDrawerItem {
@@ -72,15 +73,19 @@ function buildRouteNavModel(pathname: string): NavModel {
 
   const sessionDetailMatch = /^\/repos\/(\d+)\/sessions\/[^/]+$/.exec(pathname)
   if (sessionDetailMatch) {
+    const repoId = sessionDetailMatch[1]
+    const isAssistantRepo = repoId === String(ASSISTANT_REPO_ID)
     const items: MoreDrawerItem[] = [
       { key: 'files', label: 'Files', icon: Folder, dialog: 'files' },
       { key: 'mcp', label: 'MCP', icon: Plug, dialog: 'mcp' },
       { key: 'skills', label: 'Skills', icon: Sparkles, dialog: 'skills' },
       { key: 'reset-permissions', label: 'Reset Permissions', icon: ShieldOff, dialog: 'resetPermissions', danger: true },
-      { key: 'schedules', label: 'Schedules', icon: CalendarClock, to: `/repos/${sessionDetailMatch[1]}/schedules` },
+      { key: 'schedules', label: 'Schedules', icon: CalendarClock, to: `/repos/${repoId}/schedules` },
       { key: 'source-control', label: 'Source Control', icon: GitCommitHorizontal, dialog: 'sourceControl' },
       { key: 'terminal', label: 'Terminal', icon: SquareTerminal, dialog: 'terminal' },
-      { key: 'actions', label: 'Actions', icon: Play, dialog: 'actions' },
+      ...(isAssistantRepo
+        ? []
+        : [{ key: 'actions', label: 'Actions', icon: Play, dialog: 'actions' }]),
       { key: 'preview', label: 'Preview', icon: Globe, dialog: 'preview' },
       ...baseItems,
     ]
@@ -100,6 +105,7 @@ function buildRouteNavModel(pathname: string): NavModel {
       { key: 'schedules', label: 'Schedules', icon: CalendarClock, to: '/repos/0/schedules' },
       { key: 'source-control', label: 'Source Control', icon: GitCommitHorizontal, dialog: 'sourceControl' },
       { key: 'terminal', label: 'Terminal', icon: SquareTerminal, dialog: 'terminal' },
+      { key: 'preview', label: 'Preview', icon: Globe, dialog: 'preview' },
       ...baseItems,
     ]
 

@@ -65,6 +65,7 @@ interface FakePeer {
   closeCalls: Array<{ code?: number; reason?: string }>
   send(data: string | Uint8Array): void
   close(code?: number, reason?: string): void
+  bufferedAmount(): number
 }
 
 function createPeer(): FakePeer {
@@ -78,6 +79,9 @@ function createPeer(): FakePeer {
     },
     close(code, reason) {
       closeCalls.push({ code, reason })
+    },
+    bufferedAmount() {
+      return 0
     },
   }
 }

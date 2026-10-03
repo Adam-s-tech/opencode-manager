@@ -1,9 +1,25 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { findSiblingByDirectory, resolveRepoWorkingDirectory } from '../../src/services/repo'
+import { Database } from 'bun:sqlite'
+import { migrate } from '../../src/db/migration-runner'
+import { allMigrations } from '../../src/db/migrations'
+import { createRepo } from '../../src/db/queries'
+import { findSiblingByDirectory, getSiblingRepos, resolveRepoWorkingDirectory } from '../../src/services/repo'
 import type { Repo } from '@opencode-manager/shared/types'
+
+const { executeCommand, resolveProjectId, getSettings } = vi.hoisted(() => ({
+  executeCommand: vi.fn(),
+  resolveProjectId: vi.fn(),
+  getSettings: vi.fn(),
+}))
+
+vi.mock('../../src/utils/process', () => ({ executeCommand }))
+vi.mock('../../src/services/project-id-resolver', () => ({ resolveProjectId, isGitMainCheckout: vi.fn() }))
+vi.mock('../../src/services/settings', () => ({
+  SettingsService: vi.fn().mockImplementation(() => ({ getSettings })),
+}))
 
 describe('resolveRepoWorkingDirectory', () => {
   let root: string
@@ -94,5 +110,52 @@ describe('findSiblingByDirectory', () => {
   it('returns undefined when no sibling matches', () => {
     const sibling = { fullPath: siblingPath, id: 1 }
     expect(findSiblingByDirectory([sibling], path.join(root, 'missing'))).toBeUndefined()
+  })
+})
+
+describe('getSiblingRepos branch resolution', () => {
+  let db: Database
+
+  beforeEach(() => {
+    db = new Database(':memory:')
+    migrate(db, allMigrations)
+    getSettings.mockReturnValue({ preferences: { repoOrder: [] }, updatedAt: Date.now() })
+    resolveProjectId.mockResolvedValue('project-1')
+    executeCommand.mockReset()
+  })
+
+  afterEach(() => {
+    db.close()
+  })
+
+  function seedRepo(): Repo {
+    return createRepo(db, {
+      localPath: 'repo-a',
+      defaultBranch: 'main',
+      cloneStatus: 'ready',
+      clonedAt: Date.now(),
+      isLocal: true,
+    })
+  }
+
+  it('skips branch resolution when includeBranch is false', async () => {
+    const repo = seedRepo()
+
+    const siblings = await getSiblingRepos(db, repo.id, {}, undefined, { includeBranch: false })
+
+    expect(siblings).toHaveLength(1)
+    expect(siblings[0]?.currentBranch).toBeUndefined()
+    expect(executeCommand).not.toHaveBeenCalled()
+  })
+
+  it('resolves the branch when includeBranch is true', async () => {
+    const repo = seedRepo()
+    executeCommand.mockResolvedValue('feature-branch\n')
+
+    const siblings = await getSiblingRepos(db, repo.id, {})
+
+    expect(siblings).toHaveLength(1)
+    expect(siblings[0]?.currentBranch).toBe('feature-branch')
+    expect(executeCommand).toHaveBeenCalled()
   })
 })

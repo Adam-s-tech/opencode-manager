@@ -682,7 +682,9 @@ export function SessionDetail() {
           </div>
           <Header.Actions className="gap-2 sm:gap-4">
             <div className="flex items-center gap-1">
-              <ProjectActionsMenu repoId={repoId} directory={sessionDirectory} />
+              {!isAssistantSession && (
+                <ProjectActionsMenu repoId={repoId} directory={sessionDirectory} />
+              )}
               <PendingActionsGroup />
             </div>
             <ContextUsageIndicator
@@ -861,12 +863,14 @@ export function SessionDetail() {
         directory={repoDirectory}
       />
 
-      <RepoActionsDialog
-        repoId={repoId}
-        directory={sessionDirectory}
-        open={actionsDialogOpen}
-        onOpenChange={setActionsDialogOpen}
-      />
+      {!isAssistantSession && (
+        <RepoActionsDialog
+          repoId={repoId}
+          directory={sessionDirectory}
+          open={actionsDialogOpen}
+          onOpenChange={setActionsDialogOpen}
+        />
+      )}
 
       <SourceControlPanel
         repoId={repoId}

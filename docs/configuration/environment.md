@@ -10,7 +10,7 @@ Complete reference for all configuration options.
 | `ADMIN_EMAIL` | Pre-configured admin email | - |
 | `ADMIN_PASSWORD` | Pre-configured admin password | - |
 | `ADMIN_PASSWORD_RESET` | Set to `true` to reset admin password | `false` |
-| `AUTH_TRUSTED_ORIGINS` | Comma-separated list of trusted origins (frontend + backend) | `http://localhost:5173,http://localhost:5003` |
+| `AUTH_TRUSTED_ORIGINS` | Comma-separated list of trusted origins (frontend + backend). Browser requests that change state from another site (`Sec-Fetch-Site: same-site` or `cross-site`) are rejected unless their `Origin` is listed here. Never list the preview gateway origin. | `http://localhost:5173,http://localhost:5003` |
 | `AUTH_SECURE_COOKIES` | Use secure cookies (HTTPS only) | Runtime: `true` in prod, `false` in dev; Compose: `false` unless set |
 
 ## OAuth Providers
@@ -82,8 +82,8 @@ The preview gateway serves dev servers through an authenticated, separate origin
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PREVIEW_PORT` | Port for the preview gateway. Set to `0` to disable preview entirely. | `5004` |
-| `PREVIEW_PUBLIC_URL` | Same-site HTTPS origin that proxies the preview gateway. Set this when the Manager is served over HTTPS or behind a reverse proxy, where mixed content and third-party cookies otherwise block the preview iframe. | empty |
+| `PREVIEW_PORT` | Port for the preview gateway. Set to `0` to disable preview entirely. If the port is already in use, the Manager starts anyway, logs a warning and reports preview as unavailable. | `5004` |
+| `PREVIEW_PUBLIC_URL` | Same-site HTTPS origin that proxies the preview gateway; do not add it to `AUTH_TRUSTED_ORIGINS`. Set this when the Manager is served over HTTPS or behind a reverse proxy, where mixed content and third-party cookies otherwise block the preview iframe. | empty |
 
 ## Database
 

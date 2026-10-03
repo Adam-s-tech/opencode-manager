@@ -2,24 +2,20 @@ import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
 import type { Database } from 'bun:sqlite'
 import type { UpgradeWebSocket } from 'hono/ws'
-import { ENV } from '@opencode-manager/shared/config/env'
+import { getTrustedOrigins } from '@opencode-manager/shared/config/env'
 import type { GitAuthService } from '../services/git-auth'
 import type { OpenCodeClient } from '../services/opencode/client'
 import type { TerminalService } from '../services/terminal'
-import type { WebSocketBridge } from '../utils/websocket-bridge'
+import { forwardPeerMessage, peerBufferedAmount, type WebSocketBridge } from '../utils/websocket-bridge'
 import { getErrorMessage } from '../utils/error-utils'
-import { resolveTerminalDirectory } from './repo-terminals'
+import { resolveRepoRequestDirectory } from './repo-directory'
 
-export interface RepoTerminalSocketVariables {
+interface RepoTerminalSocketVariables {
   terminalDirectory: string
   terminalCursor: number | undefined
 }
 
 const MAX_CLOSE_REASON_BYTES = 120
-
-const DEFAULT_TRUSTED_ORIGINS = ENV.AUTH.TRUSTED_ORIGINS.split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean)
 
 function isAllowedUpgradeOrigin(
   origin: string | undefined,
@@ -50,7 +46,7 @@ export function createRepoTerminalSocketRoutes(
   openCodeClient: OpenCodeClient,
   terminalService: TerminalService,
   upgradeWebSocket: UpgradeWebSocket,
-  trustedOrigins: readonly string[] = DEFAULT_TRUSTED_ORIGINS,
+  trustedOrigins: readonly string[] = getTrustedOrigins(),
 ) {
   const app = new Hono<{ Variables: RepoTerminalSocketVariables }>()
   const deps = { database, gitAuthService, openCodeClient }
@@ -65,7 +61,9 @@ export function createRepoTerminalSocketRoutes(
       return c.json({ error: 'Invalid cursor' }, 400)
     }
 
-    const resolved = await resolveTerminalDirectory(c, deps, c.req.param('id') ?? '', c.req.query('directory'))
+    const resolved = await resolveRepoRequestDirectory(c, deps, c.req.param('id') ?? '', c.req.query('directory'), {
+      allowAssistant: true,
+    })
     if (resolved instanceof Response) return resolved
 
     c.set('terminalDirectory', resolved.directory)
@@ -91,6 +89,7 @@ export function createRepoTerminalSocketRoutes(
             .connect(directory, ptyID, cursor, {
               send: (data) => ws.send(data),
               close: (code, reason) => ws.close(code, reason),
+              bufferedAmount: () => peerBufferedAmount(ws),
             })
             .then((connected) => {
               if (closed) {
@@ -107,19 +106,7 @@ export function createRepoTerminalSocketRoutes(
         async onMessage(event) {
           await connectPromise
           if (!bridge) return
-
-          const data = event.data
-          if (typeof data === 'string') {
-            bridge.send(data)
-            return
-          }
-          if (data instanceof Blob) {
-            bridge.send(await data.arrayBuffer())
-            return
-          }
-          if (data instanceof ArrayBuffer) {
-            bridge.send(data)
-          }
+          await forwardPeerMessage(bridge, event.data)
         },
         onClose() {
           closed = true

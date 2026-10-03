@@ -95,6 +95,7 @@ describe('ProjectConfigService personal settings', () => {
       exists: false,
       trusted: false,
       hash: null,
+      executable: null,
       warnings: [],
     })
   })
@@ -288,17 +289,39 @@ describe('ProjectConfigService repository file', () => {
     })
   })
 
-  it('keeps trust across a name-only edit and drops it on a command edit', async () => {
+  it('drops trust when the name, command, or autoOpenUrl changes', async () => {
     writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
     const first = await service.getConfig(repo, directory)
     await service.trustRepoFile(repo, directory, first.repoFile.hash ?? '')
     expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(true)
 
     writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve renamed', command: 'pnpm dev' }] })
-    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(true)
-
-    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve renamed', command: 'pnpm dev --host' }] })
     expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(false)
+
+    const renamed = await service.getConfig(repo, directory)
+    await service.trustRepoFile(repo, directory, renamed.repoFile.hash ?? '')
+    writeRepoFile({
+      version: 1,
+      projectActions: [{ id: 'serve', name: 'Serve renamed', command: 'pnpm dev', autoOpenUrl: true }],
+    })
+    expect((await service.getConfig(repo, directory)).repoFile.trusted).toBe(false)
+  })
+
+  it('changes the hash when only the name or autoOpenUrl changes', async () => {
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }] })
+    const base = await service.getConfig(repo, directory)
+
+    writeRepoFile({ version: 1, projectActions: [{ id: 'serve', name: 'Serve renamed', command: 'pnpm dev' }] })
+    const renamed = await service.getConfig(repo, directory)
+
+    writeRepoFile({
+      version: 1,
+      projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev', autoOpenUrl: true }],
+    })
+    const autoOpen = await service.getConfig(repo, directory)
+
+    expect(renamed.repoFile.hash).not.toBe(base.repoFile.hash)
+    expect(autoOpen.repoFile.hash).not.toBe(base.repoFile.hash)
   })
 
   it('reports invalid JSON with an error and no repository items', async () => {
@@ -307,7 +330,7 @@ describe('ProjectConfigService repository file', () => {
     const config = await service.getConfig(repo, directory)
 
     expect(config.repoFile.exists).toBe(true)
-    expect(config.repoFile.error).toBeTruthy()
+    expect(config.repoFile.error).toBe('Invalid JSON')
     expect(config.repoFile.hash).toBeNull()
     expect(config.actions).toEqual([])
   })
@@ -317,8 +340,70 @@ describe('ProjectConfigService repository file', () => {
 
     const config = await service.getConfig(repo, directory)
 
-    expect(config.repoFile.error).toBeTruthy()
+    expect(config.repoFile.error).toBe('Does not match the project file schema')
     expect(config.actions).toEqual([])
+  })
+
+  it('rejects a repository action url that is not http(s)', async () => {
+    writeRepoFile({
+      version: 1,
+      projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev', url: 'javascript:alert(1)' }],
+    })
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.error).toBe('Does not match the project file schema')
+    expect(config.repoFile.executable).toBeNull()
+  })
+
+  it('accepts an http url template', async () => {
+    writeRepoFile({
+      version: 1,
+      projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev', url: 'http://localhost:3000/{branch}' }],
+    })
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.executable?.actions[0]?.url).toBe('http://localhost:3000/{branch}')
+  })
+
+  it('reports a symlinked .ocm directory as invalid on read', async () => {
+    const realDir = path.join(directory, 'real-ocm')
+    fs.mkdirSync(realDir, { recursive: true })
+    fs.writeFileSync(path.join(realDir, 'project.json'), JSON.stringify({ version: 1 }))
+    fs.symlinkSync(realDir, path.join(directory, '.ocm'), 'dir')
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.error).toBe('.ocm/project.json must not be a symbolic link')
+    expect(config.repoFile.hash).toBeNull()
+    expect(config.repoFile.executable).toBeNull()
+  })
+
+  it('reports a symlinked project.json as invalid on read', async () => {
+    const ocmDir = path.join(directory, '.ocm')
+    fs.mkdirSync(ocmDir, { recursive: true })
+    const target = path.join(directory, 'target.json')
+    fs.writeFileSync(target, JSON.stringify({ version: 1 }))
+    fs.symlinkSync(target, path.join(ocmDir, 'project.json'))
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.error).toBe('.ocm/project.json must not be a symbolic link')
+  })
+
+  it('refuses to move an action into a symlinked repository config', async () => {
+    service.setPersonalActions(repo, [createAction()])
+    const realDir = path.join(directory, 'real-ocm')
+    fs.mkdirSync(realDir, { recursive: true })
+    fs.writeFileSync(path.join(realDir, 'project.json'), JSON.stringify({ version: 1 }))
+    fs.symlinkSync(realDir, path.join(directory, '.ocm'), 'dir')
+
+    await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })).rejects.toMatchObject({
+      status: 400,
+      code: 'REPO_CONFIG_SYMLINK',
+    })
+    expect(service.getPersonalActions(repo)).toEqual([createAction()])
   })
 
   it('moves an action personal to repo preserving unknown keys and marking it trusted', async () => {
@@ -416,6 +501,34 @@ describe('ProjectConfigService repository file', () => {
     expect(config.repoFile.warnings[0]).toContain('serve')
   })
 
+  it('lists every executable repository action including a shadowed one', async () => {
+    service.setPersonalActions(repo, [
+      createAction({ id: 'serve', name: 'Personal Serve', command: 'pnpm personal' }),
+    ])
+    writeRepoFile({
+      version: 1,
+      projectActions: [
+        { id: 'serve', name: 'Repo Serve', command: 'pnpm repo-dev', url: 'https://example.com', autoOpenUrl: true },
+        { id: 'other', name: 'Other', command: 'pnpm other' },
+      ],
+      setupWorktree: ['pnpm install'],
+    })
+
+    const config = await service.getConfig(repo, directory)
+
+    expect(config.repoFile.executable).toEqual({
+      actions: [
+        { id: 'serve', name: 'Repo Serve', command: 'pnpm repo-dev', url: 'https://example.com', autoOpenUrl: true },
+        { id: 'other', name: 'Other', command: 'pnpm other', url: null, autoOpenUrl: false },
+      ],
+      setup: ['pnpm install'],
+    })
+    expect(config.actions).toEqual([
+      { id: 'serve', name: 'Personal Serve', command: 'pnpm personal', autoOpenUrl: false, source: 'personal' },
+      { id: 'other', name: 'Other', command: 'pnpm other', autoOpenUrl: false, source: 'repo' },
+    ])
+  })
+
   it('rejects moving an unknown personal action', async () => {
     await expect(service.moveItem(repo, directory, { kind: 'action', id: 'missing', to: 'repo' })).rejects.toMatchObject({
       status: 404,
@@ -487,12 +600,13 @@ describe('ProjectConfigService repository file', () => {
 
   it('restores the repository file and personal settings when the file write fails', async () => {
     service.setPersonalActions(repo, [createAction()])
-    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+    const writeSeam = service as unknown as { writeRepoFile(filePath: string, file: unknown): void }
+    const writeSpy = vi.spyOn(writeSeam, 'writeRepoFile').mockImplementationOnce(() => {
       throw new Error('disk full')
     })
 
     await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'repo' })).rejects.toThrow('disk full')
-    renameSpy.mockRestore()
+    writeSpy.mockRestore()
 
     expect(fs.existsSync(repoFilePath())).toBe(false)
     expect(service.getPersonalActions(repo)).toEqual([createAction()])
@@ -531,14 +645,15 @@ describe('ProjectConfigService repository file', () => {
       ],
     })
     const originalBytes = fs.readFileSync(repoFilePath(), 'utf8')
-    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+    const writeSeam = service as unknown as { writeRepoFile(filePath: string, file: unknown): void }
+    const writeSpy = vi.spyOn(writeSeam, 'writeRepoFile').mockImplementationOnce(() => {
       throw new Error('disk full')
     })
 
     await expect(service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })).rejects.toThrow(
       'disk full',
     )
-    renameSpy.mockRestore()
+    writeSpy.mockRestore()
 
     expect(fs.readFileSync(repoFilePath(), 'utf8')).toBe(originalBytes)
     expect(service.getPersonalActions(repo)).toEqual([])

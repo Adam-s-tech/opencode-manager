@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
-import { bridgeWebSocket, type WebSocketPeer } from '../../src/utils/websocket-bridge'
+import {
+  bridgeWebSocket,
+  forwardPeerMessage,
+  MAX_PEER_BUFFERED_BYTES,
+  type WebSocketBridge,
+  type WebSocketPeer,
+} from '../../src/utils/websocket-bridge'
 
 type Listener = (event: unknown) => void
 
@@ -28,21 +34,25 @@ class FakeUpstream {
 interface FakePeer extends WebSocketPeer {
   sent: Array<string | Uint8Array>
   closeCalls: Array<{ code?: number; reason?: string }>
+  buffered: number
 }
 
 function createPeer(): FakePeer {
-  const sent: Array<string | Uint8Array> = []
-  const closeCalls: Array<{ code?: number; reason?: string }> = []
-  return {
-    sent,
-    closeCalls,
+  const peer: FakePeer = {
+    sent: [],
+    closeCalls: [],
+    buffered: 0,
     send(data) {
-      sent.push(data)
+      peer.sent.push(data)
     },
     close(code, reason) {
-      closeCalls.push({ code, reason })
+      peer.closeCalls.push({ code, reason })
+    },
+    bufferedAmount() {
+      return peer.buffered
     },
   }
+  return peer
 }
 
 function asUpstream(upstream: FakeUpstream): WebSocket {
@@ -111,14 +121,32 @@ describe('bridgeWebSocket', () => {
     expect(peer.closeCalls).toEqual([{ code: 1011, reason: undefined }])
   })
 
-  it('applies a custom close-code mapper', () => {
+  it('closes the upstream and peer with 1013 when the peer buffer overflows', () => {
     const upstream = new FakeUpstream()
     const peer = createPeer()
-    bridgeWebSocket(asUpstream(upstream), peer, { mapCloseCode: () => 4000 })
+    peer.buffered = MAX_PEER_BUFFERED_BYTES + 1
 
-    upstream.emit('close', { code: 1006 })
+    bridgeWebSocket(asUpstream(upstream), peer)
+    upstream.emit('message', { data: 'overflow' })
 
-    expect(peer.closeCalls).toEqual([{ code: 4000, reason: undefined }])
+    expect(peer.closeCalls).toEqual([{ code: 1013, reason: 'Client too slow' }])
+    expect(upstream.close).toHaveBeenCalledTimes(1)
+
+    upstream.emit('close', { code: 1000 })
+    expect(peer.closeCalls).toHaveLength(1)
+  })
+
+  it('keeps bridging while the peer buffer stays within the limit', () => {
+    const upstream = new FakeUpstream()
+    const peer = createPeer()
+    peer.buffered = MAX_PEER_BUFFERED_BYTES
+
+    bridgeWebSocket(asUpstream(upstream), peer)
+    upstream.emit('message', { data: 'within limit' })
+
+    expect(peer.sent).toEqual(['within limit'])
+    expect(peer.closeCalls).toEqual([])
+    expect(upstream.close).not.toHaveBeenCalled()
   })
 
   it('closes the upstream only once and ignores later sends', () => {
@@ -131,5 +159,29 @@ describe('bridgeWebSocket', () => {
 
     expect(upstream.close).toHaveBeenCalledTimes(1)
     expect(upstream.sent).toEqual([])
+  })
+})
+
+describe('forwardPeerMessage', () => {
+  function createBridge(sent: Array<string | ArrayBuffer | Uint8Array>): WebSocketBridge {
+    return {
+      send(data) {
+        sent.push(data)
+      },
+      close() {},
+    }
+  }
+
+  it('forwards strings, ArrayBuffers and Blobs to the bridge', async () => {
+    const sent: Array<string | ArrayBuffer | Uint8Array> = []
+    const bridge = createBridge(sent)
+
+    await forwardPeerMessage(bridge, 'plain text')
+    await forwardPeerMessage(bridge, new Uint8Array([1, 2]).buffer)
+    await forwardPeerMessage(bridge, new Blob(['blob body']))
+
+    expect(sent[0]).toBe('plain text')
+    expect(sent[1]).toEqual(new Uint8Array([1, 2]).buffer)
+    expect(new TextDecoder().decode(sent[2] as ArrayBuffer)).toBe('blob body')
   })
 })

@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useMobile } from '@/hooks/useMobile'
 import { useUrlParams } from '@/hooks/useUrlParams'
-import { buildPreviewStartUrl, getPreviewOrigin, isSameOriginAsManager } from '@/lib/preview-url'
+import { getOpenCodeApiErrorMessage } from '@/lib/opencode-errors'
+import { buildPreviewStartUrl, getPreviewOrigin, isSameOriginAsManager, parsePort } from '@/lib/preview-url'
 import { cn } from '@/lib/utils'
 
 interface PreviewPanelProps {
@@ -38,26 +39,13 @@ interface ActiveSession {
   data: CreatePreviewSessionResponse
 }
 
-function isInsideDirectory(cwd: string | null, directory: string | undefined): boolean {
-  if (!cwd || !directory) return false
-  if (cwd === directory) return true
-  const prefix = directory.endsWith('/') ? directory : `${directory}/`
-  return cwd.startsWith(prefix)
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
-}
-
 export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) {
   const isMobile = useMobile()
   const { searchParams, updateParams } = useUrlParams()
 
   const requestedPort = useMemo(() => {
-    const raw = searchParams.get('previewPort')
-    if (!raw) return undefined
-    const port = Number(raw)
-    return Number.isInteger(port) && port > 0 && port <= 65535 ? port : undefined
+    const port = parsePort(searchParams.get('previewPort') ?? '')
+    return port ?? undefined
   }, [searchParams])
   const requestedPath = searchParams.get('previewPath') || '/'
 
@@ -71,9 +59,11 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
   const activePathRef = useRef<string | null>(null)
   const requestIdRef = useRef(0)
 
+  const activeSession = session && session.targetPort === requestedPort ? session : null
+
   const portsQuery = usePreviewPorts(directory, {
     enabled: isOpen,
-    refetchInterval: isOpen ? 2000 : false,
+    refetchInterval: isOpen && !activeSession ? 2000 : false,
   })
   const ports = useMemo(() => portsQuery.data?.ports ?? [], [portsQuery.data])
   const enabled = portsQuery.data?.enabled ?? true
@@ -127,7 +117,7 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
         if (requestIdRef.current !== requestId) return
         sessionPortRef.current = null
         activePathRef.current = null
-        setSessionError(errorMessage(error, 'Failed to start preview'))
+        setSessionError(getOpenCodeApiErrorMessage(error, 'Failed to start preview'))
       })
   }, [])
 
@@ -166,7 +156,7 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
         window.open(buildPreviewStartUrl(data, requestedPath), '_blank', 'noopener,noreferrer')
       })
       .catch((error: unknown) => {
-        setSessionError(errorMessage(error, 'Failed to open preview'))
+        setSessionError(getOpenCodeApiErrorMessage(error, 'Failed to open preview'))
       })
   }, [requestedPort, requestedPath])
 
@@ -180,7 +170,6 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
     void portsQuery.refetch()
   }, [portListed, requestedPort, requestedPath, startSession, portsQuery])
 
-  const activeSession = session && session.targetPort === requestedPort ? session : null
   const previewOrigin = activeSession ? getPreviewOrigin(activeSession.data) : null
   const sameOrigin = previewOrigin ? isSameOriginAsManager(previewOrigin) : false
   const viewportWidth = VIEWPORT_WIDTHS[viewport]
@@ -200,7 +189,7 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
 
   const body = () => {
     if (!enabled) {
-      return renderMessage('Preview is disabled (PREVIEW_PORT=0)')
+      return renderMessage('Preview is unavailable')
     }
     if (!requestedPort) {
       return renderMessage('Select a port to preview')
@@ -338,7 +327,7 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
               >
                 <span className="font-medium">:{entry.port}</span>
                 {entry.command && <span className="truncate">{entry.command}</span>}
-                {isInsideDirectory(entry.cwd, directory) && (
+                {entry.inDirectory && (
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">this repo</span>
                 )}
               </button>

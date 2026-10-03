@@ -60,9 +60,20 @@ describe('buildMoreItems', () => {
     expect(items[11].key).toBe('logout')
   })
 
+  it('omits the Actions item for an Assistant session', () => {
+    const items = buildMoreItems('/repos/0/sessions/abc')
+    expect(items).toHaveLength(11)
+    expect(items.map((item) => item.key)).not.toContain('actions')
+    expect(items[7].key).toBe('terminal')
+    expect(items[8].key).toBe('preview')
+    expect(items[8].dialog).toBe('preview')
+    expect(items[9].key).toBe('settings')
+    expect(items[10].key).toBe('logout')
+  })
+
   it('returns assistant workspace items for /repos/:id/assistant', () => {
     const items = buildMoreItems('/repos/42/assistant')
-    expect(items).toHaveLength(10)
+    expect(items).toHaveLength(11)
     expect(items[0].key).toBe('home')
     expect(items[1].key).toBe('files')
     expect(items[1].dialog).toBe('files')
@@ -73,8 +84,10 @@ describe('buildMoreItems', () => {
     expect(items[6].key).toBe('source-control')
     expect(items[7].key).toBe('terminal')
     expect(items[7].dialog).toBe('terminal')
-    expect(items[8].key).toBe('settings')
-    expect(items[9].key).toBe('logout')
+    expect(items[8].key).toBe('preview')
+    expect(items[8].dialog).toBe('preview')
+    expect(items[9].key).toBe('settings')
+    expect(items[10].key).toBe('logout')
   })
 
   it('returns only Home + Settings + Logout for /schedules', () => {

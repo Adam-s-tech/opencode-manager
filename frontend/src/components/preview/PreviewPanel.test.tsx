@@ -15,7 +15,7 @@ type PreviewPortsResult = ReturnType<typeof usePreviewPorts>
 
 const portsData = {
   enabled: true,
-  ports: [{ port: 5173, host: '127.0.0.1' as const, pid: 10, command: 'vite', cwd: '/repo' }],
+  ports: [{ port: 5173, host: '127.0.0.1' as const, pid: 10, command: 'vite', cwd: '/repo', inDirectory: true }],
 }
 
 let portsState: PreviewPortsResult['data'] = portsData
@@ -106,13 +106,41 @@ describe('PreviewPanel', () => {
     portsState = { enabled: false, ports: [] }
     renderPanel('/repos/1?dialog=preview')
 
-    expect(screen.getByText(/Preview is disabled/)).toBeInTheDocument()
+    expect(screen.getByText(/Preview is unavailable/)).toBeInTheDocument()
   })
 
-  it('badges ports that run inside the directory', () => {
+  it('badges ports marked as inside the directory', () => {
     renderPanel('/repos/1?dialog=preview')
 
     expect(screen.getByText('this repo')).toBeInTheDocument()
+  })
+
+  it('does not badge ports marked as outside the directory', () => {
+    portsState = {
+      enabled: true,
+      ports: [{ port: 5173, host: '127.0.0.1', pid: 10, command: 'vite', cwd: '/elsewhere', inDirectory: false }],
+    }
+    renderPanel('/repos/1?dialog=preview')
+
+    expect(screen.queryByText('this repo')).not.toBeInTheDocument()
+  })
+
+  it('polls the port list while no preview session is active', () => {
+    renderPanel('/repos/1?dialog=preview')
+
+    const lastOptions = vi.mocked(usePreviewPorts).mock.calls.at(-1)?.[1]
+    expect(lastOptions?.enabled).toBe(true)
+    expect(lastOptions?.refetchInterval).toBe(2000)
+  })
+
+  it('stops polling once a preview session is active', async () => {
+    renderPanel()
+
+    await screen.findByTitle('Preview')
+
+    const lastOptions = vi.mocked(usePreviewPorts).mock.calls.at(-1)?.[1]
+    expect(lastOptions?.enabled).toBe(true)
+    expect(lastOptions?.refetchInterval).toBe(false)
   })
 
   it('mints a fresh session when a listed port disappears and comes back', async () => {

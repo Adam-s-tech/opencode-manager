@@ -1,6 +1,7 @@
 import { createRef, type ComponentProps } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
+import { resizeTerminal } from '@/api/terminals'
 import { TerminalView, type TerminalViewHandle } from './TerminalView'
 
 const xterm = vi.hoisted(() => {
@@ -64,6 +65,7 @@ function renderView(overrides: Partial<ComponentProps<typeof TerminalView>> = {}
       active
       ctrlArmed={false}
       onCtrlConsumed={onCtrlConsumed}
+      onOpenLink={vi.fn()}
       onExited={vi.fn()}
       {...overrides}
     />
@@ -110,6 +112,7 @@ describe('TerminalView input handling', () => {
       active: true,
       ctrlArmed: true,
       onCtrlConsumed,
+      onOpenLink: vi.fn(),
       onExited: vi.fn(),
     }
 
@@ -129,5 +132,86 @@ describe('TerminalView input handling', () => {
 
     expect(socket.send).toHaveBeenLastCalledWith('c')
     expect(onCtrlConsumed).toHaveBeenCalledTimes(1)
+  })
+})
+
+class TestResizeObserver {
+  static instances: TestResizeObserver[] = []
+  readonly callback: ResizeObserverCallback
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback
+    TestResizeObserver.instances.push(this)
+  }
+
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+
+  trigger() {
+    this.callback([], this as unknown as ResizeObserver)
+  }
+}
+
+function setVisibleSize(container: HTMLElement) {
+  Object.defineProperty(container, 'clientWidth', { value: 800, configurable: true })
+  Object.defineProperty(container, 'clientHeight', { value: 400, configurable: true })
+}
+
+describe('TerminalView resize', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    TestResizeObserver.instances = []
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('sends a resize only when the fitted size changes', () => {
+    const { view } = renderView()
+    const container = view.container.querySelector('[data-terminal-id="t1"]') as HTMLElement
+    setVisibleSize(container)
+
+    act(() => {
+      vi.advanceTimersByTime(150)
+    })
+    expect(resizeTerminal).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      TestResizeObserver.instances[0].trigger()
+      vi.advanceTimersByTime(150)
+    })
+    act(() => {
+      TestResizeObserver.instances[0].trigger()
+      vi.advanceTimersByTime(150)
+    })
+
+    expect(resizeTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send a resize while the view is hidden', () => {
+    const { view } = renderView({ active: false })
+    const container = view.container.querySelector('[data-terminal-id="t1"]') as HTMLElement
+    setVisibleSize(container)
+
+    act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    expect(resizeTerminal).not.toHaveBeenCalled()
+  })
+
+  it('does not send a resize when the container has no size', () => {
+    renderView()
+
+    act(() => {
+      vi.advanceTimersByTime(150)
+    })
+
+    expect(resizeTerminal).not.toHaveBeenCalled()
   })
 })

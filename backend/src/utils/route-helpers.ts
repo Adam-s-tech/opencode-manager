@@ -25,6 +25,8 @@ interface ServiceError {
   message: string
   statusCode?: number
   status?: number
+  code?: string
+  details?: unknown
 }
 
 type ServiceErrorConstructor = new (message: string, statusOrStatusCode: number) => ServiceError
@@ -36,8 +38,16 @@ export function handleServiceError(
   ErrorClass: ServiceErrorConstructor,
 ) {
   if (error instanceof ErrorClass) {
-    const status = (error as ServiceError).statusCode ?? (error as ServiceError).status ?? 500
-    return c.json({ error: error.message }, status as ContentfulStatusCode)
+    const serviceError = error as ServiceError
+    const status = serviceError.statusCode ?? serviceError.status ?? 500
+    return c.json(
+      {
+        error: error.message,
+        ...(serviceError.code !== undefined ? { code: serviceError.code } : {}),
+        ...(serviceError.details !== undefined ? { details: serviceError.details } : {}),
+      },
+      status as ContentfulStatusCode,
+    )
   }
   logger.error(fallback, error)
   return c.json({ error: getErrorMessage(error) }, 500)

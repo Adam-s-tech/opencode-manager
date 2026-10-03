@@ -3,16 +3,14 @@ import type { CreatePreviewSessionResponse, PreviewPortsResponse } from '@openco
 import { API_BASE_URL } from '@/config'
 import { fetchWrapper } from './fetchWrapper'
 
-function directoryQuery(directory: string | undefined): string {
-  return directory ? `?${new URLSearchParams({ directory }).toString()}` : ''
-}
-
-export function previewPortsQueryKey(directory: string | undefined) {
+function previewPortsQueryKey(directory: string | undefined) {
   return ['previewPorts', directory ?? null] as const
 }
 
-export function listPreviewPorts(directory?: string): Promise<PreviewPortsResponse> {
-  return fetchWrapper(`${API_BASE_URL}/api/preview/ports${directoryQuery(directory)}`)
+function listPreviewPorts(directory?: string): Promise<PreviewPortsResponse> {
+  return fetchWrapper(`${API_BASE_URL}/api/preview/ports`, {
+    params: { directory },
+  })
 }
 
 export function createPreviewSession(port: number): Promise<CreatePreviewSessionResponse> {

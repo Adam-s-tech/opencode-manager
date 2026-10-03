@@ -1194,6 +1194,7 @@ export async function getSiblingRepos(
   repoId: number,
   gitEnv: Record<string, string>,
   openCodeClient?: OpenCodeClient,
+  options: { includeBranch?: boolean } = {},
 ): Promise<Array<Repo & { currentBranch: string | undefined; worktreeStrategy?: string }>> {
   const settingsService = new SettingsService(database)
   const settings = settingsService.getSettings()
@@ -1217,10 +1218,11 @@ export async function getSiblingRepos(
     .filter((entry) => entry.projectId === targetProjectId)
     .map((entry) => entry.repo)
 
+  const includeBranch = options.includeBranch ?? true
   const repoSiblings = await Promise.all(
     matching.map(async (repo) => ({
       ...repo,
-      currentBranch: (await getCurrentBranch(repo, gitEnv)) ?? undefined,
+      currentBranch: includeBranch ? (await getCurrentBranch(repo, gitEnv)) ?? undefined : undefined,
     })),
   )
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { FetchError } from '@opencode-manager/shared'
 import { RepoActionsDialog } from './RepoActionsDialog'
 import type { ProjectConfigResponse } from '@opencode-manager/shared/types'
 
@@ -31,7 +32,14 @@ function baseConfig(overrides: Partial<ProjectConfigResponse> = {}): ProjectConf
   return {
     actions: [],
     worktreeSetup: [],
-    repoFile: { path: '.ocm/project.json', exists: false, trusted: false, hash: null, warnings: [] },
+    repoFile: {
+      path: '.ocm/project.json',
+      exists: false,
+      trusted: false,
+      hash: null,
+      warnings: [],
+      executable: null,
+    },
     ...overrides,
   }
 }
@@ -119,7 +127,19 @@ describe('RepoActionsDialog', () => {
         actions: [
           { id: 'repo-1', name: 'Repo action', command: 'echo repo', autoOpenUrl: false, source: 'repo' },
         ],
-        repoFile: { path: '.ocm/project.json', exists: true, trusted: false, hash: HASH, warnings: [] },
+        repoFile: {
+          path: '.ocm/project.json',
+          exists: true,
+          trusted: false,
+          hash: HASH,
+          warnings: [],
+          executable: {
+            actions: [
+              { id: 'repo-1', name: 'Repo action', command: 'echo repo', url: null, autoOpenUrl: false },
+            ],
+            setup: [],
+          },
+        },
       }),
     )
     const user = userEvent.setup()
@@ -131,10 +151,74 @@ describe('RepoActionsDialog', () => {
     expect(mocks.trustMutate.mock.calls[0][0]).toEqual({ hash: HASH, directory: '/repo' })
   })
 
+  it('lists every executable action and setup command, including shadowed actions', () => {
+    mockConfig(
+      baseConfig({
+        actions: [
+          { id: 'shared', name: 'My action', command: 'echo personal', autoOpenUrl: false, source: 'personal' },
+        ],
+        repoFile: {
+          path: '.ocm/project.json',
+          exists: true,
+          trusted: false,
+          hash: HASH,
+          warnings: [],
+          executable: {
+            actions: [
+              { id: 'shared', name: 'Repo action', command: 'echo repo', url: 'https://example.com', autoOpenUrl: true },
+            ],
+            setup: ['pnpm install'],
+          },
+        },
+      }),
+    )
+    renderDialog()
+
+    expect(screen.getAllByText('Actions').length).toBeGreaterThan(1)
+    expect(screen.getByText('Repo action')).toBeInTheDocument()
+    expect(screen.getByText('echo repo')).toBeInTheDocument()
+    expect(screen.getByText('https://example.com')).toBeInTheDocument()
+    expect(screen.getByText('Opens URL automatically')).toBeInTheDocument()
+    expect(screen.getByText('Worktree setup commands')).toBeInTheDocument()
+    expect(screen.getByText('pnpm install')).toBeInTheDocument()
+  })
+
+  it('does not offer trust when the repo file has no executable commands', () => {
+    mockConfig(
+      baseConfig({
+        repoFile: { path: '.ocm/project.json', exists: true, trusted: false, hash: HASH, warnings: [], executable: null },
+      }),
+    )
+    renderDialog()
+
+    expect(screen.queryByText(/not trusted/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /trust these commands/i })).not.toBeInTheDocument()
+  })
+
+  it('uses the shared action icon map', () => {
+    mockConfig(
+      baseConfig({
+        actions: [
+          { id: 'deploy', name: 'Deploy', command: 'pnpm deploy', icon: 'rocket', autoOpenUrl: false, source: 'personal' },
+        ],
+      }),
+    )
+    const { container } = renderDialog()
+
+    expect(container.ownerDocument.querySelector('.lucide-rocket')).not.toBeNull()
+  })
+
   it('hides the trust banner for a trusted repo file', () => {
     mockConfig(
       baseConfig({
-        repoFile: { path: '.ocm/project.json', exists: true, trusted: true, hash: HASH, warnings: [] },
+        repoFile: {
+          path: '.ocm/project.json',
+          exists: true,
+          trusted: true,
+          hash: HASH,
+          warnings: [],
+          executable: null,
+        },
       }),
     )
     renderDialog()
@@ -152,6 +236,7 @@ describe('RepoActionsDialog', () => {
           hash: null,
           error: 'Invalid repository config',
           warnings: [],
+          executable: null,
         },
       }),
     )
@@ -206,7 +291,7 @@ describe('RepoActionsDialog', () => {
     )
     mocks.updateActionsMutate.mockImplementation(
       (_payload: unknown, options?: { onError?: (error: unknown) => void }) => {
-        options?.onError?.(new Error('Server rejected the action'))
+        options?.onError?.(new FetchError('Server rejected the action', 400))
       },
     )
     const user = userEvent.setup()
@@ -230,7 +315,7 @@ describe('RepoActionsDialog', () => {
     )
     mocks.updateSetupMutate.mockImplementation(
       (_commands: unknown, options?: { onError?: (error: unknown) => void }) => {
-        options?.onError?.(new Error('Setup save rejected'))
+        options?.onError?.(new FetchError('Setup save rejected', 400))
       },
     )
     const user = userEvent.setup()
@@ -251,12 +336,24 @@ describe('RepoActionsDialog', () => {
         actions: [
           { id: 'repo-1', name: 'Repo action', command: 'echo repo', autoOpenUrl: false, source: 'repo' },
         ],
-        repoFile: { path: '.ocm/project.json', exists: true, trusted: false, hash: HASH, warnings: [] },
+        repoFile: {
+          path: '.ocm/project.json',
+          exists: true,
+          trusted: false,
+          hash: HASH,
+          warnings: [],
+          executable: {
+            actions: [
+              { id: 'repo-1', name: 'Repo action', command: 'echo repo', url: null, autoOpenUrl: false },
+            ],
+            setup: [],
+          },
+        },
       }),
     )
     mocks.trustMutate.mockImplementation(
       (_request: unknown, options?: { onError?: (error: unknown) => void }) => {
-        options?.onError?.(new Error('Trust rejected'))
+        options?.onError?.(new FetchError('Trust rejected', 400))
       },
     )
     const user = userEvent.setup()
@@ -277,7 +374,7 @@ describe('RepoActionsDialog', () => {
     )
     mocks.moveMutate.mockImplementation(
       (_request: unknown, options?: { onError?: (error: unknown) => void }) => {
-        options?.onError?.(new Error('Move rejected'))
+        options?.onError?.(new FetchError('Move rejected', 400))
       },
     )
     const user = userEvent.setup()
@@ -309,7 +406,7 @@ describe('RepoActionsDialog', () => {
           { id: 'added', name: 'Added', command: 'pnpm dev', autoOpenUrl: false, source: 'personal' },
         ],
         worktreeSetup: [{ command: 'pnpm install', source: 'personal' }],
-        repoFile: { path: '.ocm/project.json', exists: true, trusted: true, hash: HASH, warnings: [] },
+        repoFile: { path: '.ocm/project.json', exists: true, trusted: true, hash: HASH, warnings: [], executable: null },
       }),
     )
     view.rerender(<RepoActionsDialog repoId={1} directory="/repo" open onOpenChange={vi.fn()} />)

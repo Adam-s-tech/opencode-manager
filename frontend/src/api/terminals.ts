@@ -3,22 +3,23 @@ import type { CreateTerminalRequest, ResizeTerminalRequest, TerminalInfo } from 
 import { API_BASE_URL } from '@/config'
 import { fetchWrapper, fetchWrapperVoid } from './fetchWrapper'
 
-function directoryQuery(directory: string | undefined): string {
-  return directory ? `?${new URLSearchParams({ directory }).toString()}` : ''
-}
-
-export function terminalsQueryKey(repoId: number, directory: string | undefined) {
+function terminalsQueryKey(repoId: number, directory: string | undefined) {
   return ['terminals', repoId, directory ?? null] as const
 }
 
-export async function listTerminals(repoId: number, directory?: string): Promise<TerminalInfo[]> {
+function terminalsRepoQueryKey(repoId: number) {
+  return ['terminals', repoId] as const
+}
+
+async function listTerminals(repoId: number, directory?: string): Promise<TerminalInfo[]> {
   const data = await fetchWrapper<{ terminals: TerminalInfo[] }>(
-    `${API_BASE_URL}/api/repos/${repoId}/terminals${directoryQuery(directory)}`,
+    `${API_BASE_URL}/api/repos/${repoId}/terminals`,
+    { params: { directory } },
   )
   return data.terminals
 }
 
-export async function createTerminal(repoId: number, body: CreateTerminalRequest): Promise<TerminalInfo> {
+async function createTerminal(repoId: number, body: CreateTerminalRequest): Promise<TerminalInfo> {
   return fetchWrapper<TerminalInfo>(`${API_BASE_URL}/api/repos/${repoId}/terminals`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -34,14 +35,14 @@ export async function resizeTerminal(repoId: number, ptyID: string, body: Resize
   })
 }
 
-export async function removeTerminal(repoId: number, ptyID: string, directory?: string): Promise<void> {
-  return fetchWrapperVoid(
-    `${API_BASE_URL}/api/repos/${repoId}/terminals/${encodeURIComponent(ptyID)}${directoryQuery(directory)}`,
-    { method: 'DELETE' },
-  )
+async function removeTerminal(repoId: number, ptyID: string, directory?: string): Promise<void> {
+  return fetchWrapperVoid(`${API_BASE_URL}/api/repos/${repoId}/terminals/${encodeURIComponent(ptyID)}`, {
+    method: 'DELETE',
+    params: { directory },
+  })
 }
 
-export interface UseTerminalsOptions {
+interface UseTerminalsOptions {
   enabled: boolean
   refetchInterval?: number | false
 }
@@ -60,12 +61,12 @@ export function useCreateTerminal(repoId: number) {
   return useMutation({
     mutationFn: (body: CreateTerminalRequest) => createTerminal(repoId, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['terminals', repoId] })
+      queryClient.invalidateQueries({ queryKey: terminalsRepoQueryKey(repoId) })
     },
   })
 }
 
-export interface RemoveTerminalVariables {
+interface RemoveTerminalVariables {
   ptyID: string
   directory?: string
 }
@@ -75,7 +76,7 @@ export function useRemoveTerminal(repoId: number) {
   return useMutation({
     mutationFn: ({ ptyID, directory }: RemoveTerminalVariables) => removeTerminal(repoId, ptyID, directory),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['terminals', repoId] })
+      queryClient.invalidateQueries({ queryKey: terminalsRepoQueryKey(repoId) })
     },
   })
 }

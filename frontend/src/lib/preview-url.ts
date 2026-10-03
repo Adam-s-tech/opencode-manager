@@ -12,7 +12,7 @@ export interface PreviewOriginInput {
   publicUrl: string | null
 }
 
-function parsePort(value: string): number | null {
+export function parsePort(value: string): number | null {
   if (!value) return null
   const port = Number(value)
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null

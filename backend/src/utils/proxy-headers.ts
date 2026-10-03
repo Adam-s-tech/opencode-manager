@@ -1,4 +1,4 @@
-export const HOP_BY_HOP_HEADERS = new Set([
+const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
   'proxy-authenticate',

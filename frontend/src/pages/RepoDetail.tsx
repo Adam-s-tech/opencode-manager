@@ -17,7 +17,7 @@ import { useRepoActivity } from "@/hooks/useRepoActivity";
 import { useCreateRepoWorkspace, useDeleteRepoWorkspaces, useRepoSiblings } from "@/hooks/useRepoSiblings";
 import { useSSE } from "@/hooks/useSSE";
 import { useDialogParam } from "@/hooks/useDialogParam";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { useOpenTerminal } from "@/hooks/useOpenTerminal";
 import { useWorktreeTab } from "@/hooks/useWorktreeTab";
 import { WorktreeTabs } from "@/components/repo/WorktreeTabs";
 import { WorkspaceManager } from "@/components/repo/WorkspaceManager";
@@ -47,7 +47,7 @@ export function RepoDetail() {
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
   const [activeWorkspaceDirectory, setActiveWorkspaceDirectory] = useState<string | undefined>();
   const { activeTab, setActiveTab } = useWorktreeTab();
-  const { updateParams } = useUrlParams();
+  const openTerminal = useOpenTerminal();
 
   const { data: repo, isLoading: repoLoading } = useQuery({
     queryKey: ["repo", repoId],
@@ -143,12 +143,7 @@ export function RepoDetail() {
     notifyWorktreeSetup(workspace.worktreeSetup);
     if (workspace.worktreeSetup?.status === 'started') {
       const terminalId = workspace.worktreeSetup.terminal.id;
-      updateParams((params) => {
-        params.set('repoTab', 'workspaces');
-        params.set('dialog', 'terminal');
-        params.set('terminal', terminalId);
-        params.delete('mobileTab');
-      }, 'push');
+      openTerminal(terminalId, { repoTab: 'workspaces' });
       return;
     }
     setActiveTab('workspaces');

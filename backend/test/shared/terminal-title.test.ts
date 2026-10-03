@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatTerminalTitle, parseTerminalTitle } from '@opencode-manager/shared/utils'
+import { formatTerminalTitle, isRunningActionTerminal, parseTerminalTitle } from '@opencode-manager/shared/utils'
 
 describe('terminal-title', () => {
   describe('formatTerminalTitle', () => {
@@ -57,6 +57,24 @@ describe('terminal-title', () => {
 
     it('treats an action prefix without a name as a shell', () => {
       expect(parseTerminalTitle('ocm:action:dev')).toEqual({ kind: 'shell', title: 'ocm:action:dev' })
+    })
+  })
+
+  describe('isRunningActionTerminal', () => {
+    it('matches a running action terminal for the action id', () => {
+      expect(isRunningActionTerminal({ kind: 'action', actionId: 'dev', status: 'running' }, 'dev')).toBe(true)
+    })
+
+    it('rejects a terminal for a different action id', () => {
+      expect(isRunningActionTerminal({ kind: 'action', actionId: 'other', status: 'running' }, 'dev')).toBe(false)
+    })
+
+    it('rejects a non-action terminal', () => {
+      expect(isRunningActionTerminal({ kind: 'shell', status: 'running' }, 'dev')).toBe(false)
+    })
+
+    it('rejects an exited action terminal', () => {
+      expect(isRunningActionTerminal({ kind: 'action', actionId: 'dev', status: 'exited' }, 'dev')).toBe(false)
     })
   })
 })

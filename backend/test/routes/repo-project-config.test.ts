@@ -89,12 +89,20 @@ describe('Repo Project Config Routes', () => {
       exists: false,
       trusted: false,
       hash: null,
+      executable: null,
       warnings: [],
     })
   })
 
   it('returns 404 for an unknown repo', async () => {
     const res = await app.request('/999/project-config')
+
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Repo not found' })
+  })
+
+  it('rejects the assistant repo id when assistant access is not allowed', async () => {
+    const res = await app.request('/0/project-config')
 
     expect(res.status).toBe(404)
     expect(await res.json()).toEqual({ error: 'Repo not found' })
@@ -212,6 +220,33 @@ describe('Repo Project Config Routes', () => {
 
     expect(res.status).toBe(409)
     expect((await res.json() as { code: string }).code).toBe('REPO_CONFIG_CHANGED')
+  })
+
+  it('returns the error code and details for an untrusted repository action', async () => {
+    seedRepo(db)
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-route-untrusted-'))
+    vi.mocked(resolveRepoWorkingDirectory).mockResolvedValue(directory)
+    const repoFileDir = path.join(directory, '.ocm')
+    fs.mkdirSync(repoFileDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(repoFileDir, 'project.json'),
+      JSON.stringify({ version: 1, projectActions: [{ id: 'repo-serve', name: 'Serve', command: 'pnpm dev' }] }),
+    )
+
+    try {
+      const res = await app.request('/1/project-config/actions/repo-serve/run', {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({}),
+      })
+
+      expect(res.status).toBe(409)
+      const body = await res.json() as { code: string; details: { hash: string } }
+      expect(body.code).toBe('REPO_CONFIG_UNTRUSTED')
+      expect(body.details.hash).toMatch(/^[a-f0-9]{64}$/)
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it('returns 400 for an invalid move request', async () => {

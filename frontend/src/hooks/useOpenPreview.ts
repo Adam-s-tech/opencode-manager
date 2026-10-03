@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { openDialogParam } from './useDialogParam'
 import { useUrlParams } from './useUrlParams'
 
 export function useOpenPreview(): (port: number, path?: string) => void {
@@ -6,12 +7,10 @@ export function useOpenPreview(): (port: number, path?: string) => void {
 
   return useCallback(
     (port: number, path = '/') => {
-      updateParams((params) => {
-        params.set('dialog', 'preview')
-        params.set('previewPort', String(port))
-        params.set('previewPath', path)
-        params.delete('mobileTab')
-      }, 'push')
+      openDialogParam(updateParams, 'preview', {
+        previewPort: String(port),
+        previewPath: path,
+      })
     },
     [updateParams],
   )

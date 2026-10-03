@@ -1,55 +1,14 @@
 import { Hono } from 'hono'
-import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
-import type { Repo } from '@opencode-manager/shared/types'
 import { CreateTerminalRequestSchema, ResizeTerminalRequestSchema } from '@opencode-manager/shared/schemas'
-import * as repoService from '../services/repo'
-import { resolveRepoOrAssistant, resolveRepoWorkingDirectory } from '../services/repo'
 import type { GitAuthService } from '../services/git-auth'
 import type { OpenCodeClient } from '../services/opencode/client'
 import { TerminalService, TerminalNotFoundError } from '../services/terminal'
 import { handleOpenCodeError } from '../utils/route-helpers'
+import { resolveRepoRequestDirectory, type RepoDirectoryDeps } from './repo-directory'
 
-export interface TerminalDirectoryDeps {
-  database: Database
-  gitAuthService: GitAuthService
-  openCodeClient: OpenCodeClient
-}
-
-export interface TerminalRoutesDeps extends TerminalDirectoryDeps {
+export interface TerminalRoutesDeps extends RepoDirectoryDeps {
   terminalService: TerminalService
-}
-
-export async function resolveTerminalDirectory(
-  c: Context,
-  deps: TerminalDirectoryDeps,
-  repoIdParam: string,
-  directory: string | undefined,
-): Promise<{ repo: Repo; directory: string } | Response> {
-  const id = Number.parseInt(repoIdParam, 10)
-  if (Number.isNaN(id)) {
-    return c.json({ error: 'Invalid repo id' }, 400)
-  }
-
-  const repo = resolveRepoOrAssistant(deps.database, id)
-  if (!repo || repo.cloneStatus !== 'ready') {
-    return c.json({ error: 'Repo not found' }, 404)
-  }
-
-  const resolved = await resolveRepoWorkingDirectory(repo, directory, () =>
-    repoService.getSiblingRepos(
-      deps.database,
-      repo.id,
-      deps.gitAuthService.getGitEnvironment(),
-      deps.openCodeClient,
-    ),
-  )
-
-  if (!resolved) {
-    return c.json({ error: 'Directory is not part of this repository' }, 400)
-  }
-
-  return { repo, directory: resolved }
 }
 
 export function createRepoTerminalRoutes(
@@ -62,7 +21,9 @@ export function createRepoTerminalRoutes(
   const app = new Hono()
 
   app.get('/:id/terminals', async (c) => {
-    const resolved = await resolveTerminalDirectory(c, deps, c.req.param('id'), c.req.query('directory'))
+    const resolved = await resolveRepoRequestDirectory(c, deps, c.req.param('id'), c.req.query('directory'), {
+      allowAssistant: true,
+    })
     if (resolved instanceof Response) return resolved
 
     try {
@@ -80,7 +41,9 @@ export function createRepoTerminalRoutes(
       return c.json({ error: 'Invalid request' }, 400)
     }
 
-    const resolved = await resolveTerminalDirectory(c, deps, c.req.param('id'), parsed.data.directory)
+    const resolved = await resolveRepoRequestDirectory(c, deps, c.req.param('id'), parsed.data.directory, {
+      allowAssistant: true,
+    })
     if (resolved instanceof Response) return resolved
 
     try {
@@ -101,7 +64,9 @@ export function createRepoTerminalRoutes(
       return c.json({ error: 'Invalid request' }, 400)
     }
 
-    const resolved = await resolveTerminalDirectory(c, deps, c.req.param('id'), parsed.data.directory)
+    const resolved = await resolveRepoRequestDirectory(c, deps, c.req.param('id'), parsed.data.directory, {
+      allowAssistant: true,
+    })
     if (resolved instanceof Response) return resolved
 
     const ptyID = c.req.param('ptyID')
@@ -119,7 +84,9 @@ export function createRepoTerminalRoutes(
   })
 
   app.delete('/:id/terminals/:ptyID', async (c) => {
-    const resolved = await resolveTerminalDirectory(c, deps, c.req.param('id'), c.req.query('directory'))
+    const resolved = await resolveRepoRequestDirectory(c, deps, c.req.param('id'), c.req.query('directory'), {
+      allowAssistant: true,
+    })
     if (resolved instanceof Response) return resolved
 
     const ptyID = c.req.param('ptyID')

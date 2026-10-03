@@ -39,7 +39,7 @@ import { createAuthMiddleware } from './auth/middleware'
 import { createPromptTemplateRoutes } from './routes/prompt-templates'
 import { createSessionPinRoutes } from './routes/session-pins'
 import { createLogRoutes } from './routes/logs'
-import { createPreviewRoutes } from './routes/preview'
+import { createPreviewRoutes, createPreviewAvailability } from './routes/preview'
 import { createPreviewGatewayApp, PreviewSessionStore } from './services/preview/gateway'
 import { createInternalRoutes } from './routes/internal'
 import { sweepStaleUploadSessions } from './routes/internal/repo-mirror-helpers'
@@ -71,6 +71,7 @@ import {
   getConfigPath,
   getAgentsMdPath,
   getDatabasePath,
+  getTrustedOrigins,
   ENV
 } from '@opencode-manager/shared/config/env'
 
@@ -93,7 +94,7 @@ app.use('/*', cors({
     if (origin && REFLECT_ANY_ORIGIN_PREFIXES.some(prefix => c.req.path.startsWith(prefix))) {
       return origin
     }
-    const trustedOrigins = ENV.AUTH.TRUSTED_ORIGINS.split(',').map(o => o.trim())
+    const trustedOrigins = getTrustedOrigins()
     if (!origin) return trustedOrigins[0]
     if (trustedOrigins.includes(origin)) return origin
     return trustedOrigins[0]
@@ -271,6 +272,7 @@ void scheduleRunnerInstance.start()
 
 const settingsService = new SettingsService(db)
 const previewSessionStore = new PreviewSessionStore()
+const previewAvailability = createPreviewAvailability(false)
 
 app.route('/api/auth', createAuthRoutes(auth))
 app.route('/api/auth-info', createAuthInfoRoutes(auth, db))
@@ -299,7 +301,7 @@ protectedApi.route('/prompt-templates', createPromptTemplateRoutes(db))
 protectedApi.route('/session-pins', createSessionPinRoutes(db))
 protectedApi.route('/schedules', createScheduleRoutes(scheduleService))
 protectedApi.route('/logs', createLogRoutes())
-protectedApi.route('/preview', createPreviewRoutes({ store: previewSessionStore }))
+protectedApi.route('/preview', createPreviewRoutes({ store: previewSessionStore, isEnabled: previewAvailability.isEnabled }))
 
 app.route('/api', protectedApi)
 
@@ -426,8 +428,16 @@ if (ENV.PREVIEW.PORT > 0) {
     port: ENV.PREVIEW.PORT,
     hostname: HOST,
   })
+  previewServer.on('listening', () => {
+    previewAvailability.markAvailable()
+    logger.info(`Preview gateway running on http://${HOST}:${ENV.PREVIEW.PORT}`)
+  })
+  previewServer.on('error', (error: Error) => {
+    previewAvailability.markUnavailable()
+    const code = (error as NodeJS.ErrnoException).code
+    logger.warn(`Preview gateway failed to listen on port ${ENV.PREVIEW.PORT}${code ? ` (${code})` : ''}; preview disabled`)
+  })
   previewGateway.injectWebSocket(previewServer)
-  logger.info(`Preview gateway running on http://${HOST}:${ENV.PREVIEW.PORT}`)
 }
 
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)

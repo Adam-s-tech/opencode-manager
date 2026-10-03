@@ -4,6 +4,7 @@ import {
   getPreviewOrigin,
   isSameOriginAsManager,
   parseLocalDevUrl,
+  parsePort,
 } from './preview-url'
 
 const managerLocation = {
@@ -11,6 +12,20 @@ const managerLocation = {
   hostname: 'manager.local',
   origin: 'http://manager.local:5003',
 } as Location
+
+describe('parsePort', () => {
+  it.each([
+    ['5173', 5173],
+    ['1', 1],
+    ['65535', 65535],
+  ])('parses %s', (value, port) => {
+    expect(parsePort(value)).toBe(port)
+  })
+
+  it.each(['', '0', '65536', 'abc', '-1', '5173.5'])('rejects %s', (value) => {
+    expect(parsePort(value)).toBeNull()
+  })
+})
 
 describe('parseLocalDevUrl', () => {
   it.each([

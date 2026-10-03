@@ -31,6 +31,17 @@ upstreamApp.get('/cookies', () => {
   return new Response('ok', { status: 200, headers })
 })
 
+upstreamApp.get('/manager-cookies', () => {
+  const headers = new Headers()
+  headers.append('set-cookie', 'app=keep; Path=/')
+  headers.append('set-cookie', `${PREVIEW_COOKIE}=upstream; Path=/`)
+  headers.append('set-cookie', 'opencode.session_token=secret; Path=/')
+  headers.append('set-cookie', '__Secure-opencode.session_token=secure; Path=/')
+  headers.append('set-cookie', '__Host-opencode.session_token=host; Path=/')
+  headers.set('content-type', 'text/plain')
+  return new Response('ok', { status: 200, headers })
+})
+
 upstreamApp.all('/*', async (c) => {
   if (c.req.path === '/r') {
     return c.redirect(`http://localhost:${upstreamPort}/done`, 302)
@@ -42,6 +53,7 @@ upstreamApp.all('/*', async (c) => {
     search: new URL(c.req.url).search,
     host: c.req.header('host') ?? null,
     cookie: c.req.header('cookie') ?? null,
+    acceptEncoding: c.req.header('accept-encoding') ?? null,
     body,
   })
 })
@@ -127,6 +139,36 @@ describe('Preview Gateway', () => {
 
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('/')
+  })
+
+  it('rejects redirect paths that resolve off-origin', async () => {
+    const store = new PreviewSessionStore()
+    const app = createPreviewGatewayApp(store).app
+
+    for (const malicious of ['/\\evil.example', '//evil.example', 'https://evil.example']) {
+      const token = store.issueStartToken({ port: upstreamPort, host: '127.0.0.1' })
+      const res = await app.request(
+        `http://localhost/__ocm_preview/start?token=${token}&path=${encodeURIComponent(malicious)}`,
+        { redirect: 'manual' },
+      )
+
+      expect(res.status).toBe(302)
+      expect(res.headers.get('location')).toBe('/')
+    }
+  })
+
+  it('redirects to an allowed same-origin path with query and hash', async () => {
+    const store = new PreviewSessionStore()
+    const app = createPreviewGatewayApp(store).app
+    const token = store.issueStartToken({ port: upstreamPort, host: '127.0.0.1' })
+
+    const res = await app.request(
+      `http://localhost/__ocm_preview/start?token=${token}&path=${encodeURIComponent('/ok?x=1#h')}`,
+      { redirect: 'manual' },
+    )
+
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/ok?x=1#h')
   })
 
   it('does not allow a start token to be reused', async () => {
@@ -228,6 +270,31 @@ describe('Preview Gateway', () => {
     expect(cookies).toContain('session=abc; Path=/; HttpOnly')
     expect(cookies).toContain('csrf=def; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT')
     expect(cookies).toHaveLength(2)
+  })
+
+  it('drops Manager and preview Set-Cookie values from upstream responses', async () => {
+    const store = new PreviewSessionStore()
+    const app = createPreviewGatewayApp(store).app
+    const cookie = await openSession(app, store, upstreamPort)
+
+    const res = await app.request('http://localhost/manager-cookies', { headers: { cookie } })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.getSetCookie()).toEqual(['app=keep; Path=/'])
+  })
+
+  it('requests identity encoding from the upstream', async () => {
+    const store = new PreviewSessionStore()
+    const app = createPreviewGatewayApp(store).app
+    const cookie = await openSession(app, store, upstreamPort)
+
+    const res = await app.request('http://localhost/echo', {
+      headers: { cookie, 'accept-encoding': 'gzip, br' },
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as { acceptEncoding: string | null }
+    expect(body.acceptEncoding).toBe('identity')
   })
 
   it('rewrites an absolute localhost location to its path', async () => {

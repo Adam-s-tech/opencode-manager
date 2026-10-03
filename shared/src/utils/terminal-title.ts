@@ -1,4 +1,4 @@
-import type { TerminalKind } from '../schemas/terminal'
+import type { TerminalInfo, TerminalKind } from '../schemas/terminal'
 
 const ACTION_TITLE_PREFIX = 'ocm:action:'
 const SETUP_TITLE_PREFIX = 'ocm:setup:'
@@ -29,6 +29,12 @@ export function formatTerminalTitle(input: FormatTerminalTitleInput): string {
   }
 
   return input.name
+}
+
+export type RunningActionTerminal = Pick<TerminalInfo, 'kind' | 'actionId' | 'status'>
+
+export function isRunningActionTerminal(terminal: RunningActionTerminal, actionId: string): boolean {
+  return terminal.kind === 'action' && terminal.actionId === actionId && terminal.status === 'running'
 }
 
 export function parseTerminalTitle(raw: string): ParsedTerminalTitle {

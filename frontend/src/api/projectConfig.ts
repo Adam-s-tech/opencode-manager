@@ -9,43 +9,43 @@ import type {
 import { API_BASE_URL } from '@/config'
 import { fetchWrapper } from './fetchWrapper'
 
-function directoryQuery(directory: string | undefined): string {
-  return directory ? `?${new URLSearchParams({ directory }).toString()}` : ''
-}
-
-export function projectConfigQueryKey(repoId: number, directory: string | undefined) {
+function projectConfigQueryKey(repoId: number, directory: string | undefined) {
   return ['projectConfig', repoId, directory ?? null] as const
 }
 
 export function getProjectConfig(repoId: number, directory?: string): Promise<ProjectConfigResponse> {
-  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config${directoryQuery(directory)}`)
+  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config`, {
+    params: { directory },
+  })
 }
 
-export function updateProjectActions(
+function updateProjectActions(
   repoId: number,
   actions: ProjectAction[],
   directory?: string,
 ): Promise<ProjectConfigResponse> {
-  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config/actions${directoryQuery(directory)}`, {
+  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config/actions`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actions }),
+    params: { directory },
   })
 }
 
-export function updateWorktreeSetup(
+function updateWorktreeSetup(
   repoId: number,
   commands: string[],
   directory?: string,
 ): Promise<ProjectConfigResponse> {
-  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config/worktree-setup${directoryQuery(directory)}`, {
+  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config/worktree-setup`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ commands }),
+    params: { directory },
   })
 }
 
-export function trustRepoConfig(repoId: number, request: TrustRepoConfigRequest): Promise<ProjectConfigResponse> {
+function trustRepoConfig(repoId: number, request: TrustRepoConfigRequest): Promise<ProjectConfigResponse> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config/trust`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -53,7 +53,7 @@ export function trustRepoConfig(repoId: number, request: TrustRepoConfigRequest)
   })
 }
 
-export function moveProjectItem(repoId: number, request: MoveProjectItemRequest): Promise<ProjectConfigResponse> {
+function moveProjectItem(repoId: number, request: MoveProjectItemRequest): Promise<ProjectConfigResponse> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/project-config/move`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -61,7 +61,7 @@ export function moveProjectItem(repoId: number, request: MoveProjectItemRequest)
   })
 }
 
-export function runProjectAction(
+function runProjectAction(
   repoId: number,
   actionId: string,
   directory?: string,
@@ -89,7 +89,7 @@ export function useUpdateProjectActions(repoId: number, directory: string | unde
   return useMutation({
     mutationFn: (actions: ProjectAction[]) => updateProjectActions(repoId, actions, directory),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectConfig', repoId] })
+      queryClient.invalidateQueries({ queryKey: projectConfigQueryKey(repoId, directory) })
     },
   })
 }
@@ -99,7 +99,7 @@ export function useUpdateWorktreeSetup(repoId: number, directory: string | undef
   return useMutation({
     mutationFn: (commands: string[]) => updateWorktreeSetup(repoId, commands, directory),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectConfig', repoId] })
+      queryClient.invalidateQueries({ queryKey: projectConfigQueryKey(repoId, directory) })
     },
   })
 }
@@ -108,8 +108,8 @@ export function useTrustRepoConfig(repoId: number) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (request: TrustRepoConfigRequest) => trustRepoConfig(repoId, request),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectConfig', repoId] })
+    onSuccess: (_data, request) => {
+      queryClient.invalidateQueries({ queryKey: projectConfigQueryKey(repoId, request.directory) })
     },
   })
 }
@@ -118,8 +118,8 @@ export function useMoveProjectItem(repoId: number) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (request: MoveProjectItemRequest) => moveProjectItem(repoId, request),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectConfig', repoId] })
+    onSuccess: (_data, request) => {
+      queryClient.invalidateQueries({ queryKey: projectConfigQueryKey(repoId, request.directory) })
     },
   })
 }
@@ -129,7 +129,7 @@ export function useRunProjectAction(repoId: number, directory: string | undefine
   return useMutation({
     mutationFn: (actionId: string) => runProjectAction(repoId, actionId, directory),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projectConfig', repoId] })
+      queryClient.invalidateQueries({ queryKey: projectConfigQueryKey(repoId, directory) })
       queryClient.invalidateQueries({ queryKey: ['terminals', repoId] })
     },
   })

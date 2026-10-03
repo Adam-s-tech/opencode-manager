@@ -167,6 +167,12 @@ export const getOpenCodeConfigFilePath = () => path.join(ENV.WORKSPACE.BASE_PATH
 export const getAgentsMdPath = () => path.join(ENV.WORKSPACE.BASE_PATH, ENV.WORKSPACE.CONFIG_DIR, 'AGENTS.md')
 export const getDatabasePath = () => ENV.DATABASE.PATH
 
+export const getTrustedOrigins = (): string[] =>
+  ENV.AUTH.TRUSTED_ORIGINS
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0)
+
 export const getApiUrl = (port: number = ENV.SERVER.PORT): string => {
   const host = ENV.SERVER.HOST
   

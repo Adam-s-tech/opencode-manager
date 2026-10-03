@@ -140,6 +140,41 @@ describe('listListeningPorts', () => {
     ])
   })
 
+  it('stops scanning process fd directories once every listening inode is mapped', async () => {
+    const base = createDeps({
+      files: {
+        '/proc/net/tcp': [PROC_HEADER, procRow('00000000:1435', '00000000:0000', '0A', '11111')].join('\n'),
+        '/proc/1234/comm': 'node\n',
+      },
+      links: {
+        '/proc/1234/fd/3': 'socket:[11111]',
+        '/proc/1234/cwd': '/home/user/project',
+        '/proc/9999/fd/2': 'socket:[11111]',
+      },
+      dirs: {
+        '/proc': ['1234', '9999'],
+        '/proc/1234/fd': ['3'],
+        '/proc/9999/fd': ['2'],
+      },
+    })
+    const readdirCalls: string[] = []
+    const deps: PortDiscoveryDeps = {
+      ...base,
+      readdir: async (path) => {
+        readdirCalls.push(path)
+        return base.readdir(path)
+      },
+    }
+
+    const ports = await listListeningPorts(deps)
+
+    expect(ports).toEqual([
+      { port: 5173, host: '127.0.0.1', pid: 1234, command: 'node', cwd: '/home/user/project' },
+    ])
+    expect(readdirCalls).toContain('/proc/1234/fd')
+    expect(readdirCalls).not.toContain('/proc/9999/fd')
+  })
+
   it('reports an IPv6 loopback host only when the sole listener is IPv6 loopback', async () => {
     const deps = createDeps({
       files: {

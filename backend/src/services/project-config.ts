@@ -15,11 +15,12 @@ import {
   type RunProjectActionResponse,
   type WorktreeSetupResult,
 } from '@opencode-manager/shared/schemas'
+import { isRunningActionTerminal } from '@opencode-manager/shared/utils'
 import { getRepoByDirectory, getRepoSetting, setRepoSetting } from '../db/queries'
 import { executeCommand } from '../utils/process'
 import { getErrorMessage } from '../utils/error-utils'
 import { logger } from '../utils/logger'
-import { canonicalPathSync } from '../utils/fs-safe'
+import { canonicalPathSync, writeFileAtomicSync } from '../utils/fs-safe'
 import type { GitService } from './git/GitService'
 import type { GitAuthService } from './git-auth'
 import type { TerminalService } from './terminal'
@@ -28,6 +29,7 @@ const PROJECT_ACTIONS_KEY = 'projectActions'
 const WORKTREE_SETUP_KEY = 'worktreeSetupCommands'
 const REPO_CONFIG_TRUST_KEY = 'repoConfigTrustHash'
 const REPO_FILE_RELATIVE_PATH = path.join('.ocm', 'project.json')
+const REPO_CONFIG_SYMLINK_MESSAGE = '.ocm/project.json must not be a symbolic link'
 
 export interface RepoFileState {
   exists: boolean
@@ -50,8 +52,8 @@ interface RepoFileSnapshot {
 
 export class ProjectConfigError extends Error {
   constructor(
-    public status: number,
     message: string,
+    public status: number,
     public code?: string,
     public details?: unknown,
   ) {
@@ -85,7 +87,7 @@ export class ProjectConfigService {
     const ids = new Set<string>()
     for (const action of actions) {
       if (ids.has(action.id)) {
-        throw new ProjectConfigError(400, 'Duplicate action id')
+        throw new ProjectConfigError('Duplicate action id', 400)
       }
       ids.add(action.id)
     }
@@ -144,6 +146,7 @@ export class ProjectConfigService {
         exists: repoFile.exists,
         trusted,
         hash: repoFile.hash,
+        executable: repoFile.file ? this.buildRepoFileExecutable(repoFile.file) : null,
         ...(repoFile.error ? { error: repoFile.error } : {}),
         warnings,
       },
@@ -178,11 +181,11 @@ export class ProjectConfigService {
     const config = await this.getConfig(repo, directory)
     const action = config.actions.find((item) => item.id === actionId)
     if (!action) {
-      throw new ProjectConfigError(404, 'Action not found')
+      throw new ProjectConfigError('Action not found', 404)
     }
 
     if (action.source === 'repo' && !config.repoFile.trusted) {
-      throw new ProjectConfigError(409, 'Repository commands are not trusted', 'REPO_CONFIG_UNTRUSTED', {
+      throw new ProjectConfigError('Repository commands are not trusted', 409, 'REPO_CONFIG_UNTRUSTED', {
         hash: config.repoFile.hash,
       })
     }
@@ -190,9 +193,7 @@ export class ProjectConfigService {
     const key = this.actionRunKey(directory, actionId)
     return this.enqueueActionRun(key, async () => {
       const terminals = await terminalService.list(directory)
-      const running = terminals.find(
-        (terminal) => terminal.kind === 'action' && terminal.actionId === actionId && terminal.status === 'running',
-      )
+      const running = terminals.find((terminal) => isRunningActionTerminal(terminal, actionId))
       const terminal =
         running ??
         (await terminalService.create(directory, {
@@ -288,34 +289,53 @@ export class ProjectConfigService {
 
   readRepoFile(directory: string): RepoFileState {
     const filePath = this.getRepoFilePath(directory)
-    if (!fs.existsSync(filePath)) {
-      return { exists: false, file: null, hash: null }
-    }
-
     try {
-      const parsed = RepoProjectFileSchema.safeParse(JSON.parse(fs.readFileSync(filePath, 'utf8')))
+      if (this.isSymbolicLink(path.dirname(filePath)) || this.isSymbolicLink(filePath)) {
+        return { exists: true, file: null, hash: null, error: REPO_CONFIG_SYMLINK_MESSAGE }
+      }
+      if (!fs.existsSync(filePath)) {
+        return { exists: false, file: null, hash: null }
+      }
+
+      let parsedJson: unknown
+      try {
+        parsedJson = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      } catch {
+        return { exists: true, file: null, hash: null, error: 'Invalid JSON' }
+      }
+
+      const parsed = RepoProjectFileSchema.safeParse(parsedJson)
       if (!parsed.success) {
-        return { exists: true, file: null, hash: null, error: 'Invalid repository config' }
+        return { exists: true, file: null, hash: null, error: 'Does not match the project file schema' }
       }
       return { exists: true, file: parsed.data, hash: this.hashRepoFile(parsed.data) }
-    } catch (error: unknown) {
-      return { exists: true, file: null, hash: null, error: getErrorMessage(error) }
+    } catch {
+      return { exists: fs.existsSync(filePath), file: null, hash: null, error: 'Invalid repository config' }
+    }
+  }
+
+  buildRepoFileExecutable(file: RepoProjectFile): NonNullable<ProjectConfigResponse['repoFile']['executable']> {
+    return {
+      actions: (file.projectActions ?? []).map((action) => ({
+        id: action.id,
+        name: action.name,
+        command: action.command,
+        url: action.url ?? null,
+        autoOpenUrl: action.autoOpenUrl,
+      })),
+      setup: file.setupWorktree ?? [],
     }
   }
 
   hashRepoFile(file: RepoProjectFile): string {
-    const executable = {
-      actions: (file.projectActions ?? []).map(({ id, command, url }) => ({ id, command, url: url ?? null })),
-      setup: file.setupWorktree ?? [],
-    }
-    return createHash('sha256').update(JSON.stringify(executable)).digest('hex')
+    return createHash('sha256').update(JSON.stringify(this.buildRepoFileExecutable(file))).digest('hex')
   }
 
   async trustRepoFile(repo: Repo, directory: string, hash: string): Promise<void> {
     const projectRepo = await this.resolveProjectRepo(repo)
     const repoFile = this.readRepoFile(directory)
     if (repoFile.hash === null || repoFile.hash !== hash) {
-      throw new ProjectConfigError(409, 'Repository config changed', 'REPO_CONFIG_CHANGED')
+      throw new ProjectConfigError('Repository config changed', 409, 'REPO_CONFIG_CHANGED')
     }
     this.setRepoTrust(projectRepo, repoFile.hash)
   }
@@ -323,6 +343,7 @@ export class ProjectConfigService {
   async moveItem(repo: Repo, directory: string, request: MoveProjectItemRequest): Promise<void> {
     const projectRepo = await this.resolveProjectRepo(repo)
     const filePath = this.getRepoFilePath(directory)
+    this.assertRepoFilePathNotSymlink(filePath)
     const state = this.readRepoFile(directory)
     const commit =
       request.to === 'repo'
@@ -334,7 +355,7 @@ export class ProjectConfigService {
 
   private planMoveToRepo(projectRepo: Repo, state: RepoFileState, request: MoveProjectItemRequest): MoveCommit {
     if (state.exists && !state.file) {
-      throw new ProjectConfigError(409, 'Repository config is invalid')
+      throw new ProjectConfigError('Repository config is invalid', 409)
     }
 
     const file: RepoProjectFile = state.file ? { ...state.file } : { version: 1 }
@@ -343,11 +364,11 @@ export class ProjectConfigService {
       const personal = this.getPersonalActions(projectRepo)
       const action = personal.find((item) => item.id === request.id)
       if (!action) {
-        throw new ProjectConfigError(404, 'Action not found')
+        throw new ProjectConfigError('Action not found', 404)
       }
       const repoActions = file.projectActions ?? []
       if (repoActions.some((existing) => existing.id === action.id)) {
-        throw new ProjectConfigError(409, 'Action already exists in repository config')
+        throw new ProjectConfigError('Action already exists in repository config', 409)
       }
       const nextFile: RepoProjectFile = { ...file, projectActions: [...repoActions, action] }
       this.assertRepoFileValid(nextFile)
@@ -361,7 +382,7 @@ export class ProjectConfigService {
     const personal = this.getPersonalSetup(projectRepo)
     const index = personal.indexOf(request.command)
     if (index === -1) {
-      throw new ProjectConfigError(404, 'Setup command not found')
+      throw new ProjectConfigError('Setup command not found', 404)
     }
     const nextFile: RepoProjectFile = {
       ...file,
@@ -380,14 +401,14 @@ export class ProjectConfigService {
   private planMoveToPersonal(projectRepo: Repo, state: RepoFileState, request: MoveProjectItemRequest): MoveCommit {
     const file = state.file
     if (!file) {
-      throw new ProjectConfigError(404, 'Item not found')
+      throw new ProjectConfigError('Item not found', 404)
     }
 
     if (request.kind === 'action') {
       const repoActions = file.projectActions ?? []
       const action = repoActions.find((item) => item.id === request.id)
       if (!action) {
-        throw new ProjectConfigError(404, 'Action not found')
+        throw new ProjectConfigError('Action not found', 404)
       }
       const nextFile = this.pruneRepoFile({
         ...file,
@@ -406,7 +427,7 @@ export class ProjectConfigService {
     const repoSetup = file.setupWorktree ?? []
     const index = repoSetup.indexOf(request.command)
     if (index === -1) {
-      throw new ProjectConfigError(404, 'Setup command not found')
+      throw new ProjectConfigError('Setup command not found', 404)
     }
     const nextFile = this.pruneRepoFile({
       ...file,
@@ -494,8 +515,8 @@ export class ProjectConfigService {
     const result = RepoProjectFileSchema.safeParse(file)
     if (!result.success) {
       throw new ProjectConfigError(
-        409,
         'Repository config limit exceeded',
+        409,
         'PROJECT_CONFIG_LIMIT_EXCEEDED',
         result.error.flatten(),
       )
@@ -506,8 +527,8 @@ export class ProjectConfigService {
     const result = WorktreeSetupCommandsSchema.safeParse(commands)
     if (!result.success) {
       throw new ProjectConfigError(
-        409,
         'Personal setup command limit exceeded',
+        409,
         'PROJECT_CONFIG_LIMIT_EXCEEDED',
         result.error.flatten(),
       )
@@ -523,14 +544,23 @@ export class ProjectConfigService {
   }
 
   private writeRepoFile(filePath: string, file: RepoProjectFile): void {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true })
-    const tmpPath = `${filePath}.tmp`
+    writeFileAtomicSync(filePath, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o644 })
+  }
+
+  private isSymbolicLink(target: string): boolean {
     try {
-      fs.writeFileSync(tmpPath, `${JSON.stringify(file, null, 2)}\n`)
-      fs.renameSync(tmpPath, filePath)
+      return fs.lstatSync(target).isSymbolicLink()
     } catch (error) {
-      fs.rmSync(tmpPath, { force: true })
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return false
+      }
       throw error
+    }
+  }
+
+  private assertRepoFilePathNotSymlink(filePath: string): void {
+    if (this.isSymbolicLink(path.dirname(filePath)) || this.isSymbolicLink(filePath)) {
+      throw new ProjectConfigError(REPO_CONFIG_SYMLINK_MESSAGE, 400, 'REPO_CONFIG_SYMLINK')
     }
   }
 

@@ -1,22 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ArrowDown,
-  ArrowUp,
-  Bug,
-  CheckCircle2,
-  FlaskConical,
-  Hammer,
-  Loader2,
-  Pencil,
-  Play,
-  Plus,
-  Rocket,
-  Server,
-  ShieldAlert,
-  SquareTerminal,
-  Trash2,
-  type LucideIcon,
-} from 'lucide-react'
+import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import { arrayMove } from '@dnd-kit/sortable'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -32,23 +16,15 @@ import {
   useUpdateWorktreeSetup,
 } from '@/api/projectConfig'
 import { showToast } from '@/lib/toast'
+import { getOpenCodeApiErrorMessage } from '@/lib/opencode-errors'
 import { randomId } from '@/lib/utils'
-import type { ProjectAction, ProjectActionIcon, ProjectItemSource } from '@opencode-manager/shared/types'
-
-const ACTION_ICON_OPTIONS: { value: ProjectActionIcon; label: string; Icon: LucideIcon }[] = [
-  { value: 'play', label: 'Play', Icon: Play },
-  { value: 'build', label: 'Build', Icon: Hammer },
-  { value: 'test', label: 'Test', Icon: FlaskConical },
-  { value: 'lint', label: 'Lint', Icon: CheckCircle2 },
-  { value: 'terminal', label: 'Terminal', Icon: SquareTerminal },
-  { value: 'server', label: 'Server', Icon: Server },
-  { value: 'bug', label: 'Bug', Icon: Bug },
-  { value: 'rocket', label: 'Rocket', Icon: Rocket },
-]
-
-function actionIcon(icon: ProjectActionIcon | undefined): LucideIcon {
-  return ACTION_ICON_OPTIONS.find((option) => option.value === icon)?.Icon ?? Play
-}
+import type {
+  ProjectAction,
+  ProjectActionIcon,
+  ProjectItemSource,
+} from '@opencode-manager/shared/types'
+import { ACTION_ICON_OPTIONS, actionIcon } from './projectActionIcons'
+import { TrustExecutableList } from './TrustExecutableList'
 
 interface ActionDraft {
   id: string
@@ -97,17 +73,6 @@ function draftToPayload(draft: ActionDraft): ProjectAction {
   const url = draft.url.trim()
   if (url) payload.url = url
   return payload
-}
-
-function moveArrayItem<T>(items: T[], from: number, to: number): T[] {
-  const next = [...items]
-  const [item] = next.splice(from, 1)
-  next.splice(to, 0, item)
-  return next
-}
-
-function mutationErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
 }
 
 interface ActionFormProps {
@@ -250,19 +215,19 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
       : [...personalActions.map(actionToPayload), payload]
     updateActions.mutate(next, {
       onSuccess: () => setDraft(null),
-      onError: (error) => showToast.error(mutationErrorMessage(error, 'Failed to save action')),
+      onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to save action')),
     })
   }
 
   const handleDeleteAction = (id: string) => {
     updateActions.mutate(personalActions.filter((action) => action.id !== id).map(actionToPayload), {
-      onError: (error) => showToast.error(mutationErrorMessage(error, 'Failed to delete action')),
+      onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to delete action')),
     })
   }
 
   const handleSaveSetup = () => {
     updateSetup.mutate(setupCommands.map((command) => command.trim()), {
-      onError: (error) => showToast.error(mutationErrorMessage(error, 'Failed to save setup commands')),
+      onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to save setup commands')),
     })
   }
 
@@ -270,21 +235,21 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
     if (!config?.repoFile.hash) return
     trustConfig.mutate(
       { hash: config.repoFile.hash, directory },
-      { onError: (error) => showToast.error(mutationErrorMessage(error, 'Failed to trust repository commands')) },
+      { onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to trust repository commands')) },
     )
   }
 
   const moveAction = (action: ProjectAction, to: ProjectItemSource) => {
     moveItem.mutate(
       { kind: 'action', id: action.id, to, directory },
-      { onError: (error) => showToast.error(mutationErrorMessage(error, 'Failed to move action')) },
+      { onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to move action')) },
     )
   }
 
   const moveSetup = (command: string, to: ProjectItemSource) => {
     moveItem.mutate(
       { kind: 'setup', command, to, directory },
-      { onError: (error) => showToast.error(mutationErrorMessage(error, 'Failed to move setup command')) },
+      { onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to move setup command')) },
     )
   }
 
@@ -454,7 +419,7 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
                         variant="ghost"
                         aria-label="Move up"
                         disabled={index === 0}
-                        onClick={() => setSetupCommands((current) => moveArrayItem(current, index, index - 1))}
+                        onClick={() => setSetupCommands((current) => arrayMove(current, index, index - 1))}
                       >
                         <ArrowUp className="h-4 w-4" />
                       </Button>
@@ -464,7 +429,7 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
                         variant="ghost"
                         aria-label="Move down"
                         disabled={index === setupCommands.length - 1}
-                        onClick={() => setSetupCommands((current) => moveArrayItem(current, index, index + 1))}
+                        onClick={() => setSetupCommands((current) => arrayMove(current, index, index + 1))}
                       >
                         <ArrowDown className="h-4 w-4" />
                       </Button>
@@ -545,33 +510,24 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
                     {warning}
                   </p>
                 ))}
-                {config.repoFile.exists && !config.repoFile.trusted && config.repoFile.hash && (
-                  <div className="rounded-lg border border-warning/50 bg-warning/10 p-3 space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <ShieldAlert className="h-4 w-4 text-warning" />
-                      Repository commands are not trusted
+                {config.repoFile.exists &&
+                  !config.repoFile.trusted &&
+                  config.repoFile.hash &&
+                  config.repoFile.executable && (
+                    <div className="rounded-lg border border-warning/50 bg-warning/10 p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <ShieldAlert className="h-4 w-4 text-warning" />
+                        Repository commands are not trusted
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        This repository defines commands that run on your machine. Review and trust them to enable.
+                      </p>
+                      <TrustExecutableList executable={config.repoFile.executable} />
+                      <Button type="button" size="sm" onClick={handleTrust} disabled={trustConfig.isPending}>
+                        Trust these commands
+                      </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      This repository defines commands that run on your machine. Review and trust them to enable.
-                    </p>
-                    <ul className="space-y-1">
-                      {repoActions.map((action) => (
-                        <li key={action.id} className="font-mono text-xs">
-                          {action.command}
-                          {action.url ? ` — ${action.url}` : ''}
-                        </li>
-                      ))}
-                      {repoSetup.map((item) => (
-                        <li key={item.command} className="font-mono text-xs">
-                          {item.command}
-                        </li>
-                      ))}
-                    </ul>
-                    <Button type="button" size="sm" onClick={handleTrust} disabled={trustConfig.isPending}>
-                      Trust these commands
-                    </Button>
-                  </div>
-                )}
+                  )}
               </section>
             </>
           )}

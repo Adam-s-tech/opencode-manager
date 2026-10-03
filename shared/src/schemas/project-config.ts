@@ -17,7 +17,12 @@ export const ProjectActionSchema = z.object({
   name: z.string().trim().min(1).max(60),
   command: z.string().trim().min(1).max(4000),
   icon: ProjectActionIconSchema.optional(),
-  url: z.string().trim().max(500).optional(),
+  url: z
+    .string()
+    .trim()
+    .max(500)
+    .refine((value) => /^https?:\/\//i.test(value), 'URL must start with http:// or https://')
+    .optional(),
   autoOpenUrl: z.boolean().default(false),
 })
 
@@ -49,6 +54,20 @@ export const ProjectConfigResponseSchema = z.object({
     exists: z.boolean(),
     trusted: z.boolean(),
     hash: z.string().nullable(),
+    executable: z
+      .object({
+        actions: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            command: z.string(),
+            url: z.string().nullable(),
+            autoOpenUrl: z.boolean(),
+          }),
+        ),
+        setup: z.array(z.string()),
+      })
+      .nullable(),
     error: z.string().optional(),
     warnings: z.array(z.string()),
   }),

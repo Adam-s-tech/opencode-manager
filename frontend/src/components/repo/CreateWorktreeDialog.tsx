@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertCircle, GitBranch, Loader2 } from 'lucide-react'
 import { createRepo, listBranches } from '@/api/repos'
+import { dialogSearch } from '@/hooks/useDialogParam'
 import { showToast } from '@/lib/toast'
 import { notifyWorktreeSetup } from '@/lib/worktreeSetup'
 import { invalidateRepoGitCaches } from '@/lib/queryInvalidation'
@@ -76,7 +77,7 @@ export function CreateWorktreeDialog({
       onOpenChange(false)
       notifyWorktreeSetup(repo.worktreeSetup)
       if (repo.worktreeSetup?.status === 'started') {
-        navigate(`/repos/${repo.id}?dialog=terminal&terminal=${encodeURIComponent(repo.worktreeSetup.terminal.id)}`)
+        navigate(`/repos/${repo.id}${dialogSearch('terminal', { terminal: repo.worktreeSetup.terminal.id })}`)
       }
     },
     onError: (err) => {

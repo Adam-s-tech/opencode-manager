@@ -42,6 +42,11 @@ vi.mock('@/lib/toast', () => ({
 const HASH = 'a'.repeat(64)
 const OTHER_HASH = 'b'.repeat(64)
 
+const repoExecutable: NonNullable<ProjectConfigResponse['repoFile']['executable']> = {
+  actions: [{ id: 'dev', name: 'Dev server', command: 'pnpm dev', url: null, autoOpenUrl: false }],
+  setup: [],
+}
+
 const devAction: ProjectConfigResponse['actions'][number] = {
   id: 'dev',
   name: 'Dev server',
@@ -67,11 +72,19 @@ const runningTerminal: TerminalInfo = {
 function makeConfig(
   actions: ProjectConfigResponse['actions'],
   hash: string | null = null,
+  executable: ProjectConfigResponse['repoFile']['executable'] = null,
 ): ProjectConfigResponse {
   return {
     actions,
     worktreeSetup: [],
-    repoFile: { path: '.ocm/project.json', exists: hash !== null, trusted: true, hash, warnings: [] },
+    repoFile: {
+      path: '.ocm/project.json',
+      exists: hash !== null,
+      trusted: true,
+      hash,
+      warnings: [],
+      executable,
+    },
   }
 }
 
@@ -142,8 +155,8 @@ describe('ProjectActionsMenu', () => {
   })
 
   it('trusts the repository config after a 409 and retries the run', async () => {
-    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH), isLoading: false, error: null })
-    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH))
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH, repoExecutable), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH, repoExecutable))
     let runCalls = 0
     mocks.runMutate.mockImplementation((_actionId, options) => {
       runCalls += 1
@@ -171,10 +184,52 @@ describe('ProjectActionsMenu', () => {
     )
   })
 
+  it('lists every executable action and setup command, including shadowed actions', async () => {
+    const executable: NonNullable<ProjectConfigResponse['repoFile']['executable']> = {
+      actions: [
+        { id: 'dev', name: 'Dev server', command: 'pnpm dev', url: 'http://localhost:3000', autoOpenUrl: true },
+        { id: 'shadowed', name: 'Shadowed action', command: 'pnpm shadowed', url: null, autoOpenUrl: false },
+      ],
+      setup: ['pnpm install'],
+    }
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH, executable), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH, executable))
+    mocks.runMutate.mockImplementation((_actionId, options) => options.onError(untrustedError(HASH)))
+    const user = userEvent.setup()
+    renderMenu()
+
+    await user.click(screen.getByRole('button', { name: 'Project actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: /dev server/i }))
+
+    expect(await screen.findByText('Trust repository actions')).toBeInTheDocument()
+    expect(await screen.findByText('Actions')).toBeInTheDocument()
+    expect(screen.getByText('Shadowed action')).toBeInTheDocument()
+    expect(screen.getByText('pnpm shadowed')).toBeInTheDocument()
+    expect(screen.getByText('http://localhost:3000')).toBeInTheDocument()
+    expect(screen.getByText('Opens URL automatically')).toBeInTheDocument()
+    expect(screen.getByText('Worktree setup commands')).toBeInTheDocument()
+    expect(screen.getByText('pnpm install')).toBeInTheDocument()
+  })
+
+  it('does not offer trust when the snapshot has no executable commands', async () => {
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH))
+    mocks.runMutate.mockImplementation((_actionId, options) => options.onError(untrustedError(HASH)))
+    const user = userEvent.setup()
+    renderMenu()
+
+    await user.click(screen.getByRole('button', { name: 'Project actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: /dev server/i }))
+
+    await waitFor(() => expect(mocks.showToastError).toHaveBeenCalled())
+    expect(screen.queryByText('Trust repository actions')).not.toBeInTheDocument()
+    expect(mocks.trustMutate).not.toHaveBeenCalled()
+  })
+
   it('shows the freshly verified command when the cached config is stale', async () => {
     const staleAction: ProjectConfigResponse['actions'][number] = { ...repoAction, command: 'pnpm dev:stale' }
-    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([staleAction], HASH), isLoading: false, error: null })
-    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH))
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([staleAction], HASH, repoExecutable), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH, repoExecutable))
     mocks.runMutate.mockImplementation((_actionId, options) => options.onError(untrustedError(HASH)))
     const user = userEvent.setup()
     renderMenu()
@@ -187,8 +242,8 @@ describe('ProjectActionsMenu', () => {
   })
 
   it('refuses confirmation when the fresh hash differs from the 409 hash', async () => {
-    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH), isLoading: false, error: null })
-    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], OTHER_HASH))
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH, repoExecutable), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], OTHER_HASH, repoExecutable))
     mocks.runMutate.mockImplementation((_actionId, options) => options.onError(untrustedError(HASH)))
     const user = userEvent.setup()
     renderMenu()
@@ -202,8 +257,8 @@ describe('ProjectActionsMenu', () => {
   })
 
   it('refuses confirmation when the action is no longer a repository action', async () => {
-    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH), isLoading: false, error: null })
-    mocks.getProjectConfig.mockResolvedValue(makeConfig([devAction], HASH))
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH, repoExecutable), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([devAction], HASH, repoExecutable))
     mocks.runMutate.mockImplementation((_actionId, options) => options.onError(untrustedError(HASH)))
     const user = userEvent.setup()
     renderMenu()
@@ -217,8 +272,8 @@ describe('ProjectActionsMenu', () => {
   })
 
   it('cancels a pending confirmation when the directory changes', async () => {
-    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH), isLoading: false, error: null })
-    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH))
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH, repoExecutable), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH, repoExecutable))
     mocks.runMutate.mockImplementation((_actionId, options) => options.onError(untrustedError(HASH)))
     const user = userEvent.setup()
     const capturedSearch: { current: string } = { current: '' }
@@ -237,8 +292,8 @@ describe('ProjectActionsMenu', () => {
   })
 
   it('does not retry the run when the trust response arrives after switching directory', async () => {
-    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH), isLoading: false, error: null })
-    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH))
+    mocks.useProjectConfig.mockReturnValue({ data: makeConfig([repoAction], HASH, repoExecutable), isLoading: false, error: null })
+    mocks.getProjectConfig.mockResolvedValue(makeConfig([repoAction], HASH, repoExecutable))
     mocks.runMutate.mockImplementation((_actionId, options) => options.onError(untrustedError(HASH)))
     let trustOptions: { onSuccess: () => void } | undefined
     mocks.trustMutate.mockImplementation((_vars, options) => {

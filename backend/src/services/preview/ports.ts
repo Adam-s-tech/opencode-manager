@@ -1,14 +1,9 @@
 import { readFile, readdir, readlink } from 'node:fs/promises'
 import { ENV } from '@opencode-manager/shared/config/env'
+import type { PreviewPort } from '@opencode-manager/shared/schemas'
 import { executeCommand } from '../../utils/process'
 
-export interface PreviewPortEntry {
-  port: number
-  host: '127.0.0.1' | '::1'
-  pid: number | null
-  command: string | null
-  cwd: string | null
-}
+export type PreviewPortEntry = Omit<PreviewPort, 'inDirectory'>
 
 export interface ParsedProcNetSocket {
   port: number
@@ -192,8 +187,9 @@ function dedupeByPort(entries: PreviewPortEntry[]): PreviewPortEntry[] {
   return result
 }
 
-async function mapInodesToPids(deps: PortDiscoveryDeps): Promise<Map<string, number>> {
+async function mapInodesToPids(deps: PortDiscoveryDeps, wantedInodes: ReadonlySet<string>): Promise<Map<string, number>> {
   const map = new Map<string, number>()
+  if (wantedInodes.size === 0) return map
   let entries: string[]
   try {
     entries = await deps.readdir('/proc')
@@ -201,6 +197,7 @@ async function mapInodesToPids(deps: PortDiscoveryDeps): Promise<Map<string, num
     return map
   }
   for (const entry of entries) {
+    if (map.size >= wantedInodes.size) break
     if (!/^\d+$/.test(entry)) continue
     const fdDir = `/proc/${entry}/fd`
     let fds: string[]
@@ -217,7 +214,8 @@ async function mapInodesToPids(deps: PortDiscoveryDeps): Promise<Map<string, num
         continue
       }
       const match = /^socket:\[(\d+)\]$/.exec(target)
-      if (match?.[1]) map.set(match[1], Number.parseInt(entry, 10))
+      const inode = match?.[1]
+      if (inode && wantedInodes.has(inode)) map.set(inode, Number.parseInt(entry, 10))
     }
   }
   return map
@@ -252,7 +250,11 @@ async function listLinuxPorts(deps: PortDiscoveryDeps): Promise<PreviewPortEntry
   }
   if (sockets.length === 0) return []
 
-  const inodeToPid = await mapInodesToPids(deps)
+  const wantedInodes = new Set<string>()
+  for (const socket of sockets) {
+    if (socket.inode) wantedInodes.add(socket.inode)
+  }
+  const inodeToPid = await mapInodesToPids(deps, wantedInodes)
   const processMeta = new Map<number, { command: string | null; cwd: string | null }>()
   const entries: PreviewPortEntry[] = []
   for (const socket of sockets) {

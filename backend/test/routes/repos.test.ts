@@ -871,6 +871,37 @@ describe('Repo Routes', () => {
       expect(repoService.deleteRepoFiles).toHaveBeenCalledWith(mockDb, 1)
     })
 
+    it('removes terminals for OpenCode workspace siblings but not manager worktree repos', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+      vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
+      vi.mocked(repoService.getSiblingRepos).mockResolvedValue([
+        { ...createMockRepo({ id: 2, fullPath: '/tmp/repos/manager-worktree', isWorktree: true }), currentBranch: undefined },
+        { ...createMockRepo({ id: -1, fullPath: '/tmp/plugin-workspace' }), currentBranch: undefined, worktreeStrategy: 'git' },
+      ])
+
+      const app = createTestRoutes()
+      const res = await app.request('/1', { method: 'DELETE' })
+
+      expect(res.status).toBe(200)
+      expect(mockTerminalService.removeAll).toHaveBeenCalledWith('/tmp/repos/test-repo')
+      expect(mockTerminalService.removeAll).toHaveBeenCalledWith('/tmp/plugin-workspace')
+      expect(mockTerminalService.removeAll).not.toHaveBeenCalledWith('/tmp/repos/manager-worktree')
+      expect(repoService.getSiblingRepos).toHaveBeenCalledWith(mockDb, 1, {}, expect.anything(), { includeBranch: false })
+      expect(repoService.deleteRepoFiles).toHaveBeenCalledWith(mockDb, 1)
+    })
+
+    it('still deletes the repo when listing workspace siblings throws', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
+      vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
+      vi.mocked(repoService.getSiblingRepos).mockRejectedValue(new Error('siblings failed'))
+
+      const app = createTestRoutes()
+      const res = await app.request('/1', { method: 'DELETE' })
+
+      expect(res.status).toBe(200)
+      expect(repoService.deleteRepoFiles).toHaveBeenCalledWith(mockDb, 1)
+    })
+
     it('should return 500 when removing the repo files throws', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       vi.mocked(repoService.deleteRepoFiles).mockRejectedValue(new Error('delete failed'))

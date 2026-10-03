@@ -1,23 +1,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TerminalInfo } from '@opencode-manager/shared/types'
 import { FetchError } from '@opencode-manager/shared'
+import { isRunningActionTerminal } from '@opencode-manager/shared/utils'
 import type {
-  ProjectActionIcon,
   ProjectConfigResponse,
   RunProjectActionResponse,
 } from '@opencode-manager/shared/types'
-import {
-  Bug,
-  CheckCircle2,
-  FlaskConical,
-  Hammer,
-  Play,
-  Rocket,
-  Server,
-  Square,
-  SquareTerminal,
-  type LucideIcon,
-} from 'lucide-react'
+import { Play, Square } from 'lucide-react'
 import {
   getProjectConfig,
   useProjectConfig,
@@ -37,20 +26,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { openDialogParam } from '@/hooks/useDialogParam'
 import { useOpenPreview } from '@/hooks/useOpenPreview'
+import { useOpenTerminal } from '@/hooks/useOpenTerminal'
 import { useUrlParams } from '@/hooks/useUrlParams'
+import { getOpenCodeApiErrorMessage } from '@/lib/opencode-errors'
 import { openUrlFromManager } from '@/lib/open-url'
 import { showToast } from '@/lib/toast'
-
-const ACTION_ICONS: Record<ProjectActionIcon, LucideIcon> = {
-  play: Play,
-  build: Hammer,
-  test: FlaskConical,
-  lint: CheckCircle2,
-  terminal: SquareTerminal,
-  server: Server,
-  bug: Bug,
-  rocket: Rocket,
-}
+import { TrustExecutableList } from './TrustExecutableList'
+import { actionIcon } from './projectActionIcons'
 
 interface ProjectActionsMenuProps {
   repoId: number
@@ -61,7 +43,7 @@ interface PendingTrust {
   actionId: string
   hash: string
   directory: string
-  command: string
+  executable: NonNullable<ProjectConfigResponse['repoFile']['executable']>
 }
 
 function untrustedHash(error: unknown): string | null {
@@ -73,14 +55,11 @@ function untrustedHash(error: unknown): string | null {
   return null
 }
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
-}
-
 export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const { updateParams } = useUrlParams()
   const openPreview = useOpenPreview()
+  const openTerminal = useOpenTerminal()
   const configQuery = useProjectConfig(repoId, directory, menuOpen && !!directory)
   const terminalsQuery = useTerminals(repoId, directory, {
     enabled: menuOpen && !!directory,
@@ -105,7 +84,7 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
   const runningByAction = useMemo(() => {
     const map = new Map<string, TerminalInfo>()
     for (const terminal of terminalsQuery.data ?? []) {
-      if (terminal.kind === 'action' && terminal.actionId && terminal.status === 'running') {
+      if (terminal.actionId && isRunningActionTerminal(terminal, terminal.actionId)) {
         map.set(terminal.actionId, terminal)
       }
     }
@@ -113,15 +92,11 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
   }, [terminalsQuery.data])
 
   const handleRunSuccess = useCallback((result: RunProjectActionResponse) => {
-    updateParams((params) => {
-      params.set('dialog', 'terminal')
-      params.set('terminal', result.terminal.id)
-      params.delete('mobileTab')
-    }, 'push')
+    openTerminal(result.terminal.id)
     if (result.autoOpenUrl && result.resolvedUrl) {
       openUrlFromManager(result.resolvedUrl, { openPreview })
     }
-  }, [updateParams, openPreview])
+  }, [openTerminal, openPreview])
 
   const requestTrustConfirmation = useCallback(async (actionId: string, hash: string) => {
     const requestDirectory = directory
@@ -130,7 +105,7 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
     try {
       snapshot = await getProjectConfig(repoId, requestDirectory)
     } catch (error) {
-      showToast.error(errorMessage(error, 'Failed to verify repository actions'))
+      showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to verify repository actions'))
       return
     }
     const scope = scopeRef.current
@@ -138,11 +113,12 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
     const repoAction = snapshot.actions.find(
       (action) => action.id === actionId && action.source === 'repo',
     )
-    if (snapshot.repoFile.hash !== hash || !repoAction) {
+    const executable = snapshot.repoFile.executable
+    if (snapshot.repoFile.hash !== hash || !repoAction || !executable) {
       showToast.error('Repository actions changed. Reopen the menu to review them.')
       return
     }
-    setPendingTrust({ actionId, hash, directory: requestDirectory, command: repoAction.command })
+    setPendingTrust({ actionId, hash, directory: requestDirectory, executable })
   }, [directory, repoId])
 
   const startRun = useCallback((actionId: string) => {
@@ -154,7 +130,7 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
           void requestTrustConfirmation(actionId, hash)
           return
         }
-        showToast.error(errorMessage(error, 'Failed to run action'))
+        showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to run action'))
       },
     })
   }, [runAction, handleRunSuccess, requestTrustConfirmation])
@@ -170,13 +146,13 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
         setPendingTrust(null)
         startRun(actionId)
       },
-      onError: (error) => showToast.error(errorMessage(error, 'Failed to trust repository commands')),
+      onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to trust repository commands')),
     })
   }, [pendingTrust, trustConfig, startRun, repoId])
 
   const handleStop = useCallback((terminal: TerminalInfo) => {
     removeTerminal.mutate({ ptyID: terminal.id, directory }, {
-      onError: (error) => showToast.error(errorMessage(error, 'Failed to stop action')),
+      onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to stop action')),
     })
   }, [removeTerminal, directory])
 
@@ -206,7 +182,7 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
             </DropdownMenuLabel>
           ) : (
             actions.map((action) => {
-              const Icon = ACTION_ICONS[action.icon ?? 'play']
+              const Icon = actionIcon(action.icon)
               const running = runningByAction.get(action.id)
               return (
                 <Fragment key={action.id}>
@@ -242,7 +218,7 @@ export function ProjectActionsMenu({ repoId, directory }: ProjectActionsMenuProp
         onCancel={() => setPendingTrust(null)}
         title="Trust repository actions"
         description="This repository defines commands that run on your machine."
-        warning={pendingTrust?.command}
+        warning={pendingTrust ? <TrustExecutableList executable={pendingTrust.executable} /> : undefined}
         confirmLabel="Trust and run"
         pendingLabel="Trusting…"
         isPending={trustConfig.isPending}

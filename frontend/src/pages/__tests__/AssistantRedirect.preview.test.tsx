@@ -121,7 +121,7 @@ describe('AssistantRedirect preview routing', () => {
     mocks.usePreviewPorts.mockReturnValue({
       data: {
         enabled: true,
-        ports: [{ port: 5173, host: '127.0.0.1', pid: 10, command: 'vite', cwd: assistantDirectory }],
+        ports: [{ port: 5173, host: '127.0.0.1', pid: 10, command: 'vite', cwd: assistantDirectory, inDirectory: true }],
       },
       isLoading: false,
       refetch: vi.fn(),

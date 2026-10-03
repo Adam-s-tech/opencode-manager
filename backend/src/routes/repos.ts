@@ -45,6 +45,39 @@ async function removeDirectoryTerminals(terminalService: TerminalService, direct
   }
 }
 
+async function listWorkspaceSiblings(
+  database: Database,
+  repoId: number,
+  gitAuthService: GitAuthService,
+  openCodeClient: OpenCodeClient,
+): Promise<Array<Repo & { worktreeStrategy?: string }>> {
+  const siblings = await repoService.getSiblingRepos(
+    database,
+    repoId,
+    gitAuthService.getGitEnvironment(),
+    openCodeClient,
+    { includeBranch: false },
+  )
+  return siblings.filter(isWorktreeSibling)
+}
+
+async function removeWorkspaceSiblingTerminals(
+  database: Database,
+  repoId: number,
+  gitAuthService: GitAuthService,
+  openCodeClient: OpenCodeClient,
+  terminalService: TerminalService,
+): Promise<void> {
+  let siblings: Array<Repo & { worktreeStrategy?: string }>
+  try {
+    siblings = await listWorkspaceSiblings(database, repoId, gitAuthService, openCodeClient)
+  } catch (error: unknown) {
+    logger.warn(`Failed to list OpenCode workspace siblings for repo ${repoId}:`, error)
+    return
+  }
+  await Promise.all(siblings.map((sibling) => removeDirectoryTerminals(terminalService, sibling.fullPath)))
+}
+
 export function createRepoRoutes(
   database: Database,
   gitAuthService: GitAuthService,
@@ -293,8 +326,8 @@ app.get('/', async (c) => {
       if (!parsed.success) return c.json({ error: 'directory is required' }, 400)
       const directory = parsed.data.directory
 
-      const siblings = await repoService.getSiblingRepos(database, id, gitAuthService.getGitEnvironment(), openCodeClient)
-      const worktree = repoService.findSiblingByDirectory(siblings.filter(isWorktreeSibling), directory)
+      const siblings = await listWorkspaceSiblings(database, id, gitAuthService, openCodeClient)
+      const worktree = repoService.findSiblingByDirectory(siblings, directory)
       if (!worktree) return c.json({ error: 'Not a deletable worktree of this repo' }, 400)
 
       await removeDirectoryTerminals(terminalService, worktree.fullPath)
@@ -361,6 +394,8 @@ app.get('/', async (c) => {
       scheduleService.prepareRepoDelete(id)
 
       await removeDirectoryTerminals(terminalService, repo.fullPath)
+
+      await removeWorkspaceSiblingTerminals(database, id, gitAuthService, openCodeClient, terminalService)
 
       await repoService.deleteRepoFiles(database, id)
       

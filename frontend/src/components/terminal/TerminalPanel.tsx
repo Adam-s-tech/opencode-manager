@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TerminalInfo } from '@opencode-manager/shared/types'
 import { Plus, SquareTerminal, X } from 'lucide-react'
 import { useCreateTerminal, useRemoveTerminal, useTerminals } from '@/api/terminals'
@@ -11,17 +11,20 @@ import { useUrlParams } from '@/hooks/useUrlParams'
 import { openUrlFromManager } from '@/lib/open-url'
 import { cn } from '@/lib/utils'
 import { TerminalKeyBar } from './TerminalKeyBar'
-import { TerminalView, type TerminalViewHandle } from './TerminalView'
+import type { TerminalViewHandle } from './TerminalView'
+
+const TerminalView = lazy(() =>
+  import('./TerminalView').then((module) => ({ default: module.TerminalView })),
+)
 
 interface TerminalPanelProps {
   repoId: number
   directory: string | undefined
   isOpen: boolean
   onClose: () => void
-  onOpenLink?: (uri: string) => void
 }
 
-export function TerminalPanel({ repoId, directory, isOpen, onClose, onOpenLink }: TerminalPanelProps) {
+export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPanelProps) {
   const isMobile = useMobile()
   const { searchParams, updateParams } = useUrlParams()
   const openPreview = useOpenPreview()
@@ -183,23 +186,31 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose, onOpenLink }
               {isLoading || isCreating ? 'Starting terminal...' : 'No terminals'}
             </div>
           ) : (
-            terminals.map((terminal) => (
-              <TerminalView
-                key={terminal.id}
-                ref={(handle) => {
-                  if (handle) viewHandlesRef.current.set(terminal.id, handle)
-                  else viewHandlesRef.current.delete(terminal.id)
-                }}
-                repoId={repoId}
-                directory={directory}
-                ptyID={terminal.id}
-                active={terminal.id === activeTerminalId}
-                ctrlArmed={ctrlArmed}
-                onCtrlConsumed={handleCtrlConsumed}
-                onOpenLink={onOpenLink ?? handleOpenLink}
-                onExited={() => { void refetch() }}
-              />
-            ))
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  Loading terminal...
+                </div>
+              }
+            >
+              {terminals.map((terminal) => (
+                <TerminalView
+                  key={terminal.id}
+                  ref={(handle) => {
+                    if (handle) viewHandlesRef.current.set(terminal.id, handle)
+                    else viewHandlesRef.current.delete(terminal.id)
+                  }}
+                  repoId={repoId}
+                  directory={directory}
+                  ptyID={terminal.id}
+                  active={terminal.id === activeTerminalId}
+                  ctrlArmed={ctrlArmed}
+                  onCtrlConsumed={handleCtrlConsumed}
+                  onOpenLink={handleOpenLink}
+                  onExited={() => { void refetch() }}
+                />
+              ))}
+            </Suspense>
           )}
         </div>
 

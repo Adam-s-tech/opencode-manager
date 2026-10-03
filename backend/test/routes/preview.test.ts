@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtemp, mkdir, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ENV } from '@opencode-manager/shared/config/env'
-import { createPreviewRoutes } from '../../src/routes/preview'
+import type { PreviewPort } from '@opencode-manager/shared/schemas'
+import { createPreviewRoutes, createPreviewAvailability } from '../../src/routes/preview'
 import { PreviewSessionStore } from '../../src/services/preview/gateway'
 import type { PreviewPortEntry } from '../../src/services/preview/ports'
 
@@ -30,7 +31,7 @@ describe('Preview Routes', () => {
     await mkdir(appDir)
 
     const app = createPreviewRoutes({
-      enabled: true,
+      isEnabled: () => true,
       listPorts: async () => [
         entry({ port: 9000, cwd: '/somewhere/else' }),
         entry({ port: 5173, cwd: appDir }),
@@ -47,7 +48,7 @@ describe('Preview Routes', () => {
 
   it('sorts by port when no directory is given', async () => {
     const app = createPreviewRoutes({
-      enabled: true,
+      isEnabled: () => true,
       listPorts: async () => [entry({ port: 9000 }), entry({ port: 5173 })],
     })
 
@@ -57,8 +58,60 @@ describe('Preview Routes', () => {
     expect(body.ports.map((port) => port.port)).toEqual([5173, 9000])
   })
 
+  it('marks entries inside the directory and sorts them first', async () => {
+    const root = await makeTempDir()
+    const appDir = join(root, 'app')
+    await mkdir(appDir)
+
+    const app = createPreviewRoutes({
+      isEnabled: () => true,
+      listPorts: async () => [
+        entry({ port: 5173, cwd: '/somewhere/else' }),
+        entry({ port: 9000, cwd: appDir }),
+      ],
+    })
+
+    const res = await app.request(`/ports?directory=${encodeURIComponent(root)}`)
+    const body = await res.json() as { ports: PreviewPort[] }
+
+    expect(body.ports.map((port) => ({ port: port.port, inDirectory: port.inDirectory }))).toEqual([
+      { port: 9000, inDirectory: true },
+      { port: 5173, inDirectory: false },
+    ])
+  })
+
+  it('resolves symlinked cwds before matching the directory', async () => {
+    const root = await makeTempDir()
+    const realDir = join(root, 'real')
+    const linkDir = join(root, 'link')
+    await mkdir(realDir)
+    await symlink(realDir, linkDir)
+
+    const app = createPreviewRoutes({
+      isEnabled: () => true,
+      listPorts: async () => [entry({ port: 5173, cwd: linkDir })],
+    })
+
+    const res = await app.request(`/ports?directory=${encodeURIComponent(realDir)}`)
+    const body = await res.json() as { ports: PreviewPort[] }
+
+    expect(body.ports[0]?.inDirectory).toBe(true)
+  })
+
+  it('marks every entry outside when no directory is given', async () => {
+    const app = createPreviewRoutes({
+      isEnabled: () => true,
+      listPorts: async () => [entry({ port: 5173, cwd: '/repo' }), entry({ port: 9000, cwd: null })],
+    })
+
+    const res = await app.request('/ports')
+    const body = await res.json() as { ports: PreviewPort[] }
+
+    expect(body.ports.map((port) => port.inDirectory)).toEqual([false, false])
+  })
+
   it('reports preview as disabled when the port is zero', async () => {
-    const app = createPreviewRoutes({ enabled: false, listPorts: async () => [] })
+    const app = createPreviewRoutes({ isEnabled: () => false, listPorts: async () => [] })
 
     const res = await app.request('/ports')
 
@@ -67,7 +120,7 @@ describe('Preview Routes', () => {
 
   it('issues a preview start token for a listening port', async () => {
     const store = new PreviewSessionStore()
-    const app = createPreviewRoutes({ enabled: true, listPorts: async () => [entry({ port: 5173 })], store })
+    const app = createPreviewRoutes({ isEnabled: () => true, listPorts: async () => [entry({ port: 5173 })], store })
 
     const res = await app.request('/sessions', {
       method: 'POST',
@@ -84,7 +137,7 @@ describe('Preview Routes', () => {
   })
 
   it('rejects a reserved port with 400', async () => {
-    const app = createPreviewRoutes({ enabled: true, listPorts: async () => [entry({ port: ENV.PREVIEW.PORT })] })
+    const app = createPreviewRoutes({ isEnabled: () => true, listPorts: async () => [entry({ port: ENV.PREVIEW.PORT })] })
 
     const res = await app.request('/sessions', {
       method: 'POST',
@@ -96,7 +149,7 @@ describe('Preview Routes', () => {
   })
 
   it('returns 404 for a port that is not listening', async () => {
-    const app = createPreviewRoutes({ enabled: true, listPorts: async () => [entry({ port: 5173 })] })
+    const app = createPreviewRoutes({ isEnabled: () => true, listPorts: async () => [entry({ port: 5173 })] })
 
     const res = await app.request('/sessions', {
       method: 'POST',
@@ -109,7 +162,7 @@ describe('Preview Routes', () => {
   })
 
   it('returns 503 when preview is disabled', async () => {
-    const app = createPreviewRoutes({ enabled: false, listPorts: async () => [entry({ port: 5173 })] })
+    const app = createPreviewRoutes({ isEnabled: () => false, listPorts: async () => [entry({ port: 5173 })] })
 
     const res = await app.request('/sessions', {
       method: 'POST',
@@ -121,7 +174,7 @@ describe('Preview Routes', () => {
   })
 
   it('rejects an out-of-range port with 400', async () => {
-    const app = createPreviewRoutes({ enabled: true, listPorts: async () => [] })
+    const app = createPreviewRoutes({ isEnabled: () => true, listPorts: async () => [] })
 
     const res = await app.request('/sessions', {
       method: 'POST',
@@ -130,5 +183,41 @@ describe('Preview Routes', () => {
     })
 
     expect(res.status).toBe(400)
+  })
+
+  it('reads availability at request time', async () => {
+    let enabled = true
+    const app = createPreviewRoutes({ isEnabled: () => enabled, listPorts: async () => [entry({ port: 5173 })] })
+
+    const first = await app.request('/ports')
+    expect((await first.json() as { enabled: boolean }).enabled).toBe(true)
+
+    enabled = false
+    const second = await app.request('/ports')
+    expect((await second.json() as { enabled: boolean }).enabled).toBe(false)
+
+    const disabledSession = await app.request('/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ port: 5173 }),
+    })
+    expect(disabledSession.status).toBe(503)
+  })
+})
+
+describe('Preview availability', () => {
+  it('starts in the provided state', () => {
+    expect(createPreviewAvailability(true).isEnabled()).toBe(true)
+    expect(createPreviewAvailability(false).isEnabled()).toBe(false)
+  })
+
+  it('tracks availability transitions', () => {
+    const availability = createPreviewAvailability(true)
+
+    availability.markUnavailable()
+    expect(availability.isEnabled()).toBe(false)
+
+    availability.markAvailable()
+    expect(availability.isEnabled()).toBe(true)
   })
 })

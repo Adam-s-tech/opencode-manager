@@ -39,8 +39,10 @@ Terminals run as OpenCode PTYs on the host, using the user's configured shell. T
 
 Each terminal receives environment resolved for its directory:
 
-- the repository's GitHub token environment, so `git` and `gh` authenticate as the repo's credentials;
-- the assigned git commit identity, so commits made in the terminal use the repo's configured author.
+- the repository's GitHub token environment (`GH_TOKEN`, `GITHUB_TOKEN`), so `gh` authenticates with the repo's GitHub credential;
+- the repository's assigned git commit identity, when one is assigned, so commits made in the terminal use that author.
+
+`git` itself authenticates with the same credentials as the OpenCode server process, which the Manager configures from its saved git credentials.
 
 ## Related
 
