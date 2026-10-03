@@ -7,7 +7,7 @@ import type { Database } from 'bun:sqlite'
 import type { Repo, CreateRepoInput } from '../types/repo'
 import { logger } from '../utils/logger'
 import { getReposPath, getScheduleWorktreesPath } from '@opencode-manager/shared/config/env'
-import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, SCP_STYLE_URL_PATTERN } from '@opencode-manager/shared/utils'
+import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, isWorktreeSibling, SCP_STYLE_URL_PATTERN } from '@opencode-manager/shared/utils'
 import type { GitAuthService } from './git-auth'
 import { isGitHubHttpsUrl } from '../utils/git-auth'
 import path from 'path'
@@ -1262,4 +1262,45 @@ export async function getSiblingRepos(
     logger.warn('Failed to list OpenCode worktrees:', error)
     return repoSiblings
   }
+}
+
+export class RepoWorkspaceError extends Error {
+  readonly status: 400 | 404
+
+  constructor(message: string, status: 400 | 404) {
+    super(message)
+    this.name = 'RepoWorkspaceError'
+    this.status = status
+  }
+}
+
+export async function createRepoWorkspace(
+  openCodeClient: OpenCodeClient,
+  repo: Repo,
+  options: { name?: string; ref?: string } = {},
+): Promise<{ directory: string }> {
+  const projectID = await resolveRepoProjectId(openCodeClient, repo.fullPath)
+  return openCodeClient.api.worktree.create({
+    projectID,
+    ...(options.name ? { name: options.name } : {}),
+    ...(options.ref ? { branch: options.ref } : {}),
+  })
+}
+
+export async function removeRepoWorkspace(
+  database: Database,
+  openCodeClient: OpenCodeClient,
+  gitEnv: Record<string, string>,
+  repo: Repo,
+  directory: string,
+): Promise<void> {
+  const siblings = await getSiblingRepos(database, repo.id, gitEnv, openCodeClient)
+  const requestedDirectory = canonicalPathSync(path.resolve(directory))
+  const worktree = siblings.find(
+    (sibling) => isWorktreeSibling(sibling) && canonicalPathSync(path.resolve(sibling.fullPath)) === requestedDirectory,
+  )
+  if (!worktree) throw new RepoWorkspaceError('Not a deletable worktree of this repo', 400)
+
+  const projectID = await resolveRepoProjectId(openCodeClient, repo.fullPath)
+  await openCodeClient.api.worktree.remove({ projectID, directory: worktree.fullPath, force: true })
 }
