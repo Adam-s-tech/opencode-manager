@@ -13,6 +13,7 @@ import { createInternalRepoRoutes } from './repos'
 import { createInternalRepoSyncRoutes } from './repo-sync'
 import { createInternalRepoMirrorRoutes as mirrorRoutes } from './repo-mirror'
 import { createInternalOpenCodeWorkspacesRoutes } from './opencode-workspaces'
+import { createInternalSessionRoutes } from './sessions'
 import { createInternalAssistantRoutes } from './assistant'
 import { createInternalGitCredentialsRoutes } from './git-credentials'
 import { createInternalSandboxRoutes } from './sandbox'
@@ -37,6 +38,7 @@ export function createInternalRoutes(
   repos.route('/', mirrorRoutes(db))
   app.route('/repos', repos)
   app.route('/opencode-workspaces', createInternalOpenCodeWorkspacesRoutes(db))
+  app.route('/sessions', createInternalSessionRoutes(db, openCodeClient))
   app.route('/assistant', createInternalAssistantRoutes(openCodeClient))
   app.route('/git-credentials', createInternalGitCredentialsRoutes(db))
   app.route('/sandbox', createInternalSandboxRoutes(db))
