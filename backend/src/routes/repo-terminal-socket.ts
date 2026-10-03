@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
 import type { Database } from 'bun:sqlite'
 import type { UpgradeWebSocket } from 'hono/ws'
+import { ENV } from '@opencode-manager/shared/config/env'
 import type { GitAuthService } from '../services/git-auth'
 import type { OpenCodeClient } from '../services/opencode/client'
 import type { TerminalService } from '../services/terminal'
@@ -15,6 +16,19 @@ export interface RepoTerminalSocketVariables {
 }
 
 const MAX_CLOSE_REASON_BYTES = 120
+
+const DEFAULT_TRUSTED_ORIGINS = ENV.AUTH.TRUSTED_ORIGINS.split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
+
+function isAllowedUpgradeOrigin(
+  origin: string | undefined,
+  trustedOrigins: readonly string[],
+): boolean {
+  if (origin === undefined) return true
+  if (origin === 'null') return false
+  return trustedOrigins.includes(origin)
+}
 
 function parseCursor(raw: string | undefined): number | undefined | null {
   if (raw === undefined) return undefined
@@ -36,11 +50,16 @@ export function createRepoTerminalSocketRoutes(
   openCodeClient: OpenCodeClient,
   terminalService: TerminalService,
   upgradeWebSocket: UpgradeWebSocket,
+  trustedOrigins: readonly string[] = DEFAULT_TRUSTED_ORIGINS,
 ) {
   const app = new Hono<{ Variables: RepoTerminalSocketVariables }>()
   const deps = { database, gitAuthService, openCodeClient }
 
   const validate: MiddlewareHandler<{ Variables: RepoTerminalSocketVariables }> = async (c, next) => {
+    if (!isAllowedUpgradeOrigin(c.req.header('origin'), trustedOrigins)) {
+      return c.json({ error: 'Origin not allowed' }, 403)
+    }
+
     const cursor = parseCursor(c.req.query('cursor'))
     if (cursor === null) {
       return c.json({ error: 'Invalid cursor' }, 400)

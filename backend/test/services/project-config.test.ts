@@ -347,6 +347,50 @@ describe('ProjectConfigService repository file', () => {
     expect(service.getPersonalActions(repo)).toEqual([createAction()])
   })
 
+  it('keeps unrelated repository setup untrusted when moving an action to personal', async () => {
+    writeRepoFile({
+      version: 1,
+      projectActions: [{ id: 'serve', name: 'Serve', command: 'pnpm dev' }],
+      setupWorktree: ['echo unrelated'],
+    })
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'serve', to: 'personal' })
+
+    const config = await service.getConfig(repo, directory)
+    expect(config.repoFile.trusted).toBe(false)
+    expect(config.actions).toEqual([{ ...createAction(), source: 'personal' }])
+
+    const { service: terminalService, create } = createStatefulTerminalService(null)
+    const result = await service.runWorktreeSetup(repo, directory, terminalService)
+    expect(result).toEqual({ status: 'skipped', reason: 'untrusted' })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('keeps unrelated repository actions untrusted when moving an action into the file', async () => {
+    service.setPersonalActions(repo, [
+      createAction({ id: 'personal-serve', name: 'Personal Serve', command: 'pnpm personal' }),
+    ])
+    writeRepoFile({
+      version: 1,
+      projectActions: [{ id: 'repo-other', name: 'Other', command: 'pnpm other' }],
+    })
+
+    await service.moveItem(repo, directory, { kind: 'action', id: 'personal-serve', to: 'repo' })
+
+    const config = await service.getConfig(repo, directory)
+    expect(config.repoFile.trusted).toBe(false)
+    expect(config.actions).toEqual([
+      { id: 'repo-other', name: 'Other', command: 'pnpm other', autoOpenUrl: false, source: 'repo' },
+      { id: 'personal-serve', name: 'Personal Serve', command: 'pnpm personal', autoOpenUrl: false, source: 'repo' },
+    ])
+
+    const { service: terminalService } = createStatefulTerminalService(null)
+    await expect(service.runAction(repo, directory, 'repo-other', terminalService)).rejects.toMatchObject({
+      status: 409,
+      code: 'REPO_CONFIG_UNTRUSTED',
+    })
+  })
+
   it('moves a setup command personal to repo and back', async () => {
     service.setPersonalSetup(repo, ['pnpm install'])
 

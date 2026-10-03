@@ -94,13 +94,10 @@ export function createRepoRoutes(
       }
 
       if (repo.isWorktree) {
-        const projectRepo = await projectConfigService.resolveProjectRepo(repo)
-        if (projectRepo.id !== repo.id) {
-          return c.json({
-            ...repo,
-            worktreeSetup: await projectConfigService.runWorktreeSetup(projectRepo, repo.fullPath, terminalService),
-          })
-        }
+        return c.json({
+          ...repo,
+          worktreeSetup: await projectConfigService.runWorktreeSetupForRepo(repo, repo.fullPath, terminalService),
+        })
       }
 
       return c.json(repo)
@@ -332,7 +329,7 @@ app.get('/', async (c) => {
         const worktree = await openCodeClient.api.worktree.create({ projectID })
         return c.json({
           ...worktree,
-          worktreeSetup: await projectConfigService.runWorktreeSetup(repo, worktree.directory, terminalService),
+          worktreeSetup: await projectConfigService.runWorktreeSetupForRepo(repo, worktree.directory, terminalService),
         })
       } catch (error: unknown) {
         if (isWorktreeError(error)) {

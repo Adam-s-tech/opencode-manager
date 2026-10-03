@@ -265,6 +265,20 @@ export class ProjectConfigService {
     }
   }
 
+  async runWorktreeSetupForRepo(
+    repo: Repo,
+    worktreeDirectory: string,
+    terminalService: TerminalService,
+  ): Promise<WorktreeSetupResult> {
+    try {
+      const projectRepo = await this.resolveProjectRepo(repo)
+      return await this.runWorktreeSetup(projectRepo, worktreeDirectory, terminalService)
+    } catch (error: unknown) {
+      logger.warn(`Failed to prepare worktree setup for ${worktreeDirectory}:`, error)
+      return { status: 'failed', error: getErrorMessage(error) }
+    }
+  }
+
   private isRepoFileTrusted(projectRepo: Repo, repoFile: RepoFileState): boolean {
     return (
       repoFile.hash !== null &&
@@ -340,7 +354,7 @@ export class ProjectConfigService {
       return {
         repoFile: nextFile,
         personalActions: personal.filter((item) => item.id !== action.id),
-        trustHash: this.hashRepoFile(nextFile),
+        trustHash: this.resolveTrustAfterMove(projectRepo, state, this.hashRepoFile(nextFile)),
       }
     }
 
@@ -356,7 +370,11 @@ export class ProjectConfigService {
     const nextPersonal = personal.filter((_, itemIndex) => itemIndex !== index)
     this.assertRepoFileValid(nextFile)
     this.assertPersonalSetupValid(nextPersonal)
-    return { repoFile: nextFile, personalSetup: nextPersonal, trustHash: this.hashRepoFile(nextFile) }
+    return {
+      repoFile: nextFile,
+      personalSetup: nextPersonal,
+      trustHash: this.resolveTrustAfterMove(projectRepo, state, this.hashRepoFile(nextFile)),
+    }
   }
 
   private planMoveToPersonal(projectRepo: Repo, state: RepoFileState, request: MoveProjectItemRequest): MoveCommit {
@@ -377,7 +395,11 @@ export class ProjectConfigService {
       })
       const personalActions = [...this.getPersonalActions(projectRepo), action]
       return nextFile
-        ? { repoFile: nextFile, personalActions, trustHash: this.hashRepoFile(nextFile) }
+        ? {
+            repoFile: nextFile,
+            personalActions,
+            trustHash: this.resolveTrustAfterMove(projectRepo, state, this.hashRepoFile(nextFile)),
+          }
         : { repoFile: null, personalActions, trustHash: null }
     }
 
@@ -393,8 +415,31 @@ export class ProjectConfigService {
     const personalSetup = [...this.getPersonalSetup(projectRepo), request.command]
     this.assertPersonalSetupValid(personalSetup)
     return nextFile
-      ? { repoFile: nextFile, personalSetup, trustHash: this.hashRepoFile(nextFile) }
+      ? {
+          repoFile: nextFile,
+          personalSetup,
+          trustHash: this.resolveTrustAfterMove(projectRepo, state, this.hashRepoFile(nextFile)),
+        }
       : { repoFile: null, personalSetup, trustHash: null }
+  }
+
+  private resolveTrustAfterMove(projectRepo: Repo, state: RepoFileState, nextHash: string | null): string | null {
+    if (nextHash === null) {
+      return null
+    }
+    if (this.hasUntrustedExecutableContent(projectRepo, state)) {
+      return getRepoSetting(this.database, projectRepo.id, REPO_CONFIG_TRUST_KEY)
+    }
+    return nextHash
+  }
+
+  private hasUntrustedExecutableContent(projectRepo: Repo, state: RepoFileState): boolean {
+    if (!state.exists || !state.file) {
+      return false
+    }
+    const hasExecutable =
+      (state.file.projectActions?.length ?? 0) > 0 || (state.file.setupWorktree?.length ?? 0) > 0
+    return hasExecutable && !this.isRepoFileTrusted(projectRepo, state)
   }
 
   private pruneRepoFile(file: RepoProjectFile): RepoProjectFile | null {

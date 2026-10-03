@@ -32,6 +32,7 @@ import {
   useUpdateWorktreeSetup,
 } from '@/api/projectConfig'
 import { showToast } from '@/lib/toast'
+import { randomId } from '@/lib/utils'
 import type { ProjectAction, ProjectActionIcon, ProjectItemSource } from '@opencode-manager/shared/types'
 
 const ACTION_ICON_OPTIONS: { value: ProjectActionIcon; label: string; Icon: LucideIcon }[] = [
@@ -59,7 +60,7 @@ interface ActionDraft {
 }
 
 function emptyActionDraft(): ActionDraft {
-  return { id: crypto.randomUUID(), name: '', command: '', icon: 'play', url: '', autoOpenUrl: false }
+  return { id: randomId(), name: '', command: '', icon: 'play', url: '', autoOpenUrl: false }
 }
 
 function actionToDraft(action: ProjectAction): ActionDraft {

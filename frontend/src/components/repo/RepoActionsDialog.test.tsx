@@ -74,6 +74,28 @@ describe('RepoActionsDialog', () => {
     expect(payload[1]).toMatchObject({ name: 'Dev server', command: 'pnpm dev' })
   })
 
+  it('adds an action when crypto.randomUUID is unavailable', async () => {
+    vi.stubGlobal('crypto', { randomUUID: undefined })
+    try {
+      mockConfig(baseConfig())
+      const user = userEvent.setup()
+      renderDialog()
+
+      await user.click(screen.getByRole('button', { name: /add action/i }))
+      await user.type(screen.getByLabelText('Name'), 'Dev server')
+      await user.type(screen.getByLabelText('Command'), 'pnpm dev')
+      await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+      await waitFor(() => expect(mocks.updateActionsMutate).toHaveBeenCalledTimes(1))
+      const payload = mocks.updateActionsMutate.mock.calls[0][0]
+      expect(payload).toHaveLength(1)
+      expect(payload[0].id).toMatch(/^[A-Za-z0-9_-]{1,64}$/)
+      expect(payload[0]).toMatchObject({ name: 'Dev server', command: 'pnpm dev' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('offers no edit button for repo items but allows moving them to personal settings', () => {
     mockConfig(
       baseConfig({

@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { createStubOpenCodeClient } from '../helpers/stub-opencode-client'
 
@@ -79,6 +82,7 @@ import * as repoService from '../../src/services/repo'
 import * as archiveService from '../../src/services/archive'
 import { createRepoRoutes } from '../../src/routes/repos'
 import { opencodeServerManager } from '../../src/services/opencode-single-server'
+import { ProjectConfigService } from '../../src/services/project-config'
 import type { GitAuthService } from '../../src/services/git-auth'
 import type { ScheduleService } from '../../src/services/schedules'
 import type { TerminalService } from '../../src/services/terminal'
@@ -512,6 +516,78 @@ describe('Repo Routes', () => {
         directory: '/tmp/wrk-test',
         worktreeSetup: { status: 'failed', error: 'spawn failed' },
       })
+    })
+
+    it('runs the main project setup when a linked worktree row creates a workspace', async () => {
+      const worktreeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-workspace-'))
+      const repoFile = { version: 1 as const, setupWorktree: ['pnpm repo-setup'] }
+      fs.mkdirSync(path.join(worktreeDirectory, '.ocm'), { recursive: true })
+      fs.writeFileSync(path.join(worktreeDirectory, '.ocm', 'project.json'), JSON.stringify(repoFile))
+      const hash = new ProjectConfigService(mockDb, {} as never, mockGitAuthService).hashRepoFile(repoFile)
+
+      vi.mocked(db.getRepoById).mockReturnValue(
+        createMockRepo({ id: 2, fullPath: '/tmp/repos/worktree', isWorktree: true }),
+      )
+      vi.mocked(db.getRepoSetting).mockImplementation((_database, repoId, key) => {
+        if (repoId !== 1) return null
+        if (key === 'worktreeSetupCommands') return JSON.stringify(['pnpm install'])
+        if (key === 'repoConfigTrustHash') return hash
+        return null
+      })
+      const mainRepo = createMockRepo({ id: 1, fullPath: '/tmp/repos/main' })
+      const resolveSpy = vi
+        .spyOn(ProjectConfigService.prototype, 'resolveProjectRepo')
+        .mockResolvedValue(mainRepo)
+      const client = createStubOpenCodeClient()
+      client.api.worktree.create = vi.fn(async () => ({ directory: worktreeDirectory })) as never
+      vi.mocked(mockTerminalService.create).mockResolvedValue({
+        id: 'pty-setup',
+        title: 'Worktree setup',
+        kind: 'setup',
+        cwd: worktreeDirectory,
+        status: 'running',
+      })
+
+      try {
+        const app = createTestRoutes(client)
+        const res = await app.request('/2/workspaces', { method: 'POST' })
+
+        expect(res.status).toBe(200)
+        const body = (await res.json()) as { worktreeSetup: { status: string; repoCommandsSkipped: boolean } }
+        expect(body.worktreeSetup).toMatchObject({ status: 'started', repoCommandsSkipped: false })
+        expect(vi.mocked(mockTerminalService.create)).toHaveBeenCalledWith(worktreeDirectory, {
+          kind: 'setup',
+          name: 'Worktree setup',
+          command: '/bin/sh',
+          args: ['-c', 'set -e\npnpm install\npnpm repo-setup'],
+          env: { ROOT_PROJECT_PATH: '/tmp/repos/main' },
+        })
+      } finally {
+        resolveSpy.mockRestore()
+        fs.rmSync(worktreeDirectory, { recursive: true, force: true })
+      }
+    })
+
+    it('returns 200 with a failed setup when resolving the main project fails', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(
+        createMockRepo({ id: 2, fullPath: '/tmp/repos/worktree', isWorktree: true }),
+      )
+      const resolveSpy = vi
+        .spyOn(ProjectConfigService.prototype, 'resolveProjectRepo')
+        .mockRejectedValue(new Error('git unavailable'))
+
+      try {
+        const app = createTestRoutes()
+        const res = await app.request('/2/workspaces', { method: 'POST' })
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({
+          directory: '/tmp/wrk-test',
+          worktreeSetup: { status: 'failed', error: 'git unavailable' },
+        })
+      } finally {
+        resolveSpy.mockRestore()
+      }
     })
   })
 
