@@ -14,7 +14,7 @@ describe('buildMoreItems', () => {
 
   it('returns repo-specific items for /repos/:id', () => {
     const items = buildMoreItems('/repos/42')
-    expect(items).toHaveLength(10)
+    expect(items).toHaveLength(11)
     expect(items[0].key).toBe('home')
     expect(items[1].key).toBe('files')
     expect(items[1].dialog).toBe('files')
@@ -31,13 +31,15 @@ describe('buildMoreItems', () => {
     expect(items[6].dialog).toBe('sourceControl')
     expect(items[7].key).toBe('terminal')
     expect(items[7].dialog).toBe('terminal')
-    expect(items[8].key).toBe('settings')
-    expect(items[9].key).toBe('logout')
+    expect(items[8].key).toBe('actions')
+    expect(items[8].dialog).toBe('actions')
+    expect(items[9].key).toBe('settings')
+    expect(items[10].key).toBe('logout')
   })
 
   it('returns session-specific items for /repos/:id/sessions/:sid', () => {
     const items = buildMoreItems('/repos/42/sessions/abc')
-    expect(items).toHaveLength(10)
+    expect(items).toHaveLength(11)
     expect(items[0].key).toBe('home')
     expect(items[1].key).toBe('files')
     expect(items[2].key).toBe('mcp')
@@ -48,8 +50,10 @@ describe('buildMoreItems', () => {
     expect(items[6].key).toBe('source-control')
     expect(items[7].key).toBe('terminal')
     expect(items[7].dialog).toBe('terminal')
-    expect(items[8].key).toBe('settings')
-    expect(items[9].key).toBe('logout')
+    expect(items[8].key).toBe('actions')
+    expect(items[8].dialog).toBe('actions')
+    expect(items[9].key).toBe('settings')
+    expect(items[10].key).toBe('logout')
   })
 
   it('returns assistant workspace items for /repos/:id/assistant', () => {

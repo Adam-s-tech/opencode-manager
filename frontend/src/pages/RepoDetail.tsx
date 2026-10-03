@@ -6,6 +6,7 @@ import { SessionList } from "@/components/session/SessionList";
 import { FileBrowserSheet } from "@/components/file-browser/FileBrowserSheet";
 import { Header } from "@/components/ui/header";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
+import { RepoActionsDialog } from "@/components/repo/RepoActionsDialog";
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog";
 import { SourceControlPanel } from "@/components/source-control";
 import { TerminalPanel } from "@/components/terminal/TerminalPanel";
@@ -35,6 +36,7 @@ export function RepoDetail() {
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
   const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
+  const [actionsDialogOpen, setActionsDialogOpen] = useDialogParam('actions');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
@@ -277,6 +279,13 @@ export function RepoDetail() {
         open={mcpDialogOpen}
         onOpenChange={setMcpDialogOpen}
         directory={composerDirectory}
+      />
+
+      <RepoActionsDialog
+        repoId={repoId}
+        directory={composerDirectory}
+        open={actionsDialogOpen}
+        onOpenChange={setActionsDialogOpen}
       />
 
       <RepoSkillsDialog

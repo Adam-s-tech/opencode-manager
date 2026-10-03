@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
-import { Plug, Sparkles, ShieldOff, CalendarClock, GitCommitHorizontal, SquareTerminal, Settings, LogOut, Bot, Folder, Home } from 'lucide-react'
+import { Plug, Sparkles, ShieldOff, CalendarClock, GitCommitHorizontal, SquareTerminal, Settings, LogOut, Bot, Folder, Home, Play } from 'lucide-react'
 import { getAssistantPath, isAssistantPath } from '@/lib/navigation'
 
 export interface MoreDrawerItem {
@@ -59,6 +59,7 @@ function buildRouteNavModel(pathname: string): NavModel {
       { key: 'schedules', label: 'Schedules', icon: CalendarClock, to: `/repos/${id}/schedules` },
       { key: 'source-control', label: 'Source Control', icon: GitCommitHorizontal, dialog: 'sourceControl' },
       { key: 'terminal', label: 'Terminal', icon: SquareTerminal, dialog: 'terminal' },
+      { key: 'actions', label: 'Actions', icon: Play, dialog: 'actions' },
       ...baseItems,
     ]
 
@@ -78,6 +79,7 @@ function buildRouteNavModel(pathname: string): NavModel {
       { key: 'schedules', label: 'Schedules', icon: CalendarClock, to: `/repos/${sessionDetailMatch[1]}/schedules` },
       { key: 'source-control', label: 'Source Control', icon: GitCommitHorizontal, dialog: 'sourceControl' },
       { key: 'terminal', label: 'Terminal', icon: SquareTerminal, dialog: 'terminal' },
+      { key: 'actions', label: 'Actions', icon: Play, dialog: 'actions' },
       ...baseItems,
     ]
 

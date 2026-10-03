@@ -38,6 +38,7 @@ import { showToast } from "@/lib/toast";
 import { getWorkspaceFilePath } from "@/lib/markdownLinks";
 import { getRepoDisplayName } from "@/lib/utils";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
+import { RepoActionsDialog } from "@/components/repo/RepoActionsDialog";
 import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog";
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog";
 import { compactSession, forkSession, listSessionMessages } from "@/api/opencode";
@@ -119,6 +120,7 @@ export function SessionDetail() {
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
   const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
+  const [actionsDialogOpen, setActionsDialogOpen] = useDialogParam('actions');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>();
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -853,6 +855,13 @@ export function SessionDetail() {
         open={mcpDialogOpen}
         onOpenChange={setMcpDialogOpen}
         directory={repoDirectory}
+      />
+
+      <RepoActionsDialog
+        repoId={repoId}
+        directory={sessionDirectory}
+        open={actionsDialogOpen}
+        onOpenChange={setActionsDialogOpen}
       />
 
       <SourceControlPanel

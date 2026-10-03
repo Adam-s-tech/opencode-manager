@@ -162,6 +162,7 @@ vi.mock('@/components/file-browser/FileBrowserSheet', () => ({
 vi.mock('@/components/repo/RepoMcpDialog', () => ({
   RepoMcpDialog: vi.fn(() => null),
 }))
+vi.mock('@/components/repo/RepoActionsDialog', () => ({ RepoActionsDialog: vi.fn(() => null) }))
 
 vi.mock('@/components/repo/ResetPermissionsDialog', () => ({
   ResetPermissionsDialog: vi.fn(() => null),
