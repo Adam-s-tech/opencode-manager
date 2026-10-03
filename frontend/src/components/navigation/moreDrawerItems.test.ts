@@ -14,7 +14,7 @@ describe('buildMoreItems', () => {
 
   it('returns repo-specific items for /repos/:id', () => {
     const items = buildMoreItems('/repos/42')
-    expect(items).toHaveLength(9)
+    expect(items).toHaveLength(10)
     expect(items[0].key).toBe('home')
     expect(items[1].key).toBe('files')
     expect(items[1].dialog).toBe('files')
@@ -29,13 +29,15 @@ describe('buildMoreItems', () => {
     expect(items[5].to).toBe('/repos/42/schedules')
     expect(items[6].key).toBe('source-control')
     expect(items[6].dialog).toBe('sourceControl')
-    expect(items[7].key).toBe('settings')
-    expect(items[8].key).toBe('logout')
+    expect(items[7].key).toBe('terminal')
+    expect(items[7].dialog).toBe('terminal')
+    expect(items[8].key).toBe('settings')
+    expect(items[9].key).toBe('logout')
   })
 
   it('returns session-specific items for /repos/:id/sessions/:sid', () => {
     const items = buildMoreItems('/repos/42/sessions/abc')
-    expect(items).toHaveLength(9)
+    expect(items).toHaveLength(10)
     expect(items[0].key).toBe('home')
     expect(items[1].key).toBe('files')
     expect(items[2].key).toBe('mcp')
@@ -44,13 +46,15 @@ describe('buildMoreItems', () => {
     expect(items[5].key).toBe('schedules')
     expect(items[5].to).toBe('/repos/42/schedules')
     expect(items[6].key).toBe('source-control')
-    expect(items[7].key).toBe('settings')
-    expect(items[8].key).toBe('logout')
+    expect(items[7].key).toBe('terminal')
+    expect(items[7].dialog).toBe('terminal')
+    expect(items[8].key).toBe('settings')
+    expect(items[9].key).toBe('logout')
   })
 
   it('returns assistant workspace items for /repos/:id/assistant', () => {
     const items = buildMoreItems('/repos/42/assistant')
-    expect(items).toHaveLength(9)
+    expect(items).toHaveLength(10)
     expect(items[0].key).toBe('home')
     expect(items[1].key).toBe('files')
     expect(items[1].dialog).toBe('files')
@@ -59,8 +63,10 @@ describe('buildMoreItems', () => {
     expect(items[4].key).toBe('reset-permissions')
     expect(items[5].key).toBe('schedules')
     expect(items[6].key).toBe('source-control')
-    expect(items[7].key).toBe('settings')
-    expect(items[8].key).toBe('logout')
+    expect(items[7].key).toBe('terminal')
+    expect(items[7].dialog).toBe('terminal')
+    expect(items[8].key).toBe('settings')
+    expect(items[9].key).toBe('logout')
   })
 
   it('returns only Home + Settings + Logout for /schedules', () => {

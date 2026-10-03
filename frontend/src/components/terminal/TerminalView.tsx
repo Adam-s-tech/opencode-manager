@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -18,6 +18,10 @@ function defaultOpenLink(uri: string) {
   window.open(uri, '_blank', 'noopener,noreferrer')
 }
 
+export interface TerminalViewHandle {
+  send: (data: string) => void
+}
+
 export interface TerminalViewProps {
   repoId: number
   directory: string | undefined
@@ -29,7 +33,7 @@ export interface TerminalViewProps {
   onExited: () => void
 }
 
-export function TerminalView({
+export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(function TerminalView({
   repoId,
   directory,
   ptyID,
@@ -38,7 +42,7 @@ export function TerminalView({
   onCtrlConsumed,
   onOpenLink,
   onExited,
-}: TerminalViewProps) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -60,6 +64,15 @@ export function TerminalView({
     terminalRef.current?.write(text)
   }, [])
 
+  const handleInput = useCallback((data: string) => {
+    if (ctrlArmedRef.current) {
+      sendRef.current(applyCtrlModifier(data))
+      onCtrlConsumedRef.current()
+      return
+    }
+    sendRef.current(data)
+  }, [])
+
   const handleExit = useCallback(() => {
     terminalRef.current?.write('\r\n[process exited]\r\n')
     onExitedRef.current()
@@ -74,6 +87,8 @@ export function TerminalView({
     enabled: true,
   })
   sendRef.current = send
+
+  useImperativeHandle(ref, () => ({ send: handleInput }), [handleInput])
 
   useEffect(() => {
     const container = containerRef.current
@@ -100,12 +115,7 @@ export function TerminalView({
     fitAddonRef.current = fitAddon
 
     const dataDisposable = terminal.onData((data) => {
-      if (ctrlArmedRef.current) {
-        sendRef.current(applyCtrlModifier(data))
-        onCtrlConsumedRef.current()
-        return
-      }
-      sendRef.current(data)
+      handleInput(data)
     })
 
     return () => {
@@ -114,7 +124,7 @@ export function TerminalView({
       terminalRef.current = null
       fitAddonRef.current = null
     }
-  }, [])
+  }, [handleInput])
 
   useEffect(() => {
     const terminal = terminalRef.current
@@ -187,4 +197,6 @@ export function TerminalView({
       data-terminal-id={ptyID}
     />
   )
-}
+})
+
+TerminalView.displayName = 'TerminalView'

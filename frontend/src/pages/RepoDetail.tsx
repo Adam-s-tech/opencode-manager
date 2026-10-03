@@ -8,6 +8,7 @@ import { Header } from "@/components/ui/header";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog";
 import { SourceControlPanel } from "@/components/source-control";
+import { TerminalPanel } from "@/components/terminal/TerminalPanel";
 import { useCreateSession } from "@/hooks/useOpenCode";
 import { useRepoActivity } from "@/hooks/useRepoActivity";
 import { useCreateRepoWorkspace, useDeleteRepoWorkspaces, useRepoSiblings } from "@/hooks/useRepoSiblings";
@@ -33,6 +34,7 @@ export function RepoDetail() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp');
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
+  const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
@@ -289,6 +291,13 @@ export function RepoDetail() {
         onClose={() => setSourceControlOpen(false)}
         currentBranch={currentBranch}
         repoName={repoName}
+      />
+
+      <TerminalPanel
+        repoId={repoId}
+        directory={composerDirectory}
+        isOpen={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
       />
 
       <ResetPermissionsDialog

@@ -50,6 +50,7 @@ import { FormPrompt } from "@/components/session/FormPrompt";
 import { MinimizedFormIndicator } from "@/components/session/MinimizedFormIndicator";
 import { PendingActionsGroup } from "@/components/notifications/PendingActionsGroup";
 import { SourceControlPanel } from "@/components/source-control";
+import { TerminalPanel } from "@/components/terminal/TerminalPanel";
 import { SessionSendErrorBanner } from "@/components/session/SessionSendErrorBanner";
 import { BackgroundWorkBar } from "@/components/session/BackgroundWorkBar";
 import { useDialogParam } from "@/hooks/useDialogParam";
@@ -117,6 +118,7 @@ export function SessionDetail() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp');
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
+  const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>();
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -859,6 +861,13 @@ export function SessionDetail() {
         onClose={() => setSourceControlOpen(false)}
         currentBranch={repo?.currentBranch || repo?.branch || "main"}
         repoName={workspaceDisplayName}
+      />
+
+      <TerminalPanel
+        repoId={repoId}
+        directory={sessionDirectory}
+        isOpen={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
       />
 
       <ResetPermissionsDialog
