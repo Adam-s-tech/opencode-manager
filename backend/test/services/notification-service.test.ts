@@ -158,4 +158,26 @@ describe('NotificationService.handleSSEEvent session routing', () => {
 
     expect(send).not.toHaveBeenCalled()
   })
+
+  it('suppresses an event when a registered suppressor resolves true', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+    const suppressor = vi.fn(async () => true)
+    service.addEventSuppressor(suppressor)
+
+    await service.handleSSEEvent(DIRECTORY, permissionAskedEvent('ses_perm'))
+
+    expect(suppressor).toHaveBeenCalledWith(expect.objectContaining({ type: 'permission.asked' }), 'ses_perm')
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('keeps notifying when every registered suppressor resolves false', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+    service.addEventSuppressor(async () => false)
+
+    await service.handleSSEEvent(DIRECTORY, permissionAskedEvent('ses_perm'))
+
+    expect(send).toHaveBeenCalledTimes(1)
+  })
 })

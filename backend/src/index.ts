@@ -231,6 +231,17 @@ const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
 const notificationService = new NotificationService(db)
 const sessionPermissionModeService = new SessionPermissionModeService(db, openCodeClient, settingsServiceForSchedules)
 
+sseAggregator.onEvent((directory, event) => {
+  sessionPermissionModeService.handleEvent(directory, event).catch((err) => {
+    logger.error('Session permission mode event handling error:', err)
+  })
+})
+
+notificationService.addEventSuppressor(async (event, sessionId) => {
+  if (event.type !== 'permission.asked' || !sessionId) return false
+  return (await sessionPermissionModeService.getEffectiveMode(sessionId)).mode === 'auto'
+})
+
 if (ENV.VAPID.PUBLIC_KEY && ENV.VAPID.PRIVATE_KEY) {
   if (!ENV.VAPID.SUBJECT) {
     logger.warn('VAPID_SUBJECT is not set — push notifications require a mailto: subject (e.g. mailto:you@example.com)')

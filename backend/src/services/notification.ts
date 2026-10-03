@@ -139,9 +139,12 @@ export function buildEventNotificationPayload(
   };
 }
 
+type EventSuppressor = (event: SSEEvent, sessionId: string | undefined) => Promise<boolean>;
+
 export class NotificationService {
   private vapidConfig: VapidConfig | null = null;
   private settingsService: SettingsService;
+  private eventSuppressors: EventSuppressor[] = [];
 
   constructor(private db: Database) {
     this.settingsService = new SettingsService(db);
@@ -176,6 +179,10 @@ export class NotificationService {
 
   getVapidPublicKey(): string | null {
     return this.vapidConfig?.publicKey ?? null;
+  }
+
+  addEventSuppressor(suppressor: EventSuppressor): void {
+    this.eventSuppressors.push(suppressor);
   }
 
   isConfigured(): boolean {
@@ -320,6 +327,10 @@ export class NotificationService {
     const sessionId = resolveEventSessionId(event);
     if (sessionId && sseAggregator.isSessionBeingViewed(sessionId)) return;
     if (sessionId && sseAggregator.isSubagentSession(sessionId)) return;
+
+    for (const suppressor of this.eventSuppressors) {
+      if (await suppressor(event, sessionId)) return;
+    }
 
     if (!this.isConfigured()) return;
 
