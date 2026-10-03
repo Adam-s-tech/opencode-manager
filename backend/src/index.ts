@@ -233,10 +233,14 @@ const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
 const notificationService = new NotificationService(db)
 const sessionPermissionModeService = new SessionPermissionModeService(db, openCodeClient, settingsServiceForSchedules)
 const sessionGoalService = new SessionGoalService(db, openCodeClient, settingsServiceForSchedules)
+sessionGoalService.loadOpenGoals()
 
 sseAggregator.onEvent((directory, event) => {
   sessionPermissionModeService.handleEvent(directory, event).catch((err) => {
     logger.error('Session permission mode event handling error:', err)
+  })
+  sessionGoalService.handleEvent(directory, event).catch((err) => {
+    logger.error('Session goal event handling error:', err)
   })
 })
 

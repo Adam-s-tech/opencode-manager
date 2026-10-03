@@ -12,7 +12,11 @@ const DIRECTORY = '/abs/repo'
 
 function createTestApp(db: Database): Hono {
   const app = new Hono()
-  const service = new SessionGoalService(db, createFakeSessionGoalClient(), new SettingsService(db))
+  const service = new SessionGoalService(
+    db,
+    createFakeSessionGoalClient({ busySessions: ['ses_1'] }).client,
+    new SettingsService(db),
+  )
   app.route('/session-goals', createSessionGoalRoutes(service))
   return app
 }
