@@ -17,7 +17,7 @@ import { useMobile } from '@/hooks/useMobile'
 import { FINE_POINTER_MEDIA_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 
 import { usePermissions } from '@/contexts/EventContext'
-import { ArrowDown, Upload, X, Mic, MicOff } from 'lucide-react'
+import { ArrowDown, Upload, X, Mic, MicOff, Target } from 'lucide-react'
 
 import { SquareFill } from '@/components/ui/square-fill'
 
@@ -28,6 +28,7 @@ import { ModelQuickSelect } from '@/components/model/ModelQuickSelect'
 import { AgentQuickSelect } from '@/components/agent/AgentQuickSelect'
 import { VoiceStatusOverlay, type VoiceStatusOverlayState } from './VoiceStatusOverlay'
 import { PermissionModeToggle } from '@/components/session/PermissionModeToggle'
+import { useSessionGoal, useStartSessionGoal } from '@/hooks/useSessionGoals'
 import { detectMentionTrigger, parsePromptToInput, getFilename, filterAgentsByQuery } from '@/lib/promptParser'
 import { getNextPrimaryAgentId } from '@/lib/primaryAgents'
 import { randomId } from '@/lib/utils'
@@ -93,6 +94,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
 }, ref) {
   const [prompt, setPrompt] = useState('')
   const [isBashMode, setIsBashMode] = useState(false)
+  const [isGoalArmed, setIsGoalArmed] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [suggestionQuery, setSuggestionQuery] = useState('')
   const [attachedFiles, setAttachedFiles] = useState(new Map<string, FileAttachmentInfo>())
@@ -229,6 +231,8 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
   const sendShell = useSendShell(directory)
   const isPromptSubmitPending = sendPrompt.isPending || sendShell.isPending
   const interruptSession = useInterruptSession()
+  const { data: sessionGoal } = useSessionGoal(sessionID)
+  const startGoal = useStartSessionGoal()
   const { filterCommands } = useCommands({ directory })
   const isExactCommandPrompt = (value: string) => {
     const commandPrompt = parseCommandPrompt(value)
@@ -291,7 +295,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
 
   const addUserBashCommand = useUserBash((s) => s.addUserBashCommand)
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!prompt.trim() && imageAttachments.length === 0) return
 
     pendingVoiceAutoSubmitRef.current = false
@@ -384,6 +388,15 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     const submittedPrompt = prompt
     const submittedAttachedFiles = attachedFiles
     const submittedImageAttachments = imageAttachments
+
+    if (isGoalArmed && directory && parsed.text.trim()) {
+      try {
+        await startGoal.mutateAsync({ sessionId: sessionID, directory, objective: parsed.text })
+      } catch {
+        return
+      }
+      setIsGoalArmed(false)
+    }
 
     pendingConfirmClearRef.current = {
       prompt: submittedPrompt,
@@ -1148,6 +1161,29 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
   const showStopButton = isSessionActive
   const hideSecondaryButtons = isMobile && isSessionActive
   const showMobileScrollButton = isMobile && showScrollButton
+  const hasOpenGoal = sessionGoal?.status === 'active' || sessionGoal?.status === 'paused'
+  const goalButtonLabel = hasOpenGoal
+    ? 'A goal is already active for this session'
+    : isGoalArmed
+      ? 'Goal mode armed: the next message becomes the objective'
+      : 'Goal mode: the next message becomes the objective'
+  const goalModeButton = directory ? (
+    <button
+      type="button"
+      onClick={() => setIsGoalArmed((value) => !value)}
+      disabled={hasOpenGoal || isBashMode || startGoal.isPending}
+      aria-pressed={isGoalArmed}
+      aria-label={goalButtonLabel}
+      title={goalButtonLabel}
+      className={`p-2 rounded-lg transition-all duration-200 active:scale-95 hover:scale-105 shadow-md border disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 disabled:hover:scale-100 ${
+        isGoalArmed
+          ? 'bg-highlight hover:bg-highlight/90 text-highlight-foreground border-highlight'
+          : 'bg-muted hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground border-border'
+      }`}
+    >
+      <Target className="w-5 h-5" />
+    </button>
+  ) : null
   const voiceFeedbackState: VoiceStatusOverlayState | null = isTogglingRecording
     ? 'starting'
     : isProcessing
@@ -1261,6 +1297,7 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
     lastAddedTranscriptRef.current = ''
     setIsTogglingRecording(false)
     setLocalMode(null)
+    setIsGoalArmed(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally only run on sessionID change to avoid clearing transcript when recording state changes
   }, [sessionID])
 
@@ -1347,6 +1384,7 @@ return (
                 onOpenChange={setIsModelPickerOpen}
               />
               {directory && <PermissionModeToggle sessionID={sessionID} directory={directory} />}
+              {goalModeButton}
             </>
           ) : (
             <>
@@ -1357,6 +1395,7 @@ return (
                 isBashMode={isBashMode}
               />
               {directory && <PermissionModeToggle sessionID={sessionID} directory={directory} />}
+              {goalModeButton}
               {isSessionActive && (
                 <div className="px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-medium text-muted-foreground max-w-[120px] md:max-w-[180px]">
                   <SessionStatusIndicator sessionID={sessionID} showLabel />

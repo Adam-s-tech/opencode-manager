@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SessionAutomationSettings } from './SessionAutomationSettings'
 import { useSettings } from '@/hooks/useSettings'
@@ -56,5 +56,60 @@ describe('SessionAutomationSettings', () => {
     await user.click(screen.getByRole('option', { name: 'Accept everything' }))
 
     expect(updateSettings).toHaveBeenCalledWith({ sessionDefaults: { permissionMode: 'auto' } })
+  })
+
+  it('persists the goal auditor model', () => {
+    const updateSettings = vi.fn()
+    mockUseSettings({
+      preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
+      updateSettings,
+    })
+    render(<SessionAutomationSettings />)
+
+    fireEvent.change(screen.getByLabelText('Goal auditor model'), {
+      target: { value: 'anthropic/claude-sonnet-4' },
+    })
+
+    expect(updateSettings).toHaveBeenCalledWith({
+      sessionDefaults: {
+        permissionMode: 'ask',
+        goalMaxContinuations: 20,
+        goalAuditorModel: 'anthropic/claude-sonnet-4',
+      },
+    })
+  })
+
+  it('persists the max automatic continuations', () => {
+    const updateSettings = vi.fn()
+    mockUseSettings({
+      preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
+      updateSettings,
+    })
+    render(<SessionAutomationSettings />)
+
+    fireEvent.change(screen.getByLabelText('Max automatic continuations'), {
+      target: { value: '50' },
+    })
+
+    expect(updateSettings).toHaveBeenCalledWith({
+      sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 50 },
+    })
+  })
+
+  it('persists the token budget per goal', () => {
+    const updateSettings = vi.fn()
+    mockUseSettings({
+      preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
+      updateSettings,
+    })
+    render(<SessionAutomationSettings />)
+
+    fireEvent.change(screen.getByLabelText('Token budget per goal'), {
+      target: { value: '5000' },
+    })
+
+    expect(updateSettings).toHaveBeenCalledWith({
+      sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20, goalTokenBudget: 5000 },
+    })
   })
 })

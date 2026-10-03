@@ -1,16 +1,28 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PromptInput } from './PromptInput'
 import { useUIState } from '@/stores/uiStateStore'
-import { createCommandActionsMock } from '@/test/test-utils'
+import { createCommandActionsMock, stubMatchMedia } from '@/test/test-utils'
 
 const mocks = vi.hoisted(() => ({
   sendPrompt: vi.fn(),
-  switchSessionModel: vi.fn(),
-  switchSessionAgent: vi.fn(),
-  runCommand: vi.fn(),
-  agents: [] as Array<{ name: string; description?: string }>,
+  sendShell: vi.fn(),
+  interrupt: vi.fn(),
+  startGoal: vi.fn(),
+  useSessionGoal: vi.fn(),
+  agents: [] as Array<{ id: string; name: string; description?: string; mode?: string; hidden?: boolean }>,
+  setAgent: vi.fn(),
+  cycleVariant: vi.fn(),
+  showToast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+    loading: vi.fn(),
+    promise: vi.fn(),
+    dismiss: vi.fn(),
+  },
   useSTT: vi.fn(),
   useMobile: vi.fn(),
   useCommands: vi.fn(),
@@ -23,24 +35,21 @@ const mocks = vi.hoisted(() => ({
   useSendErrorStore: vi.fn(),
 }))
 
-vi.mock('@/api/opencode', async () => {
-  const actual = await vi.importActual('@/api/opencode')
+vi.mock('@/hooks/useOpenCode', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useOpenCode')>()
   return {
     ...actual,
-    sendPrompt: mocks.sendPrompt,
-    runCommand: mocks.runCommand,
-    switchSessionModel: mocks.switchSessionModel,
-    switchSessionAgent: mocks.switchSessionAgent,
-  }
-})
-
-vi.mock('@/hooks/useOpenCode', async () => {
-  const actual = await vi.importActual('@/hooks/useOpenCode')
-  return {
-    ...actual,
+    useSendPrompt: () => ({ mutate: mocks.sendPrompt, isPending: false }),
+    useSendShell: () => ({ mutate: mocks.sendShell, isPending: false }),
+    useInterruptSession: () => ({ mutate: mocks.interrupt }),
     useAgents: () => ({ data: mocks.agents }),
   }
 })
+
+vi.mock('@/hooks/useSessionGoals', () => ({
+  useSessionGoal: mocks.useSessionGoal,
+  useStartSessionGoal: () => ({ mutateAsync: mocks.startGoal, isPending: false }),
+}))
 
 vi.mock('@/hooks/useSTT', () => ({ useSTT: mocks.useSTT }))
 vi.mock('@/hooks/useMobile', () => ({ useMobile: mocks.useMobile }))
@@ -51,12 +60,8 @@ vi.mock('@/hooks/useVariants', () => ({ useVariants: mocks.useVariants }))
 vi.mock('@/hooks/useSessionAgent', () => ({ useSessionAgent: mocks.useSessionAgent }))
 vi.mock('@/stores/userBashStore', () => ({ useUserBash: mocks.useUserBash }))
 vi.mock('@/stores/sessionAgentStore', () => ({ useSessionAgentStore: mocks.useSessionAgentStore }))
-vi.mock('@/stores/sendErrorStore', () => ({
-  useSendErrorStore: Object.assign(
-    (selector: (state: unknown) => unknown) => selector({ errors: {} }),
-    { getState: () => ({ clearError: vi.fn(), setError: vi.fn() }) },
-  ),
-}))
+vi.mock('@/stores/sendErrorStore', () => ({ useSendErrorStore: mocks.useSendErrorStore }))
+vi.mock('@/lib/toast', () => ({ showToast: mocks.showToast }))
 
 vi.mock('@/contexts/EventContext', () => ({
   usePermissions: () => ({
@@ -70,16 +75,13 @@ vi.mock('@/components/agent/AgentQuickSelect', () => ({
 }))
 
 vi.mock('@/components/model/ModelQuickSelect', () => ({
-  ModelQuickSelect: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ModelQuickSelect: ({ children, open }: { children?: React.ReactNode; open?: boolean }) => (
+    <div data-testid="model-quick-select" data-open={open ? 'true' : 'false'}>{children}</div>
+  ),
 }))
 
 vi.mock('@/components/session/PermissionModeToggle', () => ({
   PermissionModeToggle: () => null,
-}))
-
-vi.mock('@/hooks/useSessionGoals', () => ({
-  useSessionGoal: () => ({ data: undefined }),
-  useStartSessionGoal: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 vi.mock('@/components/ui/session-status-indicator', () => ({
@@ -101,17 +103,10 @@ const createTestQueryClient = () => new QueryClient({
   },
 })
 
-const sessionInfo = (overrides: Record<string, unknown> = {}) => ({
-  id: 'test-session',
-  projectID: 'proj_1',
-  time: { created: 1000, updated: 1000 },
-  location: { directory: '/test' },
-  agent: 'build',
-  model: { providerID: 'anthropic', id: 'claude-sonnet-4' },
-  ...overrides,
-})
+const GOAL_BUTTON = 'Goal mode: the next message becomes the objective'
+const OPEN_GOAL_BUTTON = 'A goal is already active for this session'
 
-describe('PromptInput agent mention submission', () => {
+describe('PromptInput goal mode', () => {
   const defaultProps = {
     directory: '/test',
     sessionID: 'test-session',
@@ -123,30 +118,20 @@ describe('PromptInput agent mention submission', () => {
     onPromptChange: vi.fn(),
   }
 
-  const renderComponent = (overrides: Partial<typeof defaultProps> = {}) => {
+  const renderComponent = () => {
     const queryClient = createTestQueryClient()
-    queryClient.setQueryData(['opencode', 'session', 'test-session', '/test'], sessionInfo())
     return render(
       <QueryClientProvider client={queryClient}>
-        <PromptInput {...defaultProps} {...overrides} />
+        <PromptInput {...defaultProps} />
       </QueryClientProvider>
     )
   }
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.sendPrompt.mockResolvedValue({
-      id: 'inbox_1',
-      sessionID: 'test-session',
-      time: { created: 1000 },
-      type: 'user',
-      payload: { text: '' },
-      delivery: 'queue',
-    })
-    mocks.switchSessionModel.mockResolvedValue(undefined)
-    mocks.switchSessionAgent.mockResolvedValue(undefined)
-    mocks.runCommand.mockResolvedValue(undefined)
-    mocks.agents = [{ name: 'reviewer', description: 'Reviewer' }]
+    mocks.useSessionGoal.mockReturnValue({ data: null })
+    mocks.startGoal.mockResolvedValue({ id: 1 })
+    mocks.agents = []
     mocks.useMobile.mockReturnValue(false)
     mocks.useSTT.mockReturnValue({
       isRecording: false,
@@ -158,7 +143,6 @@ describe('PromptInput agent mention submission', () => {
       startRecording: vi.fn(),
       stopRecording: vi.fn(),
       abortRecording: vi.fn(),
-      reset: vi.fn(),
       clear: vi.fn(),
     })
     mocks.useCommands.mockReturnValue({ filterCommands: () => [] })
@@ -173,65 +157,69 @@ describe('PromptInput agent mention submission', () => {
       toggleFavorite: vi.fn(),
       isModelStateLoading: false,
     })
-    mocks.useVariants.mockReturnValue({ hasVariants: false, currentVariant: null, cycleVariant: vi.fn() })
+    mocks.useVariants.mockReturnValue({ hasVariants: false, currentVariant: null, cycleVariant: mocks.cycleVariant })
     mocks.useSessionAgent.mockReturnValue({ agent: 'build' })
     mocks.useUserBash.mockImplementation((selector: (state: unknown) => unknown) => selector({ addUserBashCommand: vi.fn() }))
-    mocks.useSessionAgentStore.mockImplementation((selector: (state: unknown) => unknown) => selector({ setAgent: vi.fn() }))
+    mocks.useSessionAgentStore.mockImplementation((selector: (state: unknown) => unknown) => selector({ setAgent: mocks.setAgent }))
+    mocks.useSendErrorStore.mockImplementation((selector: (state: unknown) => unknown) => selector({ errors: {} }))
     useUIState.getState().clearPendingPromptCommand()
     useUIState.getState().clearPendingPromptFile()
   })
 
-  it('sends an @agent mention as an attachment without switching the session agent', async () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'matchMedia')
+  })
+
+  it('starts a goal with the message objective before sending it', async () => {
+    stubMatchMedia(true)
     renderComponent()
 
     const input = await screen.findByPlaceholderText('Send a message...')
-    fireEvent.change(input, { target: { value: 'ask @reviewer' } })
+    fireEvent.change(input, { target: { value: 'Ship the feature' } })
+    fireEvent.click(screen.getByRole('button', { name: GOAL_BUTTON }))
     fireEvent.click(screen.getByTitle('Send'))
 
-    await waitFor(() => expect(mocks.sendPrompt).toHaveBeenCalled())
-
-    expect(mocks.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
-      sessionID: 'test-session',
-      text: 'ask @reviewer',
-      agents: [{ name: 'reviewer', mention: { start: 4, end: 13, text: '@reviewer' } }],
+    await waitFor(() => expect(mocks.startGoal).toHaveBeenCalledWith({
+      sessionId: 'test-session',
+      directory: '/test',
+      objective: 'Ship the feature',
     }))
-    expect(mocks.switchSessionAgent).not.toHaveBeenCalled()
-    expect(mocks.switchSessionModel).not.toHaveBeenCalled()
+    await waitFor(() => expect(mocks.sendPrompt).toHaveBeenCalled())
+    expect(mocks.startGoal.mock.invocationCallOrder[0]).toBeLessThan(mocks.sendPrompt.mock.invocationCallOrder[0])
   })
 
-  it('queues an @agent mention as an attachment without switching the session agent', async () => {
-    renderComponent({ isStreamingResponse: true })
-
-    const input = await screen.findByPlaceholderText('Send a message...')
-    fireEvent.change(input, { target: { value: 'ask @reviewer' } })
-    fireEvent.click(screen.getByTitle('Queue message'))
-
-    await waitFor(() => expect(mocks.sendPrompt).toHaveBeenCalled())
-
-    expect(mocks.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
-      sessionID: 'test-session',
-      text: 'ask @reviewer',
-      agents: [{ name: 'reviewer', mention: { start: 4, end: 13, text: '@reviewer' } }],
-      delivery: 'queue',
-    }))
-    expect(mocks.switchSessionAgent).not.toHaveBeenCalled()
-  })
-
-  it('sends plain text without inferring an agent attachment or switching', async () => {
+  it('does not send the message when starting the goal is rejected', async () => {
+    stubMatchMedia(true)
+    mocks.startGoal.mockRejectedValue(new Error('This session already has an open goal'))
     renderComponent()
 
     const input = await screen.findByPlaceholderText('Send a message...')
-    fireEvent.change(input, { target: { value: 'plain text' } })
+    fireEvent.change(input, { target: { value: 'Ship the feature' } })
+    fireEvent.click(screen.getByRole('button', { name: GOAL_BUTTON }))
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(mocks.startGoal).toHaveBeenCalled())
+    expect(mocks.sendPrompt).not.toHaveBeenCalled()
+  })
+
+  it('does not start a goal when the mode was not armed', async () => {
+    stubMatchMedia(true)
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: 'Just a message' } })
     fireEvent.click(screen.getByTitle('Send'))
 
     await waitFor(() => expect(mocks.sendPrompt).toHaveBeenCalled())
+    expect(mocks.startGoal).not.toHaveBeenCalled()
+  })
 
-    expect(mocks.sendPrompt).toHaveBeenCalledWith(expect.objectContaining({
-      sessionID: 'test-session',
-      text: 'plain text',
-      agents: [],
-    }))
-    expect(mocks.switchSessionAgent).not.toHaveBeenCalled()
-    expect(mocks.switchSessionModel).not.toHaveBeenCalled()
+  it('disables goal mode while a goal is already active', async () => {
+    stubMatchMedia(true)
+    mocks.useSessionGoal.mockReturnValue({ data: { status: 'active' } })
+    renderComponent()
+
+    const button = await screen.findByRole('button', { name: OPEN_GOAL_BUTTON })
+    expect(button).toBeDisabled()
   })
 })
