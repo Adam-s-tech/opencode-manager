@@ -3,6 +3,7 @@ import { formatTerminalTitle, parseTerminalTitle } from '@opencode-manager/share
 import type { TerminalInfo, TerminalKind } from '@opencode-manager/shared/types'
 import type { OpenCodeClient } from './opencode/client'
 import type { CredentialProvider } from './credential-provider'
+import { bridgeWebSocket, type WebSocketBridge, type WebSocketPeer } from '../utils/websocket-bridge'
 
 type OpenCodePty = Awaited<ReturnType<OpenCodeClient['api']['pty']['list']>>['data'][number]
 
@@ -31,6 +32,8 @@ export class TerminalService {
   constructor(
     private readonly openCodeClient: OpenCodeClient,
     private readonly credentialProvider: CredentialProvider,
+    private readonly upstreamBaseUrl: () => string,
+    private readonly openSocket: (url: string) => WebSocket = (url) => new WebSocket(url),
   ) {}
 
   async list(directory: string): Promise<TerminalInfo[]> {
@@ -76,6 +79,31 @@ export class TerminalService {
         throw error
       }
     }
+  }
+
+  async connect(
+    directory: string,
+    ptyID: string,
+    cursor: number | undefined,
+    peer: WebSocketPeer,
+  ): Promise<WebSocketBridge> {
+    await this.requireTerminal(directory, ptyID)
+
+    const result = await this.openCodeClient.api.pty.connect.token({
+      ptyID,
+      location: { directory },
+      'x-opencode-ticket': '1',
+    })
+
+    const base = new URL(this.upstreamBaseUrl())
+    if (!base.pathname.endsWith('/')) base.pathname += '/'
+    const socketUrl = new URL(`api/pty/${encodeURIComponent(ptyID)}/connect`, base)
+    socketUrl.searchParams.set('ticket', result.data.ticket)
+    socketUrl.searchParams.set('location[directory]', directory)
+    if (cursor !== undefined) socketUrl.searchParams.set('cursor', String(cursor))
+    socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+
+    return bridgeWebSocket(this.openSocket(socketUrl.toString()), peer)
   }
 
   private toTerminalInfo(pty: OpenCodePty): TerminalInfo {

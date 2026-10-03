@@ -1,10 +1,12 @@
 import { serve } from '@hono/node-server'
+import { createNodeWebSocket } from '@hono/node-ws'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { readFile } from 'fs/promises'
 import { initializeDatabase } from './db/schema'
 import { createRepoRoutes } from './routes/repos'
+import { createRepoTerminalSocketRoutes } from './routes/repo-terminal-socket'
 import { createIPCServer, type IPCServer } from './ipc/ipcServer'
 import { GitAuthService } from './services/git-auth'
 import { createSettingsRoutes } from './routes/settings'
@@ -46,6 +48,7 @@ import { ensureDirectoryExists, writeFileContent, fileExists } from './services/
 import { SettingsService } from './services/settings'
 import { opencodeServerManager } from './services/opencode-single-server'
 import { createOpenCodeClient } from './services/opencode/client'
+import { getOpenCodeUpstreamBaseUrl } from './services/opencode/upstream'
 import { NotificationService } from './services/notification'
 import { ScheduleRunner, ScheduleService } from './services/schedules'
 import { CredentialProvider } from './services/credential-provider'
@@ -74,6 +77,7 @@ const { PORT, HOST } = ENV.SERVER
 const DB_PATH = getDatabasePath()
 
 const app = new Hono()
+const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app })
 
 /**
  * Route prefixes reachable from custom WebViews whose origin is not a
@@ -223,7 +227,11 @@ try {
 
 const settingsServiceForSchedules = new SettingsService(db)
 const credentialProvider = new CredentialProvider(db)
-const terminalService = new TerminalService(openCodeClient, credentialProvider)
+const terminalService = new TerminalService(
+  openCodeClient,
+  credentialProvider,
+  () => getOpenCodeUpstreamBaseUrl(opencodeServerManager.getEffectiveServerHost()),
+)
 const scheduleWorktreeManager = new ScheduleWorktreeManager(gitAuthService, settingsServiceForSchedules, credentialProvider, db)
 const scheduleService = new ScheduleService(db, openCodeClient, scheduleWorktreeManager)
 const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
@@ -272,6 +280,7 @@ app.route('/api/opencode-proxy', createOpenCodeProxyRoutes(db, settingsService))
 const protectedApi = new Hono()
 protectedApi.use('/*', requireAuth)
 
+protectedApi.route('/repos', createRepoTerminalSocketRoutes(db, gitAuthService, openCodeClient, terminalService, upgradeWebSocket))
 protectedApi.route('/repos', createRepoRoutes(db, gitAuthService, scheduleService, openCodeClient, terminalService))
 protectedApi.route('/settings', createSettingsRoutes(db, gitAuthService, openCodeClient, openCodeSupervisor))
   protectedApi.route('/files', createFileRoutes())
@@ -398,10 +407,12 @@ const shutdown = async (signal: string) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port: PORT,
   hostname: HOST,
 })
+
+injectWebSocket(server)
 
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)

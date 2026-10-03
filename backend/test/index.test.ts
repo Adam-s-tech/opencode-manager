@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const serveMock = vi.fn()
+const serveMock = vi.fn<(options: unknown) => { on: () => void }>(() => ({ on: vi.fn() }))
 
 vi.mock('@hono/node-server', () => ({
   serve: serveMock,
