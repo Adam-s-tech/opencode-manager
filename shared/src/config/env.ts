@@ -74,6 +74,11 @@ export const ENV = {
     LEGACY_PUBLIC_URL: getEnvString('OPENCODE_PUBLIC_URL', ''),
   },
 
+  PREVIEW: {
+    PORT: getEnvNumber('PREVIEW_PORT', DEFAULTS.PREVIEW.PORT),
+    PUBLIC_URL: getEnvString('PREVIEW_PUBLIC_URL', ''),
+  },
+
   DATABASE: {
     PATH: getEnvString('DATABASE_PATH', DEFAULTS.DATABASE.PATH),
   },

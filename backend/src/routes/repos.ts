@@ -92,7 +92,17 @@ export function createRepoRoutes(
           { branch, directoryName, useWorktree, skipSSHVerification, baseBranch }
         )
       }
-      
+
+      if (repo.isWorktree) {
+        const projectRepo = await projectConfigService.resolveProjectRepo(repo)
+        if (projectRepo.id !== repo.id) {
+          return c.json({
+            ...repo,
+            worktreeSetup: await projectConfigService.runWorktreeSetup(projectRepo, repo.fullPath, terminalService),
+          })
+        }
+      }
+
       return c.json(repo)
     } catch (error: unknown) {
       logger.error('Failed to create repo:', error)
@@ -320,7 +330,10 @@ app.get('/', async (c) => {
       try {
         const projectID = await repoService.resolveRepoProjectId(openCodeClient, repo.fullPath)
         const worktree = await openCodeClient.api.worktree.create({ projectID })
-        return c.json(worktree)
+        return c.json({
+          ...worktree,
+          worktreeSetup: await projectConfigService.runWorktreeSetup(repo, worktree.directory, terminalService),
+        })
       } catch (error: unknown) {
         if (isWorktreeError(error)) {
           return c.json({ error: error.data.message }, 409)

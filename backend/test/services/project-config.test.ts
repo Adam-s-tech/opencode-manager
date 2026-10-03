@@ -809,3 +809,135 @@ describe('ProjectConfigService runAction', () => {
     }
   })
 })
+
+describe('ProjectConfigService runWorktreeSetup', () => {
+  let db: Database
+  let service: ProjectConfigService
+  let repo: Repo
+  let directory: string
+
+  function writeRepoFile(content: unknown): void {
+    const filePath = path.join(directory, '.ocm', 'project.json')
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, JSON.stringify(content, null, 2))
+  }
+
+  function createFakeTerminalService() {
+    const create = vi.fn(
+      async (target: string, input: CreateTerminalInput): Promise<TerminalInfo> => ({
+        id: 'pty-setup',
+        title: formatTerminalTitle({ kind: input.kind, name: input.name }),
+        kind: input.kind,
+        cwd: target,
+        status: 'running',
+      }),
+    )
+    return { service: { create } as unknown as TerminalService, create }
+  }
+
+  beforeEach(() => {
+    db = new Database(':memory:')
+    migrate(db, allMigrations)
+    service = createService(db)
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-worktree-setup-'))
+    repo = createRepo(db, {
+      localPath: directory,
+      sourcePath: directory,
+      defaultBranch: 'main',
+      cloneStatus: 'ready',
+      clonedAt: Date.now(),
+      isLocal: true,
+    })
+  })
+
+  afterEach(() => {
+    db.close()
+    fs.rmSync(directory, { recursive: true, force: true })
+  })
+
+  it('starts a setup terminal with the personal commands and ROOT_PROJECT_PATH', async () => {
+    service.setPersonalSetup(repo, ['pnpm install', 'pnpm build'])
+    const terminalService = createFakeTerminalService()
+
+    const result = await service.runWorktreeSetup(repo, directory, terminalService.service)
+
+    expect(terminalService.create).toHaveBeenCalledWith(directory, {
+      kind: 'setup',
+      name: 'Worktree setup',
+      command: '/bin/sh',
+      args: ['-c', 'set -e\npnpm install\npnpm build'],
+      env: { ROOT_PROJECT_PATH: repo.fullPath },
+    })
+    expect(result).toEqual({
+      status: 'started',
+      terminal: {
+        id: 'pty-setup',
+        title: 'ocm:setup:Worktree setup',
+        kind: 'setup',
+        cwd: directory,
+        status: 'running',
+      },
+      repoCommandsSkipped: false,
+    })
+  })
+
+  it('excludes untrusted repository commands and reports them skipped', async () => {
+    service.setPersonalSetup(repo, ['pnpm install'])
+    writeRepoFile({ version: 1, setupWorktree: ['pnpm repo-setup'] })
+    const terminalService = createFakeTerminalService()
+
+    const result = await service.runWorktreeSetup(repo, directory, terminalService.service)
+
+    expect(terminalService.create).toHaveBeenCalledWith(
+      directory,
+      expect.objectContaining({ args: ['-c', 'set -e\npnpm install'] }),
+    )
+    expect(result).toMatchObject({ status: 'started', repoCommandsSkipped: true })
+  })
+
+  it('includes trusted repository commands', async () => {
+    writeRepoFile({ version: 1, setupWorktree: ['pnpm repo-setup'] })
+    const first = await service.getConfig(repo, directory)
+    await service.trustRepoFile(repo, directory, first.repoFile.hash ?? '')
+    const terminalService = createFakeTerminalService()
+
+    const result = await service.runWorktreeSetup(repo, directory, terminalService.service)
+
+    expect(terminalService.create).toHaveBeenCalledWith(
+      directory,
+      expect.objectContaining({ args: ['-c', 'set -e\npnpm repo-setup'] }),
+    )
+    expect(result).toMatchObject({ status: 'started', repoCommandsSkipped: false })
+  })
+
+  it('returns skipped when the only commands are untrusted repository commands', async () => {
+    writeRepoFile({ version: 1, setupWorktree: ['pnpm repo-setup'] })
+    const terminalService = createFakeTerminalService()
+
+    const result = await service.runWorktreeSetup(repo, directory, terminalService.service)
+
+    expect(result).toEqual({ status: 'skipped', reason: 'untrusted' })
+    expect(terminalService.create).not.toHaveBeenCalled()
+  })
+
+  it('returns none when no commands are configured', async () => {
+    const terminalService = createFakeTerminalService()
+
+    const result = await service.runWorktreeSetup(repo, directory, terminalService.service)
+
+    expect(result).toEqual({ status: 'none' })
+    expect(terminalService.create).not.toHaveBeenCalled()
+  })
+
+  it('returns failed when the terminal cannot be created', async () => {
+    service.setPersonalSetup(repo, ['pnpm install'])
+    const create = vi.fn(async () => {
+      throw new Error('spawn failed')
+    })
+    const terminalService = { create } as unknown as TerminalService
+
+    const result = await service.runWorktreeSetup(repo, directory, terminalService)
+
+    expect(result).toEqual({ status: 'failed', error: 'spawn failed' })
+  })
+})

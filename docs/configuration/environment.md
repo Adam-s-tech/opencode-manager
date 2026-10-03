@@ -76,6 +76,15 @@ When configured, users can enable push notifications in Settings → Notificatio
 | `LOG_LEVEL` | Accepted but currently unused; debug output is controlled by `DEBUG` | `info` |
 | `DEBUG` | Enable debug logging | `false` |
 
+## Preview Gateway
+
+The preview gateway serves dev servers through an authenticated, separate origin (see [Preview](../features/preview.md)).
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PREVIEW_PORT` | Port for the preview gateway. Set to `0` to disable preview entirely. | `5004` |
+| `PREVIEW_PUBLIC_URL` | Same-site HTTPS origin that proxies the preview gateway. Set this when the Manager is served over HTTPS or behind a reverse proxy, where mixed content and third-party cookies otherwise block the preview iframe. | empty |
+
 ## Database
 
 | Variable | Description | Default |

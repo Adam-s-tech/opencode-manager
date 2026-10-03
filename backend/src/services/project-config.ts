@@ -13,10 +13,12 @@ import {
   type ProjectConfigResponse,
   type RepoProjectFile,
   type RunProjectActionResponse,
+  type WorktreeSetupResult,
 } from '@opencode-manager/shared/schemas'
 import { getRepoByDirectory, getRepoSetting, setRepoSetting } from '../db/queries'
 import { executeCommand } from '../utils/process'
 import { getErrorMessage } from '../utils/error-utils'
+import { logger } from '../utils/logger'
 import { canonicalPathSync } from '../utils/fs-safe'
 import type { GitService } from './git/GitService'
 import type { GitAuthService } from './git-auth'
@@ -126,9 +128,7 @@ export class ProjectConfigService {
       worktreeSetup.push({ command, source: 'repo' })
     }
 
-    const trusted =
-      repoFile.hash !== null &&
-      repoFile.hash === getRepoSetting(this.database, projectRepo.id, REPO_CONFIG_TRUST_KEY)
+    const trusted = this.isRepoFileTrusted(projectRepo, repoFile)
 
     const resolvedActions = await Promise.all(
       actions.map(async (action) =>
@@ -231,6 +231,45 @@ export class ProjectConfigService {
       }
     })
     return result
+  }
+
+  async runWorktreeSetup(
+    projectRepo: Repo,
+    worktreeDirectory: string,
+    terminalService: TerminalService,
+  ): Promise<WorktreeSetupResult> {
+    const commands = [...this.getPersonalSetup(projectRepo)]
+    const repoFile = this.readRepoFile(worktreeDirectory)
+    const repoCommands = repoFile.file?.setupWorktree ?? []
+    const repoCommandsSkipped = repoCommands.length > 0 && !this.isRepoFileTrusted(projectRepo, repoFile)
+    if (!repoCommandsSkipped) {
+      commands.push(...repoCommands)
+    }
+
+    if (commands.length === 0) {
+      return repoCommandsSkipped ? { status: 'skipped', reason: 'untrusted' } : { status: 'none' }
+    }
+
+    try {
+      const terminal = await terminalService.create(worktreeDirectory, {
+        kind: 'setup',
+        name: 'Worktree setup',
+        command: '/bin/sh',
+        args: ['-c', ['set -e', ...commands].join('\n')],
+        env: { ROOT_PROJECT_PATH: projectRepo.fullPath },
+      })
+      return { status: 'started', terminal, repoCommandsSkipped }
+    } catch (error: unknown) {
+      logger.warn(`Failed to start worktree setup for ${worktreeDirectory}:`, error)
+      return { status: 'failed', error: getErrorMessage(error) }
+    }
+  }
+
+  private isRepoFileTrusted(projectRepo: Repo, repoFile: RepoFileState): boolean {
+    return (
+      repoFile.hash !== null &&
+      repoFile.hash === getRepoSetting(this.database, projectRepo.id, REPO_CONFIG_TRUST_KEY)
+    )
   }
 
   readRepoFile(directory: string): RepoFileState {

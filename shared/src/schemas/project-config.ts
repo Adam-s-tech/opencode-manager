@@ -93,6 +93,17 @@ export const RunProjectActionResponseSchema = z.object({
   autoOpenUrl: z.boolean(),
 })
 
+export const WorktreeSetupResultSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('none') }),
+  z.object({
+    status: z.literal('started'),
+    terminal: TerminalInfoSchema,
+    repoCommandsSkipped: z.boolean(),
+  }),
+  z.object({ status: z.literal('skipped'), reason: z.literal('untrusted') }),
+  z.object({ status: z.literal('failed'), error: z.string() }),
+])
+
 export type ProjectActionIcon = z.infer<typeof ProjectActionIconSchema>
 export type ProjectAction = z.infer<typeof ProjectActionSchema>
 export type WorktreeSetupCommands = z.infer<typeof WorktreeSetupCommandsSchema>
@@ -105,3 +116,4 @@ export type TrustRepoConfigRequest = z.infer<typeof TrustRepoConfigRequestSchema
 export type MoveProjectItemRequest = z.infer<typeof MoveProjectItemRequestSchema>
 export type RunProjectActionRequest = z.infer<typeof RunProjectActionRequestSchema>
 export type RunProjectActionResponse = z.infer<typeof RunProjectActionResponseSchema>
+export type WorktreeSetupResult = z.infer<typeof WorktreeSetupResultSchema>

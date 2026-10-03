@@ -20,6 +20,8 @@ vi.mock('../../src/db/queries', () => ({
   getRepoGitCredentialId: vi.fn(),
   setRepoGitCredentialId: vi.fn(),
   updateRepoName: vi.fn(),
+  getRepoSetting: vi.fn(),
+  setRepoSetting: vi.fn(),
 }))
 
 vi.mock('../../src/services/repo', () => ({
@@ -35,6 +37,7 @@ vi.mock('../../src/services/repo', () => ({
   resolveRepoOrAssistant: vi.fn(),
   findSiblingByDirectory: vi.fn(),
   resolveRepoWorkingDirectory: vi.fn(),
+  resolveRepoProjectId: vi.fn(),
 }))
 
 vi.mock('../../src/services/assistant-mode', () => ({
@@ -96,6 +99,7 @@ const mockScheduleService = {
 
 const mockTerminalService = {
   removeAll: vi.fn().mockResolvedValue(undefined),
+  create: vi.fn(),
 } as unknown as TerminalService
 
 function createTestRoutes(openCodeClient: ReturnType<typeof createStubOpenCodeClient> = createStubOpenCodeClient()): ReturnType<typeof createRepoRoutes> {
@@ -131,6 +135,8 @@ describe('Repo Routes', () => {
       updatedAt: Date.now(),
     })
     vi.mocked(db.getRepoGitCredentialId).mockReturnValue(null)
+    vi.mocked(db.getRepoSetting).mockReturnValue(null)
+    vi.mocked(repoService.resolveRepoProjectId).mockResolvedValue('commit-A')
     vi.mocked(repoService.resolveRepoOrAssistant).mockImplementation(
       (_database, id) => vi.mocked(db.getRepoById)(_database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null),
     )
@@ -480,8 +486,36 @@ describe('Repo Routes', () => {
     })
   })
 
-  describe('POST /discover', () => {
-    it('should return 400 for an invalid body', async () => {
+  describe('POST /:id/workspaces', () => {
+    it('creates the workspace and returns the worktree setup result', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+
+      const app = createTestRoutes()
+      const res = await app.request('/1/workspaces', { method: 'POST' })
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ directory: '/tmp/wrk-test', worktreeSetup: { status: 'none' } })
+    })
+
+    it('returns 200 with a failed worktree setup when the setup terminal cannot start', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+      vi.mocked(db.getRepoSetting).mockImplementation((_database, _repoId, key) =>
+        key === 'worktreeSetupCommands' ? JSON.stringify(['pnpm install']) : null,
+      )
+      vi.mocked(mockTerminalService.create).mockRejectedValueOnce(new Error('spawn failed'))
+
+      const app = createTestRoutes()
+      const res = await app.request('/1/workspaces', { method: 'POST' })
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({
+        directory: '/tmp/wrk-test',
+        worktreeSetup: { status: 'failed', error: 'spawn failed' },
+      })
+    })
+  })
+
+  describe('POST /discover', () => {    it('should return 400 for an invalid body', async () => {
       const app = createTestRoutes()
       const res = await app.request('/discover', {
         method: 'POST',

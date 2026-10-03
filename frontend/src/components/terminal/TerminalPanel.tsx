@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button'
 import { ConfirmDestructiveDialog } from '@/components/ui/confirm-destructive-dialog'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useMobile } from '@/hooks/useMobile'
+import { useOpenPreview } from '@/hooks/useOpenPreview'
 import { useUrlParams } from '@/hooks/useUrlParams'
+import { openUrlFromManager } from '@/lib/open-url'
 import { cn } from '@/lib/utils'
 import { TerminalKeyBar } from './TerminalKeyBar'
 import { TerminalView, type TerminalViewHandle } from './TerminalView'
@@ -22,6 +24,7 @@ interface TerminalPanelProps {
 export function TerminalPanel({ repoId, directory, isOpen, onClose, onOpenLink }: TerminalPanelProps) {
   const isMobile = useMobile()
   const { searchParams, updateParams } = useUrlParams()
+  const openPreview = useOpenPreview()
   const { data, isLoading, isSuccess, refetch } = useTerminals(repoId, directory, {
     enabled: isOpen && !!directory,
     refetchInterval: isOpen ? 5000 : false,
@@ -96,6 +99,10 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose, onOpenLink }
 
   const handleToggleCtrl = useCallback(() => setCtrlArmed((armed) => !armed), [])
   const handleCtrlConsumed = useCallback(() => setCtrlArmed(false), [])
+
+  const handleOpenLink = useCallback((uri: string) => {
+    openUrlFromManager(uri, { openPreview })
+  }, [openPreview])
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
@@ -189,7 +196,7 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose, onOpenLink }
                 active={terminal.id === activeTerminalId}
                 ctrlArmed={ctrlArmed}
                 onCtrlConsumed={handleCtrlConsumed}
-                onOpenLink={onOpenLink}
+                onOpenLink={onOpenLink ?? handleOpenLink}
                 onExited={() => { void refetch() }}
               />
             ))

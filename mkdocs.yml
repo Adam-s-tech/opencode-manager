@@ -30,6 +30,9 @@ nav:
     - Overview: features/overview.md
     - Repository & Git: features/git.md
     - File Browser: features/files.md
+    - Terminal & Dev Loop: features/terminal.md
+    - Project Actions: features/project-actions.md
+    - Preview: features/preview.md
     - Chat & Sessions: features/chat.md
     - Session Pinning: features/session-pins.md
     - Schedules & Recurring Jobs: features/schedules.md

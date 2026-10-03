@@ -39,6 +39,8 @@ import { createAuthMiddleware } from './auth/middleware'
 import { createPromptTemplateRoutes } from './routes/prompt-templates'
 import { createSessionPinRoutes } from './routes/session-pins'
 import { createLogRoutes } from './routes/logs'
+import { createPreviewRoutes } from './routes/preview'
+import { createPreviewGatewayApp, PreviewSessionStore } from './services/preview/gateway'
 import { createInternalRoutes } from './routes/internal'
 import { sweepStaleUploadSessions } from './routes/internal/repo-mirror-helpers'
 import { createOpenCodeProxyRoutes } from './routes/opencode-proxy'
@@ -268,6 +270,7 @@ sseAggregator.setScheduledSessionsResolver(
 void scheduleRunnerInstance.start()
 
 const settingsService = new SettingsService(db)
+const previewSessionStore = new PreviewSessionStore()
 
 app.route('/api/auth', createAuthRoutes(auth))
 app.route('/api/auth-info', createAuthInfoRoutes(auth, db))
@@ -296,6 +299,7 @@ protectedApi.route('/prompt-templates', createPromptTemplateRoutes(db))
 protectedApi.route('/session-pins', createSessionPinRoutes(db))
 protectedApi.route('/schedules', createScheduleRoutes(scheduleService))
 protectedApi.route('/logs', createLogRoutes())
+protectedApi.route('/preview', createPreviewRoutes({ store: previewSessionStore }))
 
 app.route('/api', protectedApi)
 
@@ -414,5 +418,16 @@ const server = serve({
 })
 
 injectWebSocket(server)
+
+if (ENV.PREVIEW.PORT > 0) {
+  const previewGateway = createPreviewGatewayApp(previewSessionStore)
+  const previewServer = serve({
+    fetch: previewGateway.app.fetch,
+    port: ENV.PREVIEW.PORT,
+    hostname: HOST,
+  })
+  previewGateway.injectWebSocket(previewServer)
+  logger.info(`Preview gateway running on http://${HOST}:${ENV.PREVIEW.PORT}`)
+}
 
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)

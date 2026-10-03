@@ -167,6 +167,13 @@ export type {
 } from '../schemas/terminal'
 
 export type {
+  PreviewPort,
+  PreviewPortsResponse,
+  CreatePreviewSessionRequest,
+  CreatePreviewSessionResponse,
+} from '../schemas/preview'
+
+export type {
   ProjectActionIcon,
   ProjectAction,
   WorktreeSetupCommands,
@@ -179,4 +186,5 @@ export type {
   MoveProjectItemRequest,
   RunProjectActionRequest,
   RunProjectActionResponse,
+  WorktreeSetupResult,
 } from '../schemas/project-config'

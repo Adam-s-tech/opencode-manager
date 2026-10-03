@@ -2,7 +2,7 @@ import type { Repo } from './types'
 import { FetchError, fetchWrapper, fetchWrapperVoid, fetchWrapperBlob } from './fetchWrapper'
 import { API_BASE_URL } from '@/config'
 import { saveFile } from '@/lib/download'
-import type { DiscoverReposResponse, AssistantModeStatus, AssistantModeInitRequest } from '@opencode-manager/shared/types'
+import type { DiscoverReposResponse, AssistantModeStatus, AssistantModeInitRequest, WorktreeSetupResult } from '@opencode-manager/shared/types'
 
 export interface CreateRepoOptions {
   repoUrl?: string
@@ -63,7 +63,7 @@ export async function deleteRepoWorkspace(repoId: number, directory: string): Pr
   })
 }
 
-export async function createRepoWorkspace(repoId: number): Promise<RepoWorktree> {
+export async function createRepoWorkspace(repoId: number): Promise<RepoWorktree & { worktreeSetup?: WorktreeSetupResult }> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/workspaces`, {
     method: 'POST',
   })

@@ -162,7 +162,7 @@ describe('backend entrypoint', () => {
   it('initializes the workspace, registers every route group, and serves the app', async () => {
     await import('../src/index')
 
-    expect(serveMock).toHaveBeenCalledTimes(1)
+    expect(serveMock).toHaveBeenCalledTimes(2)
     const options = serveMock.mock.calls[0]![0] as { fetch: unknown; port: number; hostname: string }
     expect(typeof options.fetch).toBe('function')
     expect(options.port).toBe(3001)

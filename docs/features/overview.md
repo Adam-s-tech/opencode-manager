@@ -23,6 +23,14 @@ OpenCode Manager provides a comprehensive web interface for managing OpenCode AI
 
 [Learn more →](files.md)
 
+### Terminal & Dev Loop
+
+- **Terminal** — Interactive PTY terminals scoped to a repo or workspace directory, with tabs and reconnect after reload
+- **Project Actions** — Run and stop repo commands from the header menu, with shared `.ocm/project.json` actions and worktree setup commands
+- **Preview** — View a running dev server through an authenticated, same-origin-safe preview gateway with HMR support
+
+[Terminal →](terminal.md) · [Project Actions →](project-actions.md) · [Preview →](preview.md)
+
 ### Chat & Sessions
 
 - **Real-time Streaming** - Live message streaming with SSE
