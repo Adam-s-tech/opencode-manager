@@ -204,7 +204,7 @@ describe('RunDetailPanel open session', () => {
   })
 
   it('opens the original session while a worktree run is still running', async () => {
-    renderPanel({ ...run, status: 'running', sessionId: 'ses_run', worktreePath: '/abs/worktrees/run-1' })
+    renderPanel({ ...run, status: 'running', sessionId: 'ses_run', worktreePath: '/abs/worktrees/run-1', runBranch: 'schedule/1/run-1' })
 
     await clickOpenSession()
 
@@ -219,7 +219,7 @@ describe('RunDetailPanel open session', () => {
       sessionId: 'ses_run',
       sessionTitle: 'Daily recap',
       finishedAt: Date.UTC(2026, 9, 2),
-      worktreePath: '/abs/worktrees/run-1',
+      worktreePath: null,
       runBranch: 'schedule/run-1',
       commitHash: 'abc123',
     })
@@ -236,7 +236,7 @@ describe('RunDetailPanel open session', () => {
 
   it('includes the error and notes no committed changes for a failed worktree run', async () => {
     apiMocks.createSessionWithContext.mockResolvedValue({ id: 'ses_new' })
-    renderPanel({ ...run, status: 'failed', responseText: null, errorText: 'Model timed out', worktreePath: '/abs/worktrees/run-1' })
+    renderPanel({ ...run, status: 'failed', responseText: null, errorText: 'Model timed out', worktreePath: null, runBranch: 'schedule/1/run-1' })
 
     await clickOpenSession()
 
@@ -250,7 +250,7 @@ describe('RunDetailPanel open session', () => {
   })
 
   it('shows a single open session button', async () => {
-    renderPanel({ ...run, sessionId: 'ses_run', worktreePath: '/abs/worktrees/run-1' })
+    renderPanel({ ...run, sessionId: 'ses_run', worktreePath: null, runBranch: 'schedule/1/run-1' })
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open session' })).toBeEnabled())
     expect(screen.getAllByRole('button', { name: /session|repo/i })).toHaveLength(1)
