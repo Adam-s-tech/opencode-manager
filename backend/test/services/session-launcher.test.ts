@@ -23,13 +23,18 @@ interface FakeLaunchClient {
   worktreeCreate: ReturnType<typeof vi.fn>
 }
 
-function createClient(overrides: { workspaceDirectory?: string; createError?: Error } = {}): FakeLaunchClient {
+function createClient(
+  overrides: { workspaceDirectory?: string; createError?: Error; worktreeCreateError?: Error } = {},
+): FakeLaunchClient {
   const create = vi.fn(async (input: { title?: string }) => {
     if (overrides.createError) throw overrides.createError
     return { id: 'ses_new', title: input?.title }
   })
   const prompt = vi.fn(async () => ({}))
-  const worktreeCreate = vi.fn(async () => ({ directory: overrides.workspaceDirectory ?? '/worktrees/feature-x' }))
+  const worktreeCreate = vi.fn(async () => {
+    if (overrides.worktreeCreateError) throw overrides.worktreeCreateError
+    return { directory: overrides.workspaceDirectory ?? '/worktrees/feature-x' }
+  })
 
   const client = {
     api: {
@@ -160,7 +165,38 @@ describe('SessionLauncher', () => {
     expect(error).toMatchObject({
       status: 502,
       message: 'boom (workspace: /worktrees/feature-x)',
+      workspaceDirectory: '/worktrees/feature-x',
     })
     expect(worktreeCreate).toHaveBeenCalled()
+  })
+
+  it('exposes the created workspace when the requested model is unavailable', async () => {
+    const repoId = readyRepo()
+    const { client, create } = createClient({ workspaceDirectory: '/worktrees/feature-x' })
+    const launcher = new SessionLauncher(db, client)
+
+    const error = await launcher
+      .launch({ repoId, prompt: 'hello', model: 'openai/retired', workspace: { name: 'feature-x' } })
+      .catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(SessionLaunchError)
+    expect(error).toMatchObject({
+      status: 400,
+      workspaceDirectory: '/worktrees/feature-x',
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('exposes no workspace when workspace creation fails', async () => {
+    const repoId = readyRepo()
+    const { client } = createClient({ worktreeCreateError: new Error('no workspace') })
+    const launcher = new SessionLauncher(db, client)
+
+    const error = await launcher
+      .launch({ repoId, prompt: 'hello', workspace: { name: 'feature-x' } })
+      .catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(SessionLaunchError)
+    expect(error).toMatchObject({ status: 502, workspaceDirectory: null })
   })
 })

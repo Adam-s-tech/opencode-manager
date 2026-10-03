@@ -26,11 +26,13 @@ export interface LaunchedSession {
 
 export class SessionLaunchError extends Error {
   readonly status: 400 | 404 | 502
+  readonly workspaceDirectory: string | null
 
-  constructor(message: string, status: 400 | 404 | 502) {
+  constructor(message: string, status: 400 | 404 | 502, workspaceDirectory: string | null = null) {
     super(message)
     this.name = 'SessionLaunchError'
     this.status = status
+    this.workspaceDirectory = workspaceDirectory
   }
 }
 
@@ -83,6 +85,7 @@ export class SessionLauncher {
       throw new SessionLaunchError(
         withWorkspace(getErrorMessage(error) || 'Failed to create OpenCode session', workspaceDirectory),
         502,
+        workspaceDirectory,
       )
     }
 
@@ -110,6 +113,7 @@ export class SessionLauncher {
       throw new SessionLaunchError(
         withWorkspace(getErrorMessage(error) || 'Failed to resolve OpenCode model', workspaceDirectory),
         502,
+        workspaceDirectory,
       )
     }
 
@@ -119,6 +123,7 @@ export class SessionLauncher {
         throw new SessionLaunchError(
           withWorkspace(`Model ${requestedModel} is not available`, workspaceDirectory),
           400,
+          workspaceDirectory,
         )
       }
     }

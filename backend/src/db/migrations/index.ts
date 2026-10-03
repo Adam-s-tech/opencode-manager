@@ -25,6 +25,7 @@ import migration023 from './023-schedule-mcp-servers'
 import migration024 from './024-schedule-runs-viewed-at'
 import migration025 from './025-session-permission-modes'
 import migration026 from './026-session-goals'
+import migration027 from './027-multi-runs'
 
 export const allMigrations: Migration[] = [
   migration001,
@@ -53,4 +54,5 @@ export const allMigrations: Migration[] = [
   migration024,
   migration025,
   migration026,
+  migration027,
 ]

@@ -38,6 +38,7 @@ import { createPromptTemplateRoutes } from './routes/prompt-templates'
 import { createSessionPinRoutes } from './routes/session-pins'
 import { createSessionPermissionModeRoutes } from './routes/session-permission-modes'
 import { createSessionGoalRoutes } from './routes/session-goals'
+import { createMultiRunRoutes } from './routes/multi-runs'
 import { createLogRoutes } from './routes/logs'
 import { createInternalRoutes } from './routes/internal'
 import { sweepStaleUploadSessions } from './routes/internal/repo-mirror-helpers'
@@ -48,6 +49,7 @@ import { ensureDirectoryExists, writeFileContent, fileExists } from './services/
 import { SettingsService } from './services/settings'
 import { SessionPermissionModeService } from './services/session-permission-modes'
 import { SessionGoalService } from './services/session-goals'
+import { MultiRunService } from './services/multi-runs'
 import { opencodeServerManager } from './services/opencode-single-server'
 import { createOpenCodeClient } from './services/opencode/client'
 import { NotificationService } from './services/notification'
@@ -241,6 +243,8 @@ const sessionGoalService = new SessionGoalService(db, openCodeClient, settingsSe
 })
 sessionGoalService.loadOpenGoals()
 
+const multiRunService = new MultiRunService(db, openCodeClient, gitAuthService)
+
 sseAggregator.onEvent((directory, event) => {
   sessionPermissionModeService.handleEvent(directory, event).catch((err) => {
     logger.error('Session permission mode event handling error:', err)
@@ -321,6 +325,7 @@ protectedApi.route('/prompt-templates', createPromptTemplateRoutes(db))
 protectedApi.route('/session-pins', createSessionPinRoutes(db))
 protectedApi.route('/session-permission-modes', createSessionPermissionModeRoutes(sessionPermissionModeService))
 protectedApi.route('/session-goals', createSessionGoalRoutes(sessionGoalService))
+protectedApi.route('/multi-runs', createMultiRunRoutes(multiRunService))
 protectedApi.route('/schedules', createScheduleRoutes(scheduleService))
 protectedApi.route('/logs', createLogRoutes())
 
