@@ -12,12 +12,26 @@ import type { Database } from 'bun:sqlite'
 import type { GitBranch, GitCommit, FileDiffResponse, GitDiffOptions, GitStatusResponse, GitFileStatus, GitFileStatusType, CommitDetails, CommitFile } from '../../types/git'
 import path from 'path'
 
+export function createGitService(database: Database, gitAuthService: GitAuthService): GitService {
+  return new GitService(gitAuthService, new SettingsService(database), new CredentialProvider(database))
+}
+
 export class GitService {
   constructor(
     private gitAuthService: GitAuthService,
     private settingsService: SettingsService,
     private credentialProvider: CredentialProvider
   ) {}
+
+  async getMainCheckoutPath(directory: string): Promise<string> {
+    const env = this.gitAuthService.getGitEnvironment()
+    const output = await executeCommand(['git', '-C', directory, 'worktree', 'list', '--porcelain'], { env })
+    const firstEntry = output.split('\n').find((line) => line.startsWith('worktree '))
+    if (!firstEntry) {
+      throw new Error(`Unable to resolve the main checkout for ${directory}`)
+    }
+    return firstEntry.slice('worktree '.length).trim()
+  }
 
   async getStatus(repoId: number, database: Database): Promise<GitStatusResponse> {
     try {

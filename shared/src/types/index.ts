@@ -165,3 +165,14 @@ export type {
   CreateTerminalRequest,
   ResizeTerminalRequest,
 } from '../schemas/terminal'
+
+export type {
+  ProjectActionIcon,
+  ProjectAction,
+  WorktreeSetupCommands,
+  ProjectItemSource,
+  RepoProjectFile,
+  ProjectConfigResponse,
+  UpdateProjectActionsRequest,
+  UpdateWorktreeSetupRequest,
+} from '../schemas/project-config'

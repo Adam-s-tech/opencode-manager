@@ -16,9 +16,12 @@ import { ASSISTANT_REPO_ID, isWorktreeSibling } from '@opencode-manager/shared/u
 import { isWorktreeError, openCodeLocation } from '@opencode-manager/shared/opencode'
 import { createRepoGitRoutes } from './repo-git'
 import { createRepoTerminalRoutes } from './repo-terminals'
+import { createRepoProjectConfigRoutes } from './repo-project-config'
 import { createScheduleRoutes } from './schedules'
 import type { GitAuthService } from '../services/git-auth'
 import type { TerminalService } from '../services/terminal'
+import { ProjectConfigService } from '../services/project-config'
+import { createGitService } from '../services/git/GitService'
 import { ScheduleService } from '../services/schedules'
 import { ensureAssistantMode, getAssistantModeStatus } from '../services/assistant-mode'
 import path from 'path'
@@ -51,8 +54,15 @@ export function createRepoRoutes(
 ) {
   const app = new Hono()
 
+  const projectConfigService = new ProjectConfigService(
+    database,
+    createGitService(database, gitAuthService),
+    gitAuthService,
+  )
+
   app.route('/', createRepoGitRoutes(database, gitAuthService))
   app.route('/', createRepoTerminalRoutes(database, gitAuthService, openCodeClient, terminalService))
+  app.route('/', createRepoProjectConfigRoutes(database, gitAuthService, openCodeClient, projectConfigService, terminalService))
   app.route('/:id/schedules', createScheduleRoutes(scheduleService))
 
   app.post('/', async (c) => {
