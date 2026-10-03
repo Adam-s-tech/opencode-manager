@@ -82,6 +82,10 @@ vi.mock('@/components/model/ModelQuickSelect', () => ({
   ),
 }))
 
+vi.mock('@/components/session/PermissionModeToggle', () => ({
+  PermissionModeToggle: () => null,
+}))
+
 vi.mock('@/components/ui/session-status-indicator', () => ({
   SessionStatusIndicator: () => <div>SessionStatus</div>,
 }))

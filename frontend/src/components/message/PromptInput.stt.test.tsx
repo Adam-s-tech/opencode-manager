@@ -100,6 +100,10 @@ vi.mock('@/components/model/ModelQuickSelect', () => ({
   ModelQuickSelect: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+vi.mock('@/components/session/PermissionModeToggle', () => ({
+  PermissionModeToggle: () => null,
+}))
+
 vi.mock('@/components/ui/session-status-indicator', () => ({
   SessionStatusIndicator: () => <div>SessionStatus</div>,
 }))

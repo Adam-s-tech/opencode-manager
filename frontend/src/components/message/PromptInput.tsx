@@ -27,6 +27,7 @@ import { SessionStatusIndicator } from '@/components/ui/session-status-indicator
 import { ModelQuickSelect } from '@/components/model/ModelQuickSelect'
 import { AgentQuickSelect } from '@/components/agent/AgentQuickSelect'
 import { VoiceStatusOverlay, type VoiceStatusOverlayState } from './VoiceStatusOverlay'
+import { PermissionModeToggle } from '@/components/session/PermissionModeToggle'
 import { detectMentionTrigger, parsePromptToInput, getFilename, filterAgentsByQuery } from '@/lib/promptParser'
 import { getNextPrimaryAgentId } from '@/lib/primaryAgents'
 import { randomId } from '@/lib/utils'
@@ -1345,6 +1346,7 @@ return (
                 open={isModelPickerOpen}
                 onOpenChange={setIsModelPickerOpen}
               />
+              {directory && <PermissionModeToggle sessionID={sessionID} directory={directory} />}
             </>
           ) : (
             <>
@@ -1354,6 +1356,7 @@ return (
                 onAgentChange={handleAgentChange}
                 isBashMode={isBashMode}
               />
+              {directory && <PermissionModeToggle sessionID={sessionID} directory={directory} />}
               {isSessionActive && (
                 <div className="px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-medium text-muted-foreground max-w-[120px] md:max-w-[180px]">
                   <SessionStatusIndicator sessionID={sessionID} showLabel />

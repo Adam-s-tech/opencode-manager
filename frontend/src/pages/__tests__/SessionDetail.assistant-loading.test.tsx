@@ -124,6 +124,10 @@ vi.mock('@/components/session/SessionList', () => ({
   SessionList: vi.fn(() => null),
 }))
 
+vi.mock('@/components/session/PermissionModeToggle', () => ({
+  PermissionModeToggle: vi.fn(() => null),
+}))
+
 vi.mock('@/components/file-browser/FileBrowserSheet', () => ({
   FileBrowserSheet: vi.fn(() => null),
 }))

@@ -127,6 +127,7 @@ vi.mock('@/api/repos', () => ({
 
 vi.mock('@/components/session/BackgroundWorkBar', () => ({ BackgroundWorkBar: vi.fn(() => null) }))
 vi.mock('@/components/session/SessionList', () => ({ SessionList: vi.fn(() => null) }))
+vi.mock('@/components/session/PermissionModeToggle', () => ({ PermissionModeToggle: vi.fn(() => null) }))
 vi.mock('@/components/file-browser/FileBrowserSheet', () => ({ FileBrowserSheet: vi.fn(() => null) }))
 vi.mock('@/components/repo/RepoMcpDialog', () => ({ RepoMcpDialog: vi.fn(() => null) }))
 vi.mock('@/components/repo/ResetPermissionsDialog', () => ({ ResetPermissionsDialog: vi.fn(() => null) }))
