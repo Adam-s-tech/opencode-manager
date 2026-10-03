@@ -69,7 +69,7 @@ export function SideDrawer({
       />
       <div
         className={cn(
-          'fixed top-0 bottom-0 bg-background border-l border-border pt-safe pb-safe flex flex-col z-50',
+          'fixed top-0 bottom-0 bg-background border-l border-border pt-safe flex flex-col z-50',
           side === 'right' ? 'right-0' : 'left-0',
           widthClass,
           className,
@@ -118,7 +118,7 @@ export interface SideDrawerContentProps {
 
 export function SideDrawerContent({ className, children }: SideDrawerContentProps) {
   return (
-    <div className={cn('flex-1 overflow-auto min-h-0 px-4 py-3', className)}>
+    <div className={cn('flex-1 overflow-auto min-h-0 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]', className)}>
       {children}
     </div>
   )

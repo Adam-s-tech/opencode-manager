@@ -354,7 +354,7 @@ body {
 }
 
 @utility pb-mobile-tabbar {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 4.25rem);
 }
 
 /* Prevent iOS zoom on all input elements */

@@ -116,7 +116,7 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
             )}
           </div>
         </div>
-        <TabsContent value="log" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 xl:[mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
+        <TabsContent value="log" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] xl:[mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
           {selectedRunLoading && !activeRun ? (
             <div className="flex items-center justify-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : (
@@ -137,7 +137,7 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
                   <Button variant="outline" size="sm" onClick={() => { void refetchRepo() }}>Retry</Button>
                 </div>
               )}
-              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2 xl:[mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] xl:[mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
                 <ScheduleRunMarkdown content={activeRun.responseText} onOpenLocalPath={handleOpenLocalPath} />
               </div>
             </>
@@ -145,7 +145,7 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
             <div className="p-3"><pre className="whitespace-pre-wrap break-words text-sm font-mono leading-6">No assistant output captured.</pre></div>
           )}
         </TabsContent>
-        <TabsContent value="error" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 xl:[mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
+        <TabsContent value="error" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] xl:[mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
           {selectedRunLoading && !activeRun ? (
             <div className="flex items-center justify-center p-4"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : (
