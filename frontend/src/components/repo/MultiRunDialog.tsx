@@ -94,7 +94,7 @@ export function MultiRunDialog({
   const canSubmit =
     name.trim().length > 0 && prompt.trim().length > 0 && selectedModels.length > 0 && !launch.isPending
 
-  const handleLaunch = async () => {
+  const handleLaunch = () => {
     const request: LaunchMultiRunRequest = {
       repoId,
       name: name.trim(),
@@ -103,8 +103,7 @@ export function MultiRunDialog({
       isolate,
       ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
     }
-    await launch.mutateAsync(request)
-    setActiveTab('runs')
+    launch.mutate(request, { onSuccess: () => setActiveTab('runs') })
   }
 
   const openEntry = (entry: MultiRunEntry) => {
@@ -200,7 +199,7 @@ export function MultiRunDialog({
               </div>
 
               <div className="flex justify-end">
-                <Button onClick={() => { void handleLaunch() }} disabled={!canSubmit}>
+                <Button onClick={handleLaunch} disabled={!canSubmit}>
                   {launch.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

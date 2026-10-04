@@ -165,6 +165,23 @@ describe('MultiRunDialog', () => {
     })
   })
 
+  it('keeps the launch tab when the launch request fails', async () => {
+    const user = userEvent.setup()
+    mocks.launchMultiRun.mockRejectedValue(new Error('launch failed'))
+    renderDialog()
+
+    await user.type(screen.getByLabelText('Group name'), 'Sweep')
+    await user.type(screen.getByLabelText('Prompt'), 'go')
+    await user.click(screen.getByRole('checkbox', { name: 'GPT-4o' }))
+    await user.click(screen.getByRole('button', { name: 'Launch' }))
+
+    await waitFor(() => {
+      expect(mocks.launchMultiRun).toHaveBeenCalled()
+    })
+    expect(screen.getByLabelText('Group name')).toBeInTheDocument()
+    expect(screen.queryByText('No runs yet.')).not.toBeInTheDocument()
+  })
+
   it('submits the catalog id for configured model aliases', async () => {
     const user = userEvent.setup()
     mocks.launchMultiRun.mockResolvedValue(startedRun)
