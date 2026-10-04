@@ -965,22 +965,32 @@ export class GitService {
       throw new GitOperationError('BRANCH_CHECKED_OUT', `Cannot delete branch '${name}' because it is currently checked out`)
     }
 
-    let upstreamRemote: string | null = null
-    let upstreamBranch: string | null = null
+    let remoteToDelete: string | null = null
     if (options.deleteRemote) {
+      const [remote, merge] = await Promise.all([
+        this.readBranchConfig(fullPath, name, 'remote', env),
+        this.readBranchConfig(fullPath, name, 'merge', env),
+      ])
+      if (remote && remote !== '.' && merge?.startsWith('refs/heads/')) {
+        remoteToDelete = remote
+        const upstreamBranch = merge.slice('refs/heads/'.length)
+        if (upstreamBranch !== name) {
+          throw new GitOperationError(
+            'REMOTE_BRANCH_MISMATCH',
+            `Branch '${name}' was kept because its upstream is '${remote}/${upstreamBranch}', not '${remote}/${name}'. Delete it without deleting the remote branch.`
+          )
+        }
+      }
+    }
+
+    if (remoteToDelete && !options.force) {
       try {
-        const upstream = await executeCommand(
-          ['git', '-C', fullPath, 'rev-parse', '--abbrev-ref', `${name}@{upstream}`],
+        await executeCommand(
+          ['git', '-C', fullPath, 'merge-base', '--is-ancestor', `refs/heads/${name}`, 'HEAD'],
           { env, silent: true }
         )
-        const separator = upstream.trim().indexOf('/')
-        if (separator > 0) {
-          upstreamRemote = upstream.trim().slice(0, separator)
-          upstreamBranch = upstream.trim().slice(separator + 1)
-        }
       } catch {
-        upstreamRemote = null
-        upstreamBranch = null
+        throw new GitOperationError('BRANCH_NOT_MERGED', `Branch '${name}' was kept because it has unmerged commits.`)
       }
     }
 
@@ -995,11 +1005,12 @@ export class GitService {
     }
 
     let remoteDeleted = false
-    if (upstreamRemote && upstreamBranch) {
+    if (remoteToDelete) {
+      const remote = remoteToDelete
       try {
         await this.withRemoteAuth(target, async (remoteEnv) => {
           await executeCommand(
-            ['git', '-C', fullPath, 'push', upstreamRemote, '--delete', upstreamBranch],
+            ['git', '-C', fullPath, 'push', remote, '--delete', name],
             { env: remoteEnv }
           )
         })
@@ -1010,6 +1021,24 @@ export class GitService {
     }
 
     return { remoteDeleted }
+  }
+
+  private async readBranchConfig(
+    repoPath: string,
+    branch: string,
+    key: string,
+    env: Record<string, string>
+  ): Promise<string | null> {
+    try {
+      const output = await executeCommand(
+        ['git', '-C', repoPath, 'config', '--get', `branch.${branch}.${key}`],
+        { env, silent: true }
+      )
+      const value = output.trim()
+      return value.length > 0 ? value : null
+    } catch {
+      return null
+    }
   }
 
   async deleteBranch(
@@ -1100,11 +1129,25 @@ export class GitService {
       throw new GitOperationError('UNCOMMITTED_CHANGES', 'You have uncommitted changes. Commit or stash them first.')
     }
 
-    const countOutput = await executeCommand(
-      ['git', '-C', sourcePath, 'rev-list', '--count', `${targetRef}..${sourceRef}`],
-      { env: sourceEnv, silent: true }
-    )
-    const integratedCommits = Number.parseInt(countOutput.trim(), 10)
+    let integratedCommits: number
+    let cherryPickCommits: string[] = []
+    if (request.strategy === 'cherry-pick') {
+      const commitsOutput = await executeCommand(
+        ['git', '-C', sourcePath, 'rev-list', '--reverse', '--right-only', '--cherry-pick', '--no-merges', `${targetRef}...${sourceRef}`],
+        { env: sourceEnv, silent: true }
+      )
+      cherryPickCommits = commitsOutput
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+      integratedCommits = cherryPickCommits.length
+    } else {
+      const countOutput = await executeCommand(
+        ['git', '-C', sourcePath, 'rev-list', '--count', `${targetRef}..${sourceRef}`],
+        { env: sourceEnv, silent: true }
+      )
+      integratedCommits = Number.parseInt(countOutput.trim(), 10)
+    }
     if (!integratedCommits) {
       throw new GitOperationError('INTEGRATE_NOTHING_TO_INTEGRATE', 'Nothing to integrate')
     }
@@ -1115,7 +1158,7 @@ export class GitService {
     }
 
     const args = request.strategy === 'cherry-pick'
-      ? ['git', '-C', targetPath, 'cherry-pick', `${targetRef}..${sourceRef}`]
+      ? ['git', '-C', targetPath, 'cherry-pick', ...cherryPickCommits]
       : ['git', '-C', targetPath, 'merge', '--no-ff', '--no-edit', sourceRef]
 
     try {

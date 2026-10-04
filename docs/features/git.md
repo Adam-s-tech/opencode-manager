@@ -55,7 +55,7 @@ Worktrees share the same git history but have independent working directories. T
 From a worktree's Branches tab, click **Integrate** to bring its commits into another branch:
 
 1. Choose the target branch. It must be checked out cleanly in another managed worktree, with no uncommitted changes or operation already in progress.
-2. Choose a strategy: **Merge commit** integrates all commits with a merge commit, while **Cherry-pick commits** replays each commit onto the target.
+2. Choose a strategy: **Merge commit** integrates all commits with a merge commit, while **Cherry-pick commits** replays each commit onto the target. Cherry-pick integration skips commits already applied to the target and skips merge commits.
 3. Click **Integrate**.
 
 If the target stops on conflicts, the operation banner appears in the dialog so you can resolve, continue, or abort the integration.
@@ -68,7 +68,9 @@ Deleting a worktree offers three branch options:
 - **Delete local branch** - Remove the branch from the parent repository.
 - **Delete local and remote branch** - Also delete the branch from origin.
 
-**Delete local branch** and **Delete local and remote branch** use a safe delete: if the branch has unmerged commits it is kept (and the remote branch is not deleted either), and a warning names it. Force-delete it from the Branches tab if intended.
+**Delete local branch** and **Delete local and remote branch** use a safe delete: if the branch has unmerged commits it is kept, and a warning names it. Force-delete it from the Branches tab if intended.
+
+The remote branch is deleted only when the branch's upstream has the same name. If the upstream has a different name, nothing is deleted and the reason is shown. Without force, deleting the remote branch also requires the branch to be merged into the checked-out branch.
 
 ## Source Control Panel
 
@@ -98,7 +100,7 @@ Access comprehensive git operations via the source control button.
 - Create new branches from current HEAD
 - Switch branches (checks out the branch)
 - Rename a local branch from its actions menu. Renaming also updates the base branch of schedules in every checkout of the same git repository that used the old name. A worktree's folder keeps the old branch name; `ocm` mirroring looks for a folder named after the new branch, so mirroring the renamed branch fails while that worktree exists.
-- Delete local branches, optionally force-deleting an unmerged branch and, when the branch tracks a remote, also deleting the remote branch. The current branch and branches checked out in another worktree cannot be deleted.
+- Delete local branches, optionally force-deleting an unmerged branch and, when the branch's upstream has the same name, also deleting the remote branch. The current branch and branches checked out in another worktree cannot be deleted.
 
 ![Branches Tab](../images/git/git-branch.png){ .phone }
 

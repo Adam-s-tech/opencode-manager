@@ -184,6 +184,12 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     ],
   },
   {
+    code: 'REMOTE_BRANCH_MISMATCH',
+    summary: "The branch's upstream has a different name, so its remote branch was not deleted.",
+    statusCode: 409,
+    patterns: [],
+  },
+  {
     code: 'STASH_CHANGED',
     summary: 'The stash list changed. Refresh and try again.',
     statusCode: 409,
