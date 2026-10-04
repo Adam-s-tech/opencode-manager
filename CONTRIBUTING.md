@@ -7,7 +7,7 @@ Thanks for your interest in contributing! This guide covers our workflow and how
 1. Fork the repository
 2. Clone your fork locally
 
-See the [Development Setup Guide](docs/development/setup.md) for detailed setup instructions.
+See the [Development Setup Guide](https://opencodemanager.app/docs/development/setup) for detailed setup instructions.
 
 ## Project Board Workflow
 

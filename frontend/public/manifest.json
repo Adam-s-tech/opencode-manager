@@ -1,8 +1,8 @@
 {
   "id": "/",
   "name": "OpenCode Manager",
-  "short_name": "OpenCode",
-  "description": "AI-powered coding assistant interface",
+  "short_name": "OC Manager",
+  "description": "An AI development workspace for managing repositories, coding agents, and automated workflows with OpenCode.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",

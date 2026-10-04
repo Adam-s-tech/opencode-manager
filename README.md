@@ -26,10 +26,10 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/ocmgr-main.webp" alt="OpenCode Manager" width="600" style="border: none" />
+  <img src="https://opencodemanager.app/docs/images/ocmgr-main.webp" alt="OpenCode Manager" width="600" style="border: none" />
   <br />
-  <img src="docs/images/ocmgr-mobile.webp" alt="Mobile view" height="400" style="border: 1px solid rgba(128,128,128,0.4); margin-left: 12px" />
-  <img src="docs/images/mobile-repo-session-sheet.webp" alt="Mobile repository and session switcher" height="400" style="border: 1px solid rgba(128,128,128,0.4); margin-left: 12px" />
+  <img src="https://opencodemanager.app/docs/images/ocmgr-mobile.webp" alt="Mobile view" height="400" style="border: 1px solid rgba(128,128,128,0.4); margin-left: 12px" />
+  <img src="https://opencodemanager.app/docs/images/mobile-repo-session-sheet.webp" alt="Mobile repository and session switcher" height="400" style="border: 1px solid rgba(128,128,128,0.4); margin-left: 12px" />
 </p>
 
 ## Theme Showcase
@@ -55,7 +55,7 @@ docker-compose up -d
 
 On first launch, you'll be prompted to create an admin account. That's it!
 
-For local development setup, see the [Development Guide](https://chriswritescode-dev.github.io/opencode-manager/development/setup/).
+For local development setup, see the [Development Guide](https://opencodemanager.app/docs/development/setup).
 
 
 ## Features
@@ -82,7 +82,7 @@ OpenCode Manager is a pnpm workspace with four TypeScript packages:
 - `shared/` — shared Zod schemas, config helpers, types, and utilities consumed by both backend and frontend.
 - `ocm-cli/` — `ocm` CLI that attaches your local OpenCode TUI to a repo hosted on the Manager.
 
-A MkDocs Material site (`docs/`) provides guides, feature docs, configuration, and troubleshooting.
+Guides, feature docs, configuration, and troubleshooting are published at [opencodemanager.app/docs](https://opencodemanager.app/docs).
 
 ## Development
 
@@ -96,7 +96,7 @@ pnpm typecheck
 pnpm test
 ```
 
-See the [Development Guide](https://chriswritescode-dev.github.io/opencode-manager/development/setup/) for local setup, scripts, database notes, and testing.
+See the [Development Guide](https://opencodemanager.app/docs/development/setup) for local setup, scripts, database notes, and testing.
 
 ## Configuration
 
@@ -113,22 +113,22 @@ AUTH_TRUSTED_ORIGINS=http://localhost:5003,https://yourl33tdomain.com
 AUTH_SECURE_COOKIES=false  # Set to true when using HTTPS
 ```
 
-For OAuth, Passkeys, Push Notifications (VAPID), and advanced configuration, see the [Configuration Guide](https://chriswritescode-dev.github.io/opencode-manager/configuration/environment/).
+For OAuth, Passkeys, Push Notifications (VAPID), and advanced configuration, see the [Configuration Guide](https://opencodemanager.app/docs/configuration/environment).
 
 ## `ocm` CLI
 
 OpenCode Manager ships an `ocm` CLI (from `ocm-cli/`) that attaches your local OpenCode TUI to a repo hosted on the Manager. It lists ready repos, attaches with `opencode --server` through the Manager's repo-scoped `/api/opencode-proxy/repos/:repoId` route (so prompts run on the Manager's filesystem against a single shared OpenCode server), and can sync the working tree up or down with `ocm push` / `ocm pull` (fast git bundle + working-tree patch by default; pass `--full` for the legacy tarball mirror). Running `ocm` inside a local clone auto-detects the matching Manager repo by `origin` URL.
 
-See the [`ocm` CLI guide](docs/ocm-cli.md) for setup and commands.
+See the [`ocm` CLI guide](https://opencodemanager.app/docs/ocm-cli) for setup and commands.
 
 ## Documentation
 
-- [Getting Started](https://chriswritescode-dev.github.io/opencode-manager/getting-started/installation/) — Installation and first-run setup
-- [Features](https://chriswritescode-dev.github.io/opencode-manager/features/overview/) — Deep dive on all features
-- [Configuration](https://chriswritescode-dev.github.io/opencode-manager/configuration/environment/) — Environment variables and advanced setup
-- [Troubleshooting](https://chriswritescode-dev.github.io/opencode-manager/troubleshooting/) — Common issues and solutions
-- [Development](https://chriswritescode-dev.github.io/opencode-manager/development/setup/) — Contributing and local development
-- [`ocm` CLI](docs/ocm-cli.md) — Attach local OpenCode TUI to Manager repos
+- [Getting Started](https://opencodemanager.app/docs/getting-started/installation) — Installation and first-run setup
+- [Features](https://opencodemanager.app/docs/features/overview) — Deep dive on all features
+- [Configuration](https://opencodemanager.app/docs/configuration/environment) — Environment variables and advanced setup
+- [Troubleshooting](https://opencodemanager.app/docs/troubleshooting) — Common issues and solutions
+- [Development](https://opencodemanager.app/docs/development/setup) — Contributing and local development
+- [`ocm` CLI](https://opencodemanager.app/docs/ocm-cli) — Attach local OpenCode TUI to Manager repos
 
 ## License
 
