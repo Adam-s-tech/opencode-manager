@@ -326,11 +326,11 @@ export function createRepoGitRoutes(
 
   app.post('/:id/git/branches/rename', (c) => withRepo(c, 'Failed to rename branch:', async (_repo, id) => {
     const parsed = await parseJsonBody(c, RenameBranchRequestSchema)
-    if (parsed instanceof Response) {
-      return parsed
+    if (!parsed.ok) {
+      return parsed.response
     }
 
-    await git.renameBranch(id, parsed.from, parsed.to, database)
+    await git.renameBranch(id, parsed.data.from, parsed.data.to, database)
 
     const status = await git.getStatus(id, database)
     return c.json(status)
@@ -338,11 +338,11 @@ export function createRepoGitRoutes(
 
   app.delete('/:id/git/branches', (c) => withRepo(c, 'Failed to delete branch:', async (_repo, id) => {
     const parsed = await parseJsonBody(c, DeleteBranchRequestSchema)
-    if (parsed instanceof Response) {
-      return parsed
+    if (!parsed.ok) {
+      return parsed.response
     }
 
-    const result = await git.deleteBranch(id, parsed, database)
+    const result = await git.deleteBranch(id, parsed.data, database)
 
     const status = await git.getStatus(id, database)
     return c.json({ ...result, status })
@@ -350,11 +350,11 @@ export function createRepoGitRoutes(
 
   app.post('/:id/git/integrate', (c) => withRepo(c, 'Failed to integrate branch:', async (_repo, id) => {
     const parsed = await parseJsonBody(c, IntegrateBranchRequestSchema)
-    if (parsed instanceof Response) {
-      return parsed
+    if (!parsed.ok) {
+      return parsed.response
     }
 
-    const result = await git.integrateBranch(id, parsed, database)
+    const result = await git.integrateBranch(id, parsed.data, database)
 
     const targetStatus = await git.getStatus(result.targetRepoId, database)
     return c.json({ ...result, targetStatus })
@@ -367,11 +367,11 @@ export function createRepoGitRoutes(
 
   app.post('/:id/git/stash', (c) => withRepo(c, 'Failed to push stash:', async (_repo, id) => {
     const parsed = await parseJsonBody(c, StashPushRequestSchema)
-    if (parsed instanceof Response) {
-      return parsed
+    if (!parsed.ok) {
+      return parsed.response
     }
 
-    await git.pushStash(id, parsed, database)
+    await git.pushStash(id, parsed.data, database)
 
     const status = await git.getStatus(id, database)
     return c.json(status)
@@ -384,11 +384,11 @@ export function createRepoGitRoutes(
     }
 
     const parsed = await parseJsonBody(c, StashApplyRequestSchema)
-    if (parsed instanceof Response) {
-      return parsed
+    if (!parsed.ok) {
+      return parsed.response
     }
 
-    await git.applyStash(id, index, parsed.hash, parsed.pop, database)
+    await git.applyStash(id, index, parsed.data.hash, parsed.data.pop, database)
 
     const status = await git.getStatus(id, database)
     return c.json(status)
@@ -401,11 +401,11 @@ export function createRepoGitRoutes(
     }
 
     const parsed = await parseJsonBody(c, StashDropRequestSchema)
-    if (parsed instanceof Response) {
-      return parsed
+    if (!parsed.ok) {
+      return parsed.response
     }
 
-    await git.dropStash(id, index, parsed.hash, database)
+    await git.dropStash(id, index, parsed.data.hash, database)
 
     const status = await git.getStatus(id, database)
     return c.json(status)

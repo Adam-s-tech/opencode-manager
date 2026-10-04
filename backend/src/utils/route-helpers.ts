@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import type { ZodType } from 'zod'
 import { ClientError, openCodeErrorStatus } from '@opencode-manager/shared/opencode'
 import { isOAuthErrorCode } from '@opencode-manager/shared/schemas'
 import { getErrorMessage } from './error-utils'
@@ -58,26 +59,12 @@ export function respondWithGitError(c: Context, error: unknown, logMessage: stri
   )
 }
 
-interface JsonBodySchema<T> {
-  safeParse(data: unknown): { success: true; data: T } | { success: false; error: { issues: Array<{ message?: string }> } }
-}
-
-export async function parseJsonBody<T>(c: Context, schema: JsonBodySchema<T>): Promise<T | Response> {
-  let body: unknown
-  try {
-    body = await c.req.json()
-  } catch {
-    return c.json({ error: 'Invalid JSON' }, 400)
-  }
-
-  const parsed = schema.safeParse(body)
-  if (!parsed.success) {
-    return c.json({ error: parsed.error.issues[0]?.message || 'Invalid request' }, 400)
-  }
-  return parsed.data
-}
-
-export function handleOpenCodeError(c: Context, error: unknown, fallback: string) {
+export function handleOpenCodeError(
+  c: Context,
+  error: unknown,
+  fallback: string,
+  options?: { unknownStatus?: 500 | 502 },
+) {
   if (error instanceof Error) {
     const tag = (error as { _tag?: unknown })._tag
     if (typeof tag === 'string') {
@@ -93,5 +80,43 @@ export function handleOpenCodeError(c: Context, error: unknown, fallback: string
   }
 
   logger.error(fallback, error)
+  const status = options?.unknownStatus ?? 500
+  if (status === 502) {
+    return c.json({ error: getErrorMessage(error) || fallback }, 502)
+  }
   return c.json({ error: fallback }, 500)
+}
+
+export type JsonBodyResult<T> = { ok: true; data: T } | { ok: false; response: Response }
+
+export async function parseJsonBody<T>(
+  c: Context,
+  schema: ZodType<T>,
+  options?: { allowEmpty?: boolean },
+): Promise<JsonBodyResult<T>> {
+  const text = await c.req.text()
+
+  let value: unknown
+  if (!text.trim()) {
+    if (!options?.allowEmpty) {
+      return { ok: false, response: c.json({ error: 'Invalid JSON' }, 400) }
+    }
+    value = {}
+  } else {
+    try {
+      value = JSON.parse(text)
+    } catch {
+      return { ok: false, response: c.json({ error: 'Invalid JSON' }, 400) }
+    }
+  }
+
+  const parsed = schema.safeParse(value)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      response: c.json({ error: parsed.error.issues[0]?.message || 'Invalid request body', details: parsed.error.issues }, 400),
+    }
+  }
+
+  return { ok: true, data: parsed.data }
 }
