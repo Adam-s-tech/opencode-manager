@@ -29,6 +29,8 @@ const SYMBOL_KEYS: SpecialKey[] = [
   { label: '/', data: '/' },
 ]
 
+const KEY_CLASS_NAME = 'h-11 flex-1 px-2 font-mono text-sm'
+
 export function TerminalKeyBar({ onSend, ctrlArmed, onToggleCtrl }: TerminalKeyBarProps) {
   const renderKey = (key: SpecialKey) => (
     <Button
@@ -36,7 +38,7 @@ export function TerminalKeyBar({ onSend, ctrlArmed, onToggleCtrl }: TerminalKeyB
       type="button"
       variant="ghost"
       size="sm"
-      className="h-8 min-w-8 flex-shrink-0 px-2 font-mono text-xs"
+      className={KEY_CLASS_NAME}
       aria-label={key.ariaLabel}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => onSend(key.data)}
@@ -47,7 +49,7 @@ export function TerminalKeyBar({ onSend, ctrlArmed, onToggleCtrl }: TerminalKeyB
 
   return (
     <div
-      className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-t border-border bg-card px-2 py-1.5"
+      className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-t border-border bg-card p-1"
       data-testid="terminal-key-bar"
     >
       {renderKey({ label: 'Esc', data: ESCAPE_KEY })}
@@ -56,7 +58,7 @@ export function TerminalKeyBar({ onSend, ctrlArmed, onToggleCtrl }: TerminalKeyB
         type="button"
         variant={ctrlArmed ? 'default' : 'ghost'}
         size="sm"
-        className={cn('h-8 min-w-8 flex-shrink-0 px-2 font-mono text-xs', ctrlArmed && 'bg-primary text-primary-foreground')}
+        className={cn(KEY_CLASS_NAME, ctrlArmed && 'bg-primary text-primary-foreground')}
         aria-pressed={ctrlArmed}
         onMouseDown={(event) => event.preventDefault()}
         onClick={onToggleCtrl}

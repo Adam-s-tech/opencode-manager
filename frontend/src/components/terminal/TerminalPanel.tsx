@@ -113,10 +113,11 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPa
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
         mobileFullscreen
+        keyboardAware={isMobile}
         hideCloseButton={isMobile}
         className={cn(
           'p-0 flex flex-col bg-card border-border gap-0',
-          isMobile ? 'h-full' : 'w-[90vw] sm:max-w-5xl h-[90vh] sm:pb-0',
+          isMobile ? 'h-full pb-safe' : 'w-[90vw] sm:max-w-5xl h-[90vh] sm:pb-0',
         )}
       >
         <DialogHeader className={cn('px-4 py-2 border-b border-border flex-shrink-0', isMobile && 'relative')}>
