@@ -3,7 +3,7 @@ import { ASSISTANT_NOTIFICATION_LIMITS } from '@opencode-manager/shared/schemas'
 
 export const MANAGER_TOOL_NAME = 'ocm'
 
-const MANAGER_TOOL_REQUEST_TIMEOUT_MS = 15000
+const MANAGER_TOOL_REQUEST_TIMEOUT_MS = 60000
 
 export const MANAGER_TOOL_ALLOWED_ROUTES = [
   'GET /settings',

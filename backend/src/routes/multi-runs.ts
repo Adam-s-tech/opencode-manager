@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { LaunchMultiRunRequestSchema } from '@opencode-manager/shared/schemas'
 import { MultiRunError, type MultiRunService } from '../services/multi-runs'
-import { handleServiceError, parseId } from '../utils/route-helpers'
+import { handleServiceError, parseId, parseJsonBody } from '../utils/route-helpers'
 
 export function createMultiRunRoutes(service: MultiRunService) {
   const app = new Hono()
@@ -16,16 +16,9 @@ export function createMultiRunRoutes(service: MultiRunService) {
   })
 
   app.post('/', async (c) => {
-    let body: unknown
-    try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: 'Invalid request' }, 400)
-    }
-
-    const parsed = LaunchMultiRunRequestSchema.safeParse(body)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid request' }, 400)
+    const parsed = await parseJsonBody(c, LaunchMultiRunRequestSchema)
+    if (!parsed.ok) {
+      return parsed.response
     }
 
     try {

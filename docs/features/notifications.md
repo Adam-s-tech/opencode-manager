@@ -11,7 +11,7 @@ Push notifications allow you to receive alerts on your mobile device or desktop 
 - A **session encounters an error** during execution
 - A **session completes successfully**
 
-A notification is suppressed when a visible tab is already viewing the session that raised it, preventing duplicate alerts while you're actively monitoring that session. Subagent sessions never notify. A permission request that a session answers automatically (Accept everything mode) sends no notification, and a session with an active goal does not notify for each intermediate turn.
+A notification is suppressed when a visible tab is already viewing the session that raised it, preventing duplicate alerts while you're actively monitoring that session. Subagent sessions never notify. A permission request that a session answers automatically (Accept everything mode) sends no notification. Goal outcome pushes are not sent when you paused or cancelled the goal yourself, when the turn failed (the regular error notification covers it), or while you are viewing the session.
 
 ## Supported Events
 

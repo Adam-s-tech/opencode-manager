@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import type { SessionPermissionModeService } from '../../src/services/session-permission-modes'
 import path from 'path'
 import { access, readFile, writeFile } from 'fs/promises'
 import { Hono } from 'hono'
@@ -84,6 +85,22 @@ describe('buildSessionsSkill', () => {
     const skill = buildSessionsSkill()
     expect(skill).toContain('There is no delete route')
     expect(skill).not.toContain('DELETE /sessions')
+  })
+
+  it('documents the ask permission mode and workspace timeout behavior', () => {
+    const skill = buildSessionsSkill()
+    expect(skill).toContain('`ask` permission mode')
+    expect(skill).toContain('keep the mode the user chose')
+    expect(skill).toContain('may still have succeeded')
+    expect(skill).toContain('before retrying')
+  })
+
+  it('documents the reply wait parameter and workspace repoId semantics', () => {
+    const skill = buildSessionsSkill()
+    expect(skill).toContain('waitMs=30000')
+    expect(skill).toContain('OpenCode workspace')
+    expect(skill).toContain('belongs to no known repo')
+    expect(skill).toContain('capped')
   })
 })
 
@@ -669,7 +686,7 @@ describe('assistant-mode end-to-end', () => {
     const notificationService = new NotificationService(db)
     const settingsService = new SettingsService(db)
     const app = new Hono()
-    app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, createOpenCodeClient()))
+    app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, createOpenCodeClient(), {} as SessionPermissionModeService))
 
     const unauth = await app.request('/api/internal/schedules/all')
     expect(unauth.status).toBe(401)

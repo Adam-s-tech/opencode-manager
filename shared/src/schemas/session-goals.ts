@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SESSION_PROMPT_MAX_LENGTH, GOAL_MAX_CONTINUATIONS_MIN, GOAL_MAX_CONTINUATIONS_MAX } from "./limits";
 
 export const SessionGoalStatusSchema = z.enum(["active", "paused", "completed", "blocked", "stopped"]);
 
@@ -50,8 +51,8 @@ export type SessionGoal = z.infer<typeof SessionGoalSchema>;
 export const StartSessionGoalRequestSchema = z.object({
   sessionId: z.string().min(1),
   directory: z.string().min(1),
-  objective: z.string().trim().min(1).max(20000),
-  maxContinuations: z.number().int().min(1).max(200).optional(),
+  objective: z.string().trim().min(1).max(SESSION_PROMPT_MAX_LENGTH),
+  maxContinuations: z.number().int().min(GOAL_MAX_CONTINUATIONS_MIN).max(GOAL_MAX_CONTINUATIONS_MAX).optional(),
   tokenBudget: z.number().int().positive().optional(),
 });
 

@@ -233,13 +233,16 @@ const scheduleService = new ScheduleService(db, openCodeClient, scheduleWorktree
 const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
 
 const notificationService = new NotificationService(db)
-const sessionPermissionModeService = new SessionPermissionModeService(db, openCodeClient, settingsServiceForSchedules)
-const sessionGoalService = new SessionGoalService(db, openCodeClient, settingsServiceForSchedules, {
+const sessionSettingsService = new SettingsService(db)
+const sessionPermissionModeService = new SessionPermissionModeService(db, openCodeClient, sessionSettingsService)
+const sessionGoalService = new SessionGoalService(db, openCodeClient, sessionSettingsService, {
   onOutcome: (goal) => {
     void notificationService.notifyGoalOutcome(goal).catch((error) => {
       logger.error('Goal outcome notification error:', error)
     })
   },
+  resolveSessionLock: async (sessionId) =>
+    (await sessionPermissionModeService.getEffectiveMode(sessionId)).lockedReason,
 })
 sessionGoalService.loadOpenGoals()
 
@@ -257,11 +260,6 @@ sseAggregator.onEvent((directory, event) => {
 notificationService.addEventSuppressor(async (event, sessionId) => {
   if (event.type !== 'permission.asked' || !sessionId) return false
   return (await sessionPermissionModeService.getEffectiveMode(sessionId)).mode === 'auto'
-})
-
-notificationService.addEventSuppressor(async (event, sessionId) => {
-  if (event.type !== 'session.idle' || !sessionId) return false
-  return sessionGoalService.hasActiveGoal(sessionId)
 })
 
 if (ENV.VAPID.PUBLIC_KEY && ENV.VAPID.PRIVATE_KEY) {
@@ -285,6 +283,11 @@ if (ENV.VAPID.PUBLIC_KEY && ENV.VAPID.PRIVATE_KEY) {
 
 sseAggregator.setPendingActionsFetcher(openCodeClient)
 sseAggregator.setPasswordResolver(() => new SettingsService(db).getOpenCodeServerPassword())
+sseAggregator.onUpstreamConnected(() => {
+  void sessionPermissionModeService.acceptPendingRequestsForActiveSessions().catch((err) => {
+    logger.error('Failed to accept pending permission requests for active sessions:', err)
+  })
+})
 sseAggregator.start()
 
 void sessionGoalService.recoverOpenGoals().catch((error) => {
@@ -304,7 +307,7 @@ app.route('/api/auth-info', createAuthInfoRoutes(auth, db))
 app.route('/api/health', createHealthRoutes(db, openCodeSupervisor))
 
 app.route('/api/mcp-oauth-proxy', createMcpOauthProxyRoutes(openCodeClient, requireAuth))
-app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient))
+app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient, sessionPermissionModeService))
 app.route('/api/opencode-proxy', createOpenCodeProxyRoutes(db, settingsService))
 
 const protectedApi = new Hono()

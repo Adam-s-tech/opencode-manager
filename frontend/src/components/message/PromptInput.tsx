@@ -20,6 +20,7 @@ import { usePermissions } from '@/contexts/EventContext'
 import { ArrowDown, Upload, X, Mic, MicOff, Target } from 'lucide-react'
 
 import { SquareFill } from '@/components/ui/square-fill'
+import { IconToggleButton } from '@/components/ui/icon-toggle-button'
 
 import { CommandSuggestions } from '@/components/command/CommandSuggestions'
 import { MentionSuggestions, type MentionItem } from './MentionSuggestions'
@@ -29,6 +30,7 @@ import { AgentQuickSelect } from '@/components/agent/AgentQuickSelect'
 import { VoiceStatusOverlay, type VoiceStatusOverlayState } from './VoiceStatusOverlay'
 import { PermissionModeToggle } from '@/components/session/PermissionModeToggle'
 import { useSessionGoal, useStartSessionGoal } from '@/hooks/useSessionGoals'
+import { useSessionPermissionMode } from '@/hooks/useSessionPermissionMode'
 import { detectMentionTrigger, parsePromptToInput, getFilename, filterAgentsByQuery } from '@/lib/promptParser'
 import { getNextPrimaryAgentId } from '@/lib/primaryAgents'
 import { randomId } from '@/lib/utils'
@@ -233,6 +235,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
   const interruptSession = useInterruptSession()
   const { data: sessionGoal } = useSessionGoal(sessionID)
   const startGoal = useStartSessionGoal()
+  const { data: permissionMode } = useSessionPermissionMode(sessionID)
   const { filterCommands } = useCommands({ directory })
   const isExactCommandPrompt = (value: string) => {
     const commandPrompt = parseCommandPrompt(value)
@@ -295,6 +298,17 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
 
   const addUserBashCommand = useUserBash((s) => s.addUserBashCommand)
 
+  const startArmedGoal = async (objective: string): Promise<boolean> => {
+    if (!directory || !objective.trim()) return true
+    try {
+      await startGoal.mutateAsync({ sessionId: sessionID, directory, objective })
+    } catch {
+      return false
+    }
+    setIsGoalArmed(false)
+    return true
+  }
+
   const handleSubmit = async () => {
     if (!prompt.trim() && imageAttachments.length === 0) return
 
@@ -307,6 +321,10 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
       const submittedPrompt = prompt
       const submittedAttachedFiles = attachedFiles
       const submittedImageAttachments = imageAttachments
+      if (isGoalArmed && !isBashMode && !isExactCommandPrompt(prompt)) {
+        const goalStarted = await startArmedGoal(parsed.text)
+        if (!goalStarted) return
+      }
       sendPrompt.mutate(
         {
           sessionID,
@@ -389,13 +407,9 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     const submittedAttachedFiles = attachedFiles
     const submittedImageAttachments = imageAttachments
 
-    if (isGoalArmed && directory && parsed.text.trim()) {
-      try {
-        await startGoal.mutateAsync({ sessionId: sessionID, directory, objective: parsed.text })
-      } catch {
-        return
-      }
-      setIsGoalArmed(false)
+    if (isGoalArmed) {
+      const goalStarted = await startArmedGoal(parsed.text)
+      if (!goalStarted) return
     }
 
     pendingConfirmClearRef.current = {
@@ -1162,27 +1176,25 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
   const hideSecondaryButtons = isMobile && isSessionActive
   const showMobileScrollButton = isMobile && showScrollButton
   const hasOpenGoal = sessionGoal?.status === 'active' || sessionGoal?.status === 'paused'
-  const goalButtonLabel = hasOpenGoal
-    ? 'A goal is already active for this session'
-    : isGoalArmed
-      ? 'Goal mode armed: the next message becomes the objective'
-      : 'Goal mode: the next message becomes the objective'
+  const lockedReason = permissionMode?.lockedReason ?? null
+  const goalButtonLabel = lockedReason === 'schedule'
+    ? 'Scheduled runs cannot run goals'
+    : lockedReason === 'child'
+      ? 'Goals can only be started on top-level sessions'
+      : hasOpenGoal
+        ? 'A goal is already active for this session'
+        : isGoalArmed
+          ? 'Goal mode armed: the next message becomes the objective'
+          : 'Goal mode: the next message becomes the objective'
   const goalModeButton = directory ? (
-    <button
-      type="button"
+    <IconToggleButton
+      active={isGoalArmed}
+      label={goalButtonLabel}
+      disabled={lockedReason !== null || hasOpenGoal || isBashMode || startGoal.isPending}
       onClick={() => setIsGoalArmed((value) => !value)}
-      disabled={hasOpenGoal || isBashMode || startGoal.isPending}
-      aria-pressed={isGoalArmed}
-      aria-label={goalButtonLabel}
-      title={goalButtonLabel}
-      className={`p-2 rounded-lg transition-all duration-200 active:scale-95 hover:scale-105 shadow-md border disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 disabled:hover:scale-100 ${
-        isGoalArmed
-          ? 'bg-highlight hover:bg-highlight/90 text-highlight-foreground border-highlight'
-          : 'bg-muted hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground border-border'
-      }`}
     >
       <Target className="w-5 h-5" />
-    </button>
+    </IconToggleButton>
   ) : null
   const voiceFeedbackState: VoiceStatusOverlayState | null = isTogglingRecording
     ? 'starting'

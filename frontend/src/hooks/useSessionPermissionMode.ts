@@ -3,7 +3,7 @@ import { getSessionPermissionMode, setSessionPermissionMode } from '@/api/sessio
 import { showToast } from '@/lib/toast'
 import type { SessionPermissionModeState, SetSessionPermissionModeRequest } from '@opencode-manager/shared/schemas'
 
-export function sessionPermissionModeQueryKey(sessionId: string) {
+function sessionPermissionModeQueryKey(sessionId: string) {
   return ['session-permission-mode', sessionId] as const
 }
 

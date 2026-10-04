@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, Trash2, ArrowUpRight } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -14,6 +14,8 @@ import { ConfirmDestructiveDialog } from '@/components/ui/confirm-destructive-di
 import { SessionStatusIndicator } from '@/components/ui/session-status-indicator'
 import { useProvidersWithModels } from '@/hooks/useProvidersWithModels'
 import { useDiscardMultiRunEntry, useLaunchMultiRun, useMultiRuns } from '@/hooks/useMultiRuns'
+import { formatModelName, formatProviderName, providerModelRef, type ProviderWithModels } from '@/api/providers'
+import { buildSessionPath } from '@opencode-manager/shared/utils'
 import {
   MULTI_RUN_MAX_MODELS,
   type LaunchMultiRunRequest,
@@ -79,7 +81,7 @@ export function MultiRunDialog({
     [providers],
   )
 
-  const toggleModel = (value: string, checked: boolean) => {
+  const toggleModel = useCallback((value: string, checked: boolean) => {
     setSelectedModels((current) => {
       if (checked) {
         if (current.includes(value) || current.length >= MULTI_RUN_MAX_MODELS) return current
@@ -87,7 +89,7 @@ export function MultiRunDialog({
       }
       return current.filter((model) => model !== value)
     })
-  }
+  }, [])
 
   const canSubmit =
     name.trim().length > 0 && prompt.trim().length > 0 && selectedModels.length > 0 && !launch.isPending
@@ -108,8 +110,7 @@ export function MultiRunDialog({
   const openEntry = (entry: MultiRunEntry) => {
     if (!entry.sessionId) return
     onOpenChange(false)
-    const suffix = entry.isolated ? '?repoTab=workspaces' : ''
-    navigate(`/repos/${repoId}/sessions/${entry.sessionId}${suffix}`)
+    navigate(buildSessionPath(repoId, entry.sessionId, entry.isolated ? { repoTab: 'workspaces' } : undefined))
   }
 
   const confirmDiscard = () => {
@@ -171,33 +172,11 @@ export function MultiRunDialog({
                   </span>
                 </div>
                 <div className="max-h-56 overflow-y-auto rounded-md border border-border divide-y divide-border">
-                  {modelGroups.length === 0 ? (
-                    <p className="p-3 text-sm text-muted-foreground">No models available.</p>
-                  ) : (
-                    modelGroups.map((provider) => (
-                      <div key={provider.id} className="p-3 space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground">
-                          {provider.name || provider.id}
-                        </p>
-                        {provider.models.map((model) => {
-                          const value = `${provider.id}/${model.id}`
-                          const checked = selectedModels.includes(value)
-                          const atCapacity = selectedModels.length >= MULTI_RUN_MAX_MODELS && !checked
-                          return (
-                            <label key={value} className="flex items-center gap-2 text-sm">
-                              <Checkbox
-                                aria-label={model.name || model.id}
-                                checked={checked}
-                                disabled={atCapacity}
-                                onCheckedChange={(next) => toggleModel(value, next === true)}
-                              />
-                              <span className="truncate">{model.name || model.id}</span>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    ))
-                  )}
+                  <ModelCheckboxList
+                    providers={modelGroups}
+                    selectedModels={selectedModels}
+                    onToggle={toggleModel}
+                  />
                 </div>
               </div>
 
@@ -320,6 +299,48 @@ export function MultiRunDialog({
     </>
   )
 }
+
+interface ModelCheckboxListProps {
+  providers: ProviderWithModels[]
+  selectedModels: string[]
+  onToggle: (value: string, checked: boolean) => void
+}
+
+const ModelCheckboxList = memo(function ModelCheckboxList({
+  providers,
+  selectedModels,
+  onToggle,
+}: ModelCheckboxListProps) {
+  if (providers.length === 0) {
+    return <p className="p-3 text-sm text-muted-foreground">No models available.</p>
+  }
+
+  return (
+    <>
+      {providers.map((provider) => (
+        <div key={provider.id} className="p-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">{formatProviderName(provider)}</p>
+          {provider.models.map((model) => {
+            const value = providerModelRef(provider, model)
+            const checked = selectedModels.includes(value)
+            const atCapacity = selectedModels.length >= MULTI_RUN_MAX_MODELS && !checked
+            return (
+              <label key={value} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  aria-label={formatModelName(model)}
+                  checked={checked}
+                  disabled={atCapacity}
+                  onCheckedChange={(next) => onToggle(value, next === true)}
+                />
+                <span className="truncate">{formatModelName(model)}</span>
+              </label>
+            )
+          })}
+        </div>
+      ))}
+    </>
+  )
+})
 
 function EntryStatus({ entry }: { entry: MultiRunEntry }) {
   if (entry.status === 'started' && entry.sessionId) {

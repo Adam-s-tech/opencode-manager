@@ -3,19 +3,20 @@ import { Hono } from 'hono'
 import { Database } from 'bun:sqlite'
 import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
-import { SessionGoalService } from '../../src/services/session-goals'
+import { SessionGoalService, type SessionGoalServiceOptions } from '../../src/services/session-goals'
 import { SettingsService } from '../../src/services/settings'
 import { createSessionGoalRoutes } from '../../src/routes/session-goals'
 import { createFakeSessionGoalClient } from '../helpers/fake-session-goal-client'
 
 const DIRECTORY = '/abs/repo'
 
-function createTestApp(db: Database): Hono {
+function createTestApp(db: Database, serviceOptions: SessionGoalServiceOptions = {}): Hono {
   const app = new Hono()
   const service = new SessionGoalService(
     db,
     createFakeSessionGoalClient({ busySessions: ['ses_1'] }).client,
     new SettingsService(db),
+    serviceOptions,
   )
   app.route('/session-goals', createSessionGoalRoutes(service))
   return app
@@ -76,7 +77,7 @@ describe('session goal routes', () => {
     expect(body.goal.id).toBe(created.goal.id)
   })
 
-  it('POST rejects an invalid body with 400', async () => {
+  it('POST rejects an invalid body with 400 and details', async () => {
     const app = createTestApp(db)
 
     const res = await app.request('/session-goals', {
@@ -86,6 +87,48 @@ describe('session goal routes', () => {
     })
 
     expect(res.status).toBe(400)
+    const body = await res.json() as { error: string; details: unknown[] }
+    expect(body.error).toBe('Invalid request body')
+    expect(Array.isArray(body.details)).toBe(true)
+  })
+
+  it('POST rejects malformed JSON with 400', async () => {
+    const app = createTestApp(db)
+
+    const res = await app.request('/session-goals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not json',
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Invalid JSON' })
+  })
+
+  it('POST rejects a scheduled run session with 409', async () => {
+    const app = createTestApp(db, { resolveSessionLock: async () => 'schedule' })
+
+    const res = await app.request('/session-goals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: startBody(),
+    })
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ error: 'Scheduled runs cannot run goals' })
+  })
+
+  it('POST rejects a child session with 400', async () => {
+    const app = createTestApp(db, { resolveSessionLock: async () => 'child' })
+
+    const res = await app.request('/session-goals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: startBody(),
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Goals can only be started on top-level sessions' })
   })
 
   it('POST rejects a second open goal with 409', async () => {

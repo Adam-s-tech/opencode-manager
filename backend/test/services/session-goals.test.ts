@@ -195,6 +195,51 @@ describe('SessionGoalService', () => {
     expect(listOpenSessionGoals(db)).toHaveLength(1)
   })
 
+  it('rejects a goal on a scheduled run session with 409 and creates no goal', async () => {
+    const service = createService(db, {}, new SettingsService(db), {
+      resolveSessionLock: async () => 'schedule',
+    })
+
+    await expect(
+      service.start({ sessionId: 'ses_1', directory: DIRECTORY, objective: 'Ship it' }),
+    ).rejects.toMatchObject({ status: 409, message: 'Scheduled runs cannot run goals' })
+    expect(listOpenSessionGoals(db)).toHaveLength(0)
+  })
+
+  it('rejects a goal on a child session with 400 and creates no goal', async () => {
+    const service = createService(db, {}, new SettingsService(db), {
+      resolveSessionLock: async () => 'child',
+    })
+
+    await expect(
+      service.start({ sessionId: 'ses_1', directory: DIRECTORY, objective: 'Ship it' }),
+    ).rejects.toMatchObject({ status: 400, message: 'Goals can only be started on top-level sessions' })
+    expect(listOpenSessionGoals(db)).toHaveLength(0)
+  })
+
+  it('starts a goal when the session is not locked', async () => {
+    const service = createService(db, {}, new SettingsService(db), {
+      resolveSessionLock: async () => null,
+    })
+
+    const goal = await service.start({ sessionId: 'ses_1', directory: DIRECTORY, objective: 'Ship it' })
+
+    expect(goal.status).toBe('active')
+    expect(listOpenSessionGoals(db)).toHaveLength(1)
+  })
+
+  it('starts a goal when the session lock lookup fails', async () => {
+    const service = createService(db, {}, new SettingsService(db), {
+      resolveSessionLock: async () => {
+        throw new Error('lock lookup failed')
+      },
+    })
+
+    const goal = await service.start({ sessionId: 'ses_1', directory: DIRECTORY, objective: 'Ship it' })
+
+    expect(goal.status).toBe('active')
+  })
+
   it('allows a new goal once the previous one is cancelled', async () => {
     const service = createService(db)
     const first = await service.start({ sessionId: 'ses_1', directory: DIRECTORY, objective: 'First' })
@@ -961,18 +1006,6 @@ describe('SessionGoalService recovery', () => {
     expect(latest?.stopReason).toBe('session_deleted')
     expect(fake.auditorCalls).toHaveLength(0)
     expect(outcomes).toEqual(['stopped'])
-  })
-
-  it('reports whether a session has an active goal', async () => {
-    const service = createService(db)
-    const started = await service.start({ sessionId: 'ses_1', directory: DIRECTORY, objective: 'Ship it' })
-
-    expect(service.hasActiveGoal('ses_1')).toBe(true)
-    expect(service.hasActiveGoal('ses_missing')).toBe(false)
-
-    service.pause(started.id)
-
-    expect(service.hasActiveGoal('ses_1')).toBe(false)
   })
 
   it('retries recovery after a transient session lookup failure without session events', async () => {

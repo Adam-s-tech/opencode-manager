@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SessionAutomationSettings } from './SessionAutomationSettings'
 import { useSettings } from '@/hooks/useSettings'
@@ -43,7 +43,7 @@ describe('SessionAutomationSettings', () => {
     expect(screen.getByRole('combobox', { name: 'Default permission mode for new sessions' })).toHaveTextContent('Ask every time')
   })
 
-  it('persists the chosen default permission mode', async () => {
+  it('persists the chosen default permission mode immediately', async () => {
     const user = userEvent.setup()
     const updateSettings = vi.fn()
     mockUseSettings({
@@ -58,7 +58,7 @@ describe('SessionAutomationSettings', () => {
     expect(updateSettings).toHaveBeenCalledWith({ sessionDefaults: { permissionMode: 'auto' } })
   })
 
-  it('persists the goal auditor model', () => {
+  it('saves the goal auditor model once on blur with the final value', () => {
     const updateSettings = vi.fn()
     mockUseSettings({
       preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
@@ -66,10 +66,11 @@ describe('SessionAutomationSettings', () => {
     })
     render(<SessionAutomationSettings />)
 
-    fireEvent.change(screen.getByLabelText('Goal auditor model'), {
-      target: { value: 'anthropic/claude-sonnet-4' },
-    })
+    const input = screen.getByLabelText('Goal auditor model')
+    fireEvent.change(input, { target: { value: 'anthropic/claude-sonnet-4' } })
+    fireEvent.blur(input)
 
+    expect(updateSettings).toHaveBeenCalledTimes(1)
     expect(updateSettings).toHaveBeenCalledWith({
       sessionDefaults: {
         permissionMode: 'ask',
@@ -79,7 +80,37 @@ describe('SessionAutomationSettings', () => {
     })
   })
 
-  it('persists the max automatic continuations', () => {
+  it('saves the goal auditor model after the debounce without blurring', () => {
+    vi.useFakeTimers()
+    try {
+      const updateSettings = vi.fn()
+      mockUseSettings({
+        preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
+        updateSettings,
+      })
+      render(<SessionAutomationSettings />)
+
+      fireEvent.change(screen.getByLabelText('Goal auditor model'), {
+        target: { value: 'anthropic/claude-sonnet-4' },
+      })
+      act(() => {
+        vi.advanceTimersByTime(800)
+      })
+
+      expect(updateSettings).toHaveBeenCalledTimes(1)
+      expect(updateSettings).toHaveBeenCalledWith({
+        sessionDefaults: {
+          permissionMode: 'ask',
+          goalMaxContinuations: 20,
+          goalAuditorModel: 'anthropic/claude-sonnet-4',
+        },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('saves an in-range max automatic continuations on blur', () => {
     const updateSettings = vi.fn()
     mockUseSettings({
       preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
@@ -87,16 +118,16 @@ describe('SessionAutomationSettings', () => {
     })
     render(<SessionAutomationSettings />)
 
-    fireEvent.change(screen.getByLabelText('Max automatic continuations'), {
-      target: { value: '50' },
-    })
+    const input = screen.getByLabelText('Max automatic continuations')
+    fireEvent.change(input, { target: { value: '50' } })
+    fireEvent.blur(input)
 
     expect(updateSettings).toHaveBeenCalledWith({
       sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 50 },
     })
   })
 
-  it('persists the token budget per goal', () => {
+  it('does not save out-of-range max automatic continuations', () => {
     const updateSettings = vi.fn()
     mockUseSettings({
       preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
@@ -104,9 +135,24 @@ describe('SessionAutomationSettings', () => {
     })
     render(<SessionAutomationSettings />)
 
-    fireEvent.change(screen.getByLabelText('Token budget per goal'), {
-      target: { value: '5000' },
+    const input = screen.getByLabelText('Max automatic continuations')
+    fireEvent.change(input, { target: { value: '500' } })
+    fireEvent.blur(input)
+
+    expect(updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('saves the token budget per goal on blur', () => {
+    const updateSettings = vi.fn()
+    mockUseSettings({
+      preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
+      updateSettings,
     })
+    render(<SessionAutomationSettings />)
+
+    const input = screen.getByLabelText('Token budget per goal')
+    fireEvent.change(input, { target: { value: '5000' } })
+    fireEvent.blur(input)
 
     expect(updateSettings).toHaveBeenCalledWith({
       sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20, goalTokenBudget: 5000 },

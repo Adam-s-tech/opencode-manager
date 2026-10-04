@@ -1,6 +1,6 @@
 import { SessionGoalVerdictSchema, type SessionGoalVerdict } from '@opencode-manager/shared/schemas'
+import { truncateSessionReply } from './session-reply'
 
-export const GOAL_AUDIT_REPLY_MAX_CHARS = 20000
 export const GOAL_AUDIT_REASON_MAX_CHARS = 500
 export const GOAL_AUDIT_UNPARSED_REASON = 'Auditor response was not understood'
 
@@ -89,10 +89,7 @@ function truncateReply(reply: string | null): string {
   if (!reply) {
     return '(no reply yet)'
   }
-  if (reply.length <= GOAL_AUDIT_REPLY_MAX_CHARS) {
-    return reply
-  }
-  return `${reply.slice(0, GOAL_AUDIT_REPLY_MAX_CHARS)}\n\n[reply truncated]`
+  return truncateSessionReply(reply)
 }
 
 function extractFirstJsonObject(text: string): string | null {

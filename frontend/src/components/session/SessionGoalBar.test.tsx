@@ -107,12 +107,28 @@ describe('SessionGoalBar', () => {
     render(<SessionGoalBar sessionID="ses_1" />)
 
     expect(screen.getByText('Goal completed')).toBeInTheDocument()
-    expect(screen.getByText('continuation limit reached')).toBeInTheDocument()
+    expect(screen.getByText('Continuation limit reached')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Dismiss' }))
 
     expect(screen.queryByText('Goal completed')).not.toBeInTheDocument()
+  })
+
+  it('shows the shared stop-reason wording for a user-paused goal', () => {
+    mockGoals({ ...baseGoal, status: 'stopped', stopReason: 'user_paused' })
+    render(<SessionGoalBar sessionID="ses_1" />)
+
+    expect(screen.getByText('Goal stopped')).toBeInTheDocument()
+    expect(screen.getByText('Paused by user')).toBeInTheDocument()
+  })
+
+  it('shows the shared stop-reason wording for an audit failure', () => {
+    mockGoals({ ...baseGoal, status: 'blocked', stopReason: 'audit_failed' })
+    render(<SessionGoalBar sessionID="ses_1" />)
+
+    expect(screen.getByText('Goal blocked')).toBeInTheDocument()
+    expect(screen.getByText('Audit failed')).toBeInTheDocument()
   })
 
   it('cancels the goal through the cancel API', async () => {

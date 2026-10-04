@@ -17,6 +17,7 @@ import { createInternalSessionRoutes } from './sessions'
 import { createInternalAssistantRoutes } from './assistant'
 import { createInternalGitCredentialsRoutes } from './git-credentials'
 import { createInternalSandboxRoutes } from './sandbox'
+import type { SessionPermissionModeService } from '../../services/session-permission-modes'
 
 export function createInternalRoutes(
   db: Database,
@@ -24,6 +25,7 @@ export function createInternalRoutes(
   notificationService: NotificationService,
   settingsService: SettingsService,
   openCodeClient: OpenCodeClient,
+  permissionModes: SessionPermissionModeService,
 ) {
   const app = new Hono()
   app.use('/*', createInternalTokenMiddleware(db))
@@ -38,7 +40,7 @@ export function createInternalRoutes(
   repos.route('/', mirrorRoutes(db))
   app.route('/repos', repos)
   app.route('/opencode-workspaces', createInternalOpenCodeWorkspacesRoutes(db))
-  app.route('/sessions', createInternalSessionRoutes(db, openCodeClient))
+  app.route('/sessions', createInternalSessionRoutes(db, openCodeClient, permissionModes))
   app.route('/assistant', createInternalAssistantRoutes(openCodeClient))
   app.route('/git-credentials', createInternalGitCredentialsRoutes(db))
   app.route('/sandbox', createInternalSandboxRoutes(db))

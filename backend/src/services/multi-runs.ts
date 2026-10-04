@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
+import { existsSync } from 'node:fs'
 import type { LaunchMultiRunRequest, MultiRun } from '@opencode-manager/shared/schemas'
-import { sanitizeRepoDirectoryName } from '@opencode-manager/shared/utils'
 import {
   createMultiRunWithEntries,
   getMultiRun,
@@ -11,11 +11,12 @@ import {
   type MultiRunRecord,
 } from '../db/multi-runs'
 import { getRepoById } from '../db/queries'
+import type { Repo } from '../types/repo'
 import { getErrorMessage } from '../utils/error-utils'
 import type { GitAuthService } from './git-auth'
 import type { OpenCodeClient } from './opencode/client'
-import { removeRepoWorkspace } from './repo'
-import { SessionLauncher, SessionLaunchError, type LaunchedSession } from './session-launcher'
+import { removeRepoWorkspace, RepoWorkspaceError } from './repo'
+import { requireReadyRepo, SessionLauncher, SessionLaunchError, type LaunchedSession } from './session-launcher'
 
 const MULTI_RUN_LIST_LIMIT = 20
 
@@ -29,7 +30,7 @@ export class MultiRunError extends Error {
   }
 }
 
-export function toMultiRun(record: MultiRunRecord): MultiRun {
+function toMultiRun(record: MultiRunRecord): MultiRun {
   return {
     id: record.id,
     repoId: record.repoId,
@@ -65,9 +66,11 @@ export class MultiRunService {
   }
 
   async launch(request: LaunchMultiRunRequest): Promise<MultiRun> {
-    const repo = getRepoById(this.db, request.repoId)
-    if (!repo || repo.cloneStatus !== 'ready') {
-      throw new MultiRunError('Repository not found or not ready', 404)
+    let repo: Repo
+    try {
+      repo = requireReadyRepo(this.db, request.repoId)
+    } catch (error) {
+      throw new MultiRunError(getErrorMessage(error) || 'Repository unavailable', 404)
     }
 
     const record = createMultiRunWithEntries(
@@ -82,18 +85,42 @@ export class MultiRunService {
       request.models,
     )
 
-    const slug = sanitizeRepoDirectoryName(request.name)
-    const results = await Promise.allSettled(
-      record.entries.map((entry, index) => this.launchEntry(entry, index, request, slug)),
+    const validations = await Promise.all(
+      record.entries.map(async (entry) => {
+        try {
+          await this.sessionLauncher.resolveModel(repo, entry.model)
+          return { entry, ok: true as const }
+        } catch (error) {
+          return { entry, ok: false as const, error }
+        }
+      }),
     )
 
-    results.forEach((result, index) => {
-      const entry = record.entries[index]
-      if (!entry) {
+    const launchable: Array<{ entry: MultiRunEntryRecord; index: number }> = []
+    validations.forEach((validation, index) => {
+      if (validation.ok) {
+        launchable.push({ entry: validation.entry, index })
         return
       }
+
+      updateMultiRunEntry(this.db, validation.entry.id, ['starting'], {
+        status: 'failed',
+        error: getErrorMessage(validation.error) || 'Failed to launch session',
+      })
+    })
+
+    const results = await Promise.allSettled(
+      launchable.map(({ entry, index }) => this.launchEntry(entry, index, request)),
+    )
+
+    results.forEach((result, resultIndex) => {
+      const launch = launchable[resultIndex]
+      if (!launch) {
+        return
+      }
+
       if (result.status === 'fulfilled') {
-        updateMultiRunEntry(this.db, entry.id, ['starting'], {
+        updateMultiRunEntry(this.db, launch.entry.id, ['starting'], {
           status: 'started',
           sessionId: result.value.sessionId,
           directory: result.value.directory,
@@ -103,7 +130,7 @@ export class MultiRunService {
 
       const workspaceDirectory =
         result.reason instanceof SessionLaunchError ? result.reason.workspaceDirectory : null
-      updateMultiRunEntry(this.db, entry.id, ['starting'], {
+      updateMultiRunEntry(this.db, launch.entry.id, ['starting'], {
         status: 'failed',
         error: getErrorMessage(result.reason) || 'Failed to launch session',
         ...(workspaceDirectory ? { directory: workspaceDirectory } : {}),
@@ -138,7 +165,7 @@ export class MultiRunService {
     this.discardingEntries.add(entryId)
 
     try {
-      if (entry.isolated && entry.directory) {
+      if (entry.isolated && entry.directory && existsSync(entry.directory)) {
         const repo = getRepoById(this.db, record.repoId)
         if (!repo) {
           throw new MultiRunError('Repository not found', 404)
@@ -153,9 +180,7 @@ export class MultiRunService {
             entry.directory,
           )
         } catch (error) {
-          const status = typeof (error as { status?: unknown }).status === 'number'
-            ? (error as { status: number }).status
-            : 502
+          const status = error instanceof RepoWorkspaceError ? error.status : 502
           throw new MultiRunError(getErrorMessage(error) || 'Failed to remove workspace', status)
         }
       }
@@ -175,7 +200,6 @@ export class MultiRunService {
     entry: MultiRunEntryRecord,
     index: number,
     request: LaunchMultiRunRequest,
-    slug: string,
   ): Promise<LaunchedSession> {
     return this.sessionLauncher.launch({
       repoId: request.repoId,
@@ -184,7 +208,7 @@ export class MultiRunService {
       title: `${request.name} · ${entry.model}`,
       ...(request.agent ? { agent: request.agent } : {}),
       ...(request.isolate
-        ? { workspace: { name: `${slug}-${index + 1}`, ...(request.baseRef ? { ref: request.baseRef } : {}) } }
+        ? { workspace: { name: `${request.name}-${index + 1}`, ...(request.baseRef ? { ref: request.baseRef } : {}) } }
         : {}),
     })
   }

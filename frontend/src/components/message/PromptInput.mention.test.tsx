@@ -82,6 +82,10 @@ vi.mock('@/hooks/useSessionGoals', () => ({
   useStartSessionGoal: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
+vi.mock('@/hooks/useSessionPermissionMode', () => ({
+  useSessionPermissionMode: () => ({ data: undefined }),
+}))
+
 vi.mock('@/components/ui/session-status-indicator', () => ({
   SessionStatusIndicator: () => <div>SessionStatus</div>,
 }))

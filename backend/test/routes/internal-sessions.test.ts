@@ -6,6 +6,7 @@ import type { ScheduleService } from '../../src/services/schedules'
 import type { NotificationService } from '../../src/services/notification'
 import type { SettingsService } from '../../src/services/settings'
 import type { OpenCodeClient } from '../../src/services/opencode/client'
+import type { SessionPermissionModeService } from '../../src/services/session-permission-modes'
 import type { Repo } from '../../src/types/repo'
 
 const mockDb = {
@@ -59,6 +60,7 @@ vi.mock('../../src/services/opencode/client', () => ({
 }))
 
 const mockLaunch = vi.fn()
+const mockPinAsk = vi.fn()
 vi.mock('../../src/services/session-launcher', () => {
   class SessionLaunchError extends Error {
     readonly status: number
@@ -76,6 +78,13 @@ vi.mock('../../src/services/session-launcher', () => {
 
   return { SessionLauncher, SessionLaunchError }
 })
+
+const mockResolveRepoForDirectory = vi.fn()
+const mockResolveRepoProjectId = vi.fn()
+vi.mock('../../src/services/repo', () => ({
+  resolveRepoForDirectory: (...args: unknown[]) => mockResolveRepoForDirectory(...args),
+  resolveRepoProjectId: (...args: unknown[]) => mockResolveRepoProjectId(...args),
+}))
 
 function makeRepo(overrides: Partial<Repo>): Repo {
   return {
@@ -117,6 +126,10 @@ describe('internal-sessions routes', () => {
     mockLaunch.mockReset()
     mockGetRepoById.mockReturnValue(null)
     mockListRepos.mockReturnValue([])
+    mockResolveRepoForDirectory.mockReset()
+    mockResolveRepoForDirectory.mockResolvedValue(null)
+    mockResolveRepoProjectId.mockReset()
+    mockResolveRepoProjectId.mockResolvedValue('project-1')
 
     sessionList = vi.fn().mockResolvedValue({ data: [], cursor: {} })
     sessionActive = vi.fn().mockResolvedValue({})
@@ -139,8 +152,12 @@ describe('internal-sessions routes', () => {
     const scheduleService = {} as ScheduleService
     const notificationService = {} as NotificationService
     const settingsService = {} as SettingsService
+    const permissionModes = { pinAsk: mockPinAsk } as unknown as SessionPermissionModeService
     app = new Hono()
-    app.route('/api/internal', createInternalRoutes(mockDb, scheduleService, notificationService, settingsService, openCodeClient))
+    app.route(
+      '/api/internal',
+      createInternalRoutes(mockDb, scheduleService, notificationService, settingsService, openCodeClient, permissionModes),
+    )
     token = 'test-internal-token'
   })
 
@@ -149,14 +166,19 @@ describe('internal-sessions routes', () => {
     expect(res.status).toBe(401)
   })
 
-  it('GET /api/internal/sessions filters by repo and marks busy sessions', async () => {
+  it('GET /api/internal/sessions filters by the repo OpenCode project and resolves workspace directories', async () => {
     const repo = makeRepo({ id: 1, fullPath: '/tmp/repo-one' })
     mockGetRepoById.mockReturnValue(repo)
-    mockListRepos.mockReturnValue([repo])
+    mockResolveRepoProjectId.mockResolvedValue('proj-1')
+    mockResolveRepoForDirectory.mockImplementation(async (_db: unknown, directory: string) =>
+      directory === '/tmp/elsewhere' ? null : repo,
+    )
     sessionList.mockResolvedValue({
       data: [
         { id: 'ses_a', title: 'Alpha', location: { directory: '/tmp/repo-one' }, time: { created: 1, updated: 42 }, outcome: 'succeeded' },
-        { id: 'ses_b', location: { directory: '/tmp/elsewhere' }, time: { created: 2, updated: 43 } },
+        { id: 'ses_ws', title: 'Workspace', location: { directory: '/tmp/repo-one-workspaces/feature' }, time: { created: 2, updated: 43 } },
+        { id: 'ses_b', location: { directory: '/tmp/elsewhere' }, time: { created: 3, updated: 44 } },
+        { id: 'ses_a2', location: { directory: '/tmp/repo-one' }, time: { created: 4, updated: 45 } },
       ],
       cursor: {},
     })
@@ -167,11 +189,27 @@ describe('internal-sessions routes', () => {
     })
 
     expect(res.status).toBe(200)
-    expect(sessionList).toHaveBeenCalledWith({ limit: 5, order: 'desc', parentID: null, directory: '/tmp/repo-one' })
+    expect(mockResolveRepoProjectId).toHaveBeenCalledWith(openCodeClient, '/tmp/repo-one')
+    expect(sessionList).toHaveBeenCalledWith({ limit: 5, order: 'desc', parentID: null, project: 'proj-1' })
+    expect(mockResolveRepoForDirectory).toHaveBeenCalledTimes(3)
     const body = await res.json() as { sessions: Array<Record<string, unknown>> }
-    expect(body.sessions).toHaveLength(2)
+    expect(body.sessions).toHaveLength(4)
     expect(body.sessions[0]).toMatchObject({ id: 'ses_a', title: 'Alpha', repoId: 1, busy: true, outcome: 'succeeded', updated: 42 })
-    expect(body.sessions[1]).toMatchObject({ id: 'ses_b', title: null, repoId: null, busy: false, outcome: null, updated: 43 })
+    expect(body.sessions[1]).toMatchObject({ id: 'ses_ws', title: 'Workspace', repoId: 1, busy: false, outcome: null, updated: 43 })
+    expect(body.sessions[2]).toMatchObject({ id: 'ses_b', title: null, repoId: null, busy: false, outcome: null, updated: 44 })
+    expect(body.sessions[3]).toMatchObject({ id: 'ses_a2', repoId: 1, busy: false, updated: 45 })
+  })
+
+  it('GET /api/internal/sessions lists without a project filter when repoId is omitted', async () => {
+    sessionList.mockResolvedValue({ data: [], cursor: {} })
+
+    const res = await app.request('/api/internal/sessions', {
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(res.status).toBe(200)
+    expect(sessionList).toHaveBeenCalledWith({ limit: 10, order: 'desc', parentID: null })
+    expect(mockResolveRepoProjectId).not.toHaveBeenCalled()
   })
 
   it('GET /api/internal/sessions returns 404 for an unknown repoId', async () => {
@@ -201,12 +239,13 @@ describe('internal-sessions routes', () => {
 
     expect(res.status).toBe(201)
     expect(mockLaunch).toHaveBeenCalledWith({ repoId: 1, prompt: 'Do the thing', title: 'Do the thing' })
+    expect(mockPinAsk).toHaveBeenCalledWith('ses_new')
     const body = await res.json() as { sessionId: string; url: string }
     expect(body.sessionId).toBe('ses_new')
     expect(body.url).toBe('/repos/1/sessions/ses_new')
   })
 
-  it('POST /api/internal/sessions creates an isolated workspace with a slugified name', async () => {
+  it('POST /api/internal/sessions passes the raw title as the workspace name', async () => {
     mockLaunch.mockResolvedValue({
       sessionId: 'ses_ws',
       repoId: 1,
@@ -227,13 +266,14 @@ describe('internal-sessions routes', () => {
       repoId: 1,
       prompt: 'Build it',
       title: 'My Feature!',
-      workspace: { name: 'my-feature', ref: 'main' },
+      workspace: { name: 'My Feature!', ref: 'main' },
     })
+    expect(mockPinAsk).toHaveBeenCalledWith('ses_ws')
     const body = await res.json() as { url: string }
     expect(body.url).toBe('/repos/1/sessions/ses_ws?repoTab=workspaces')
   })
 
-  it('POST /api/internal/sessions uses the fallback workspace name when the title has no slug', async () => {
+  it('POST /api/internal/sessions uses the fallback workspace name when the title is missing', async () => {
     mockLaunch.mockResolvedValue({
       sessionId: 'ses_ws',
       repoId: 1,
@@ -251,6 +291,7 @@ describe('internal-sessions routes', () => {
 
     expect(res.status).toBe(201)
     expect(mockLaunch).toHaveBeenCalledWith({ repoId: 1, prompt: 'Build it', workspace: { name: 'ocm-session' } })
+    expect(mockPinAsk).toHaveBeenCalledWith('ses_ws')
   })
 
   it('POST /api/internal/sessions rejects an invalid body', async () => {
@@ -298,6 +339,26 @@ describe('internal-sessions routes', () => {
     expect(await res.json()).toEqual({ busy: false, responseText: null, errorText: null, completed: false })
   })
 
+  it('GET /api/internal/sessions/:sessionId/reply rejects an invalid waitMs', async () => {
+    const res = await app.request('/api/internal/sessions/ses_a/reply?waitMs=60000', {
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(res.status).toBe(400)
+    expect(messageList).not.toHaveBeenCalled()
+  })
+
+  it('GET /api/internal/sessions/:sessionId/reply returns without waiting when the session is not busy', async () => {
+    messageList.mockResolvedValue({ data: [assistantMessage] })
+
+    const res = await app.request('/api/internal/sessions/ses_a/reply?waitMs=5000', {
+      headers: { authorization: `Bearer ${token}` },
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ busy: false, responseText: 'All done', errorText: null, completed: true })
+  })
+
   it('POST /api/internal/sessions/:sessionId/fork passes before and returns the new session', async () => {
     sessionFork.mockResolvedValue({ id: 'ses_fork', location: { directory: '/tmp/repo-one' } })
 
@@ -309,6 +370,7 @@ describe('internal-sessions routes', () => {
 
     expect(res.status).toBe(200)
     expect(sessionFork).toHaveBeenCalledWith({ sessionID: 'ses_a', before: 'msg_1' })
+    expect(mockPinAsk).toHaveBeenCalledWith('ses_fork')
     expect(await res.json()).toEqual({ sessionId: 'ses_fork', directory: '/tmp/repo-one' })
   })
 
@@ -322,6 +384,7 @@ describe('internal-sessions routes', () => {
 
     expect(res.status).toBe(200)
     expect(sessionFork).toHaveBeenCalledWith({ sessionID: 'ses_a' })
+    expect(mockPinAsk).toHaveBeenCalledWith('ses_fork')
   })
 
   it('returns 404 when OpenCode reports an unknown session', async () => {

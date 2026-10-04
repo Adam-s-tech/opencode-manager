@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Database } from 'bun:sqlite'
-import { createRepo } from '../../src/db/queries'
+import { createRepo, deleteRepo } from '../../src/db/queries'
 import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
 import { createMultiRunWithEntries } from '../../src/db/multi-runs'
@@ -15,11 +15,17 @@ const mocks = vi.hoisted(() => ({
   resolveProjectId: vi.fn(),
   isGitMainCheckout: vi.fn(),
   executeCommand: vi.fn(),
+  existsSync: vi.fn(),
 }))
 
 vi.mock('../../src/services/opencode-models', () => ({
   resolveOpenCodeModel: mocks.resolveOpenCodeModel,
 }))
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return { ...actual, existsSync: mocks.existsSync }
+})
 
 vi.mock('../../src/services/project-id-resolver', () => ({
   resolveProjectId: mocks.resolveProjectId,
@@ -77,6 +83,7 @@ describe('MultiRunService', () => {
     vi.clearAllMocks()
     db = new Database(':memory:')
     migrate(db, allMigrations)
+    mocks.existsSync.mockReturnValue(true)
 
     mocks.resolveOpenCodeModel.mockImplementation(
       async (_client: unknown, _directory: string, options: { preferredModel?: string }) => {
@@ -282,7 +289,32 @@ describe('MultiRunService', () => {
     expect(worktreeRemove).not.toHaveBeenCalled()
   })
 
-  it('records the workspace of a failed isolated launch and removes it on discard', async () => {
+  it('fails only the entry whose model is unavailable and creates no workspace for it', async () => {
+    const repoId = readyRepo()
+    const { client, worktreeCreate, worktreeRemove } = createClient()
+    const service = createService(client)
+
+    const run = await service.launch({
+      repoId,
+      name: 'Sweep',
+      prompt: 'go',
+      models: ['openai/a', 'openai/retired', 'openai/c'],
+      isolate: true,
+    })
+
+    expect(run.entries.map((entry) => entry.status)).toEqual(['started', 'failed', 'started'])
+    expect(run.entries[1]!.directory).toBeNull()
+    expect(run.entries[1]!.sessionId).toBeNull()
+    expect(run.entries[1]!.error).toBe('Model openai/retired is not available')
+    expect(run.entries[0]!.directory).toBe('/worktrees/Sweep-1')
+    expect(run.entries[2]!.directory).toBe('/worktrees/Sweep-3')
+
+    expect(worktreeCreate).toHaveBeenCalledTimes(2)
+    expect(worktreeCreate.mock.calls.map((call) => call[0].name).sort()).toEqual(['Sweep-1', 'Sweep-3'])
+    expect(worktreeRemove).not.toHaveBeenCalled()
+  })
+
+  it('marks an isolated entry discarded when its workspace directory is gone', async () => {
     const repoId = readyRepo()
     const { client, worktreeRemove } = createClient()
     const service = createService(client)
@@ -291,24 +323,41 @@ describe('MultiRunService', () => {
       repoId,
       name: 'Sweep',
       prompt: 'go',
-      models: ['openai/retired'],
+      models: ['openai/a'],
+      isolate: true,
+    })
+    const entry = run.entries[0]!
+    expect(entry.directory).toBe('/worktrees/Sweep-1')
+
+    mocks.existsSync.mockReturnValue(false)
+    const discarded = await service.discard(run.id, entry.id)
+
+    expect(discarded.entries[0]!.status).toBe('discarded')
+    expect(worktreeRemove).not.toHaveBeenCalled()
+  })
+
+  it('maps a workspace that is not a deletable sibling to 400 and keeps the entry retryable', async () => {
+    const repoId = readyRepo()
+    const { client, workspaces, worktreeRemove } = createClient()
+    const service = createService(client)
+
+    const run = await service.launch({
+      repoId,
+      name: 'Sweep',
+      prompt: 'go',
+      models: ['openai/a'],
       isolate: true,
     })
     const entry = run.entries[0]!
 
-    expect(entry.status).toBe('failed')
-    expect(entry.directory).toBe('/worktrees/Sweep-1')
-    expect(entry.error).toContain('/worktrees/Sweep-1')
+    workspaces.length = 0
 
-    const discarded = await service.discard(run.id, entry.id)
+    const error = await service.discard(run.id, entry.id).catch((caught: unknown) => caught)
 
-    expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).toHaveBeenCalledTimes(1)
-    expect(worktreeRemove).toHaveBeenCalledWith({
-      projectID: 'commit-A',
-      directory: '/worktrees/Sweep-1',
-      force: true,
-    })
+    expect(error).toBeInstanceOf(MultiRunError)
+    expect(error).toMatchObject({ status: 400 })
+    expect(worktreeRemove).not.toHaveBeenCalled()
+    expect(service.list(repoId)[0]!.entries[0]!.status).toBe('started')
   })
 
   it('records the workspace of a failed isolated launch when prompting fails and removes it on discard', async () => {
@@ -449,5 +498,18 @@ describe('MultiRunService', () => {
 
     const count = db.prepare('SELECT COUNT(*) AS count FROM multi_runs').get() as { count: number }
     expect(count.count).toBe(0)
+  })
+
+  it('deletes the repository multi-run rows when the repository is deleted', async () => {
+    const repoId = readyRepo()
+    const { client } = createClient()
+    const service = createService(client)
+
+    await service.launch({ repoId, name: 'Sweep', prompt: 'go', models: ['openai/a'], isolate: false })
+
+    deleteRepo(db, repoId)
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM multi_runs').get()).toEqual({ count: 0 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM multi_run_entries').get()).toEqual({ count: 0 })
   })
 })

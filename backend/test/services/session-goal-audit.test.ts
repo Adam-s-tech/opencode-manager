@@ -3,9 +3,9 @@ import {
   buildGoalAuditPrompt,
   buildGoalContinuationPrompt,
   GOAL_AUDIT_REASON_MAX_CHARS,
-  GOAL_AUDIT_REPLY_MAX_CHARS,
   parseGoalVerdict,
 } from '../../src/services/session-goal-audit'
+import { SESSION_REPLY_MAX_LENGTH } from '../../src/services/session-reply'
 
 describe('parseGoalVerdict', () => {
   it('parses a plain JSON verdict', () => {
@@ -67,11 +67,11 @@ describe('buildGoalAuditPrompt', () => {
   })
 
   it('truncates a long reply with a marker', () => {
-    const reply = 'x'.repeat(GOAL_AUDIT_REPLY_MAX_CHARS + 100)
+    const reply = 'x'.repeat(SESSION_REPLY_MAX_LENGTH + 100)
     const prompt = buildGoalAuditPrompt({ objective: 'Ship it', reply })
 
     expect(prompt).toContain('[reply truncated]')
-    expect(prompt).not.toContain('x'.repeat(GOAL_AUDIT_REPLY_MAX_CHARS + 1))
+    expect(prompt).not.toContain('x'.repeat(SESSION_REPLY_MAX_LENGTH + 1))
   })
 })
 

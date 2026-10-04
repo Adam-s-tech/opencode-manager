@@ -3,7 +3,6 @@ import type { MultiRunEntryStatus } from '@opencode-manager/shared/schemas'
 
 export interface MultiRunEntryRecord {
   id: number
-  multiRunId: number
   model: string
   status: MultiRunEntryStatus
   sessionId: string | null
@@ -138,7 +137,7 @@ export function getMultiRun(db: Database, id: number): MultiRunRecord | null {
   if (!row) {
     return null
   }
-  return mapMultiRunRow(db, row)
+  return toMultiRunRecord(row, loadEntries(db, row.id))
 }
 
 export function listMultiRuns(db: Database, repoId: number, limit: number): MultiRunRecord[] {
@@ -150,7 +149,28 @@ export function listMultiRuns(db: Database, repoId: number, limit: number): Mult
       LIMIT ?
     `)
     .all(repoId, limit) as MultiRunRow[]
-  return rows.map((row) => mapMultiRunRow(db, row))
+  if (rows.length === 0) {
+    return []
+  }
+
+  const placeholders = rows.map(() => '?').join(', ')
+  const entryRows = db
+    .prepare(`
+      SELECT ${MULTI_RUN_ENTRY_COLUMNS} FROM multi_run_entries
+      WHERE multi_run_id IN (${placeholders})
+      ORDER BY multi_run_id ASC, id ASC
+    `)
+    .all(...rows.map((row) => row.id)) as MultiRunEntryRow[]
+
+  const entriesByRun = new Map<number, MultiRunEntryRow[]>()
+  for (const row of rows) {
+    entriesByRun.set(row.id, [])
+  }
+  for (const entryRow of entryRows) {
+    entriesByRun.get(entryRow.multi_run_id)?.push(entryRow)
+  }
+
+  return rows.map((row) => toMultiRunRecord(row, entriesByRun.get(row.id) ?? []))
 }
 
 export function getMultiRunEntry(db: Database, multiRunId: number, entryId: number): MultiRunEntryRecord | null {
@@ -211,11 +231,13 @@ export function updateMultiRunEntry(
   return getMultiRunEntry(db, row.multi_run_id, entryId)
 }
 
-function mapMultiRunRow(db: Database, row: MultiRunRow): MultiRunRecord {
-  const entries = db
+function loadEntries(db: Database, multiRunId: number): MultiRunEntryRow[] {
+  return db
     .prepare(`SELECT ${MULTI_RUN_ENTRY_COLUMNS} FROM multi_run_entries WHERE multi_run_id = ? ORDER BY id ASC`)
-    .all(row.id) as MultiRunEntryRow[]
+    .all(multiRunId) as MultiRunEntryRow[]
+}
 
+function toMultiRunRecord(row: MultiRunRow, entries: MultiRunEntryRow[]): MultiRunRecord {
   return {
     id: row.id,
     repoId: row.repo_id,
@@ -231,7 +253,6 @@ function mapMultiRunRow(db: Database, row: MultiRunRow): MultiRunRecord {
 function mapEntryRow(row: MultiRunEntryRow, isolated: boolean): MultiRunEntryRecord {
   return {
     id: row.id,
-    multiRunId: row.multi_run_id,
     model: row.model,
     status: row.status,
     sessionId: row.session_id,

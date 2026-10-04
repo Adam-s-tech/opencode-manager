@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   interrupt: vi.fn(),
   startGoal: vi.fn(),
   useSessionGoal: vi.fn(),
+  useSessionPermissionMode: vi.fn(),
   agents: [] as Array<{ id: string; name: string; description?: string; mode?: string; hidden?: boolean }>,
   setAgent: vi.fn(),
   cycleVariant: vi.fn(),
@@ -49,6 +50,10 @@ vi.mock('@/hooks/useOpenCode', async (importOriginal) => {
 vi.mock('@/hooks/useSessionGoals', () => ({
   useSessionGoal: mocks.useSessionGoal,
   useStartSessionGoal: () => ({ mutateAsync: mocks.startGoal, isPending: false }),
+}))
+
+vi.mock('@/hooks/useSessionPermissionMode', () => ({
+  useSessionPermissionMode: mocks.useSessionPermissionMode,
 }))
 
 vi.mock('@/hooks/useSTT', () => ({ useSTT: mocks.useSTT }))
@@ -118,11 +123,11 @@ describe('PromptInput goal mode', () => {
     onPromptChange: vi.fn(),
   }
 
-  const renderComponent = () => {
+  const renderComponent = (overrides: Partial<typeof defaultProps> = {}) => {
     const queryClient = createTestQueryClient()
     return render(
       <QueryClientProvider client={queryClient}>
-        <PromptInput {...defaultProps} />
+        <PromptInput {...defaultProps} {...overrides} />
       </QueryClientProvider>
     )
   }
@@ -130,6 +135,7 @@ describe('PromptInput goal mode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.useSessionGoal.mockReturnValue({ data: null })
+    mocks.useSessionPermissionMode.mockReturnValue({ data: undefined })
     mocks.startGoal.mockResolvedValue({ id: 1 })
     mocks.agents = []
     mocks.useMobile.mockReturnValue(false)
@@ -214,12 +220,69 @@ describe('PromptInput goal mode', () => {
     expect(mocks.startGoal).not.toHaveBeenCalled()
   })
 
+  it('starts an armed goal before queueing when the session is busy', async () => {
+    stubMatchMedia(true)
+    renderComponent({ isStreamingResponse: true })
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: 'Ship the feature' } })
+    fireEvent.click(screen.getByRole('button', { name: GOAL_BUTTON }))
+    fireEvent.click(screen.getByTitle('Queue message'))
+
+    await waitFor(() => expect(mocks.startGoal).toHaveBeenCalledWith({
+      sessionId: 'test-session',
+      directory: '/test',
+      objective: 'Ship the feature',
+    }))
+    await waitFor(() => expect(mocks.sendPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ delivery: 'queue' }),
+      expect.anything(),
+    ))
+    expect(mocks.startGoal.mock.invocationCallOrder[0]).toBeLessThan(mocks.sendPrompt.mock.invocationCallOrder[0])
+  })
+
+  it('does not start an armed goal for a slash command', async () => {
+    stubMatchMedia(true)
+    mocks.useCommands.mockReturnValue({ filterCommands: () => [{ name: 'review' }] })
+    renderComponent({ isStreamingResponse: true })
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: '/review the diff' } })
+    fireEvent.click(screen.getByRole('button', { name: GOAL_BUTTON }))
+    fireEvent.click(screen.getByTitle('Queue message'))
+
+    await waitFor(() => expect(mocks.sendPrompt).toHaveBeenCalled())
+    expect(mocks.startGoal).not.toHaveBeenCalled()
+  })
+
   it('disables goal mode while a goal is already active', async () => {
     stubMatchMedia(true)
     mocks.useSessionGoal.mockReturnValue({ data: { status: 'active' } })
     renderComponent()
 
     const button = await screen.findByRole('button', { name: OPEN_GOAL_BUTTON })
+    expect(button).toBeDisabled()
+  })
+
+  it('disables goal mode with a reason for scheduled-run sessions', async () => {
+    stubMatchMedia(true)
+    mocks.useSessionPermissionMode.mockReturnValue({
+      data: { sessionId: 'test-session', rootSessionId: 'test-session', mode: 'ask', lockedReason: 'schedule' },
+    })
+    renderComponent()
+
+    const button = await screen.findByRole('button', { name: 'Scheduled runs cannot run goals' })
+    expect(button).toBeDisabled()
+  })
+
+  it('disables goal mode with a reason for child sessions', async () => {
+    stubMatchMedia(true)
+    mocks.useSessionPermissionMode.mockReturnValue({
+      data: { sessionId: 'test-session', rootSessionId: 'test-session', mode: 'ask', lockedReason: 'child' },
+    })
+    renderComponent()
+
+    const button = await screen.findByRole('button', { name: 'Goals can only be started on top-level sessions' })
     expect(button).toBeDisabled()
   })
 })

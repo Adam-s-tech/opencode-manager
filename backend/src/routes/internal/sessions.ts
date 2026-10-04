@@ -6,18 +6,25 @@ import {
   InternalForkSessionRequestSchema,
   InternalSessionPromptRequestSchema,
 } from '@opencode-manager/shared/schemas'
-import { isSessionNotFoundError } from '@opencode-manager/shared/opencode'
-import { getRepoById, listRepos } from '../../db/queries'
-import { getErrorMessage } from '../../utils/error-utils'
-import { logger } from '../../utils/logger'
+import { buildSessionPath } from '@opencode-manager/shared/utils'
+import { getRepoById } from '../../db/queries'
+import { handleOpenCodeError, parseJsonBody } from '../../utils/route-helpers'
 import type { OpenCodeClient } from '../../services/opencode/client'
+import type { SessionPermissionModeService } from '../../services/session-permission-modes'
 import { SessionLaunchError, SessionLauncher } from '../../services/session-launcher'
-import { isSessionBusy, readLatestAssistantReply } from '../../services/session-reply'
+import {
+  isSessionBusy,
+  readLatestAssistantReply,
+  truncateSessionReply,
+  waitForSessionSettled,
+} from '../../services/session-reply'
+import { resolveRepoForDirectory, resolveRepoProjectId } from '../../services/repo'
 
 const INTERNAL_SESSION_LIST_LIMIT_MIN = 1
 const INTERNAL_SESSION_LIST_LIMIT_MAX = 50
 const INTERNAL_SESSION_LIST_LIMIT_DEFAULT = 10
 const INTERNAL_SESSION_WORKSPACE_NAME_FALLBACK = 'ocm-session'
+const INTERNAL_SESSION_REPLY_WAIT_MAX_MS = 45000
 
 const ListSessionsQuerySchema = z.object({
   repoId: z.coerce.number().int().optional(),
@@ -29,41 +36,22 @@ const ListSessionsQuerySchema = z.object({
     .default(INTERNAL_SESSION_LIST_LIMIT_DEFAULT),
 })
 
-type JsonBodyResult = { ok: true; value: unknown } | { ok: false }
+const ReplyQuerySchema = z.object({
+  waitMs: z.coerce.number().int().min(0).max(INTERNAL_SESSION_REPLY_WAIT_MAX_MS).optional(),
+})
 
-async function readJsonBody(c: Context): Promise<JsonBodyResult> {
-  const text = await c.req.text()
-  if (!text.trim()) {
-    return { ok: true, value: {} }
-  }
-  try {
-    return { ok: true, value: JSON.parse(text) }
-  } catch {
-    return { ok: false }
-  }
-}
-
-function openCodeErrorResponse(error: unknown): { status: 400 | 404 | 502; body: { error: string } } {
+function handleSessionRouteError(c: Context, error: unknown) {
   if (error instanceof SessionLaunchError) {
-    return { status: error.status, body: { error: error.message } }
+    return c.json({ error: error.message }, error.status)
   }
-  if (isSessionNotFoundError(error)) {
-    return { status: 404, body: { error: 'Session not found' } }
-  }
-  logger.error('Internal session request failed:', error)
-  return { status: 502, body: { error: getErrorMessage(error) } }
+  return handleOpenCodeError(c, error, 'Internal session request failed', { unknownStatus: 502 })
 }
 
-function workspaceNameFromTitle(title: string | undefined): string {
-  const slug = (title ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '')
-  return slug || INTERNAL_SESSION_WORKSPACE_NAME_FALLBACK
-}
-
-export function createInternalSessionRoutes(db: Database, openCodeClient: OpenCodeClient) {
+export function createInternalSessionRoutes(
+  db: Database,
+  openCodeClient: OpenCodeClient,
+  permissionModes: SessionPermissionModeService,
+) {
   const app = new Hono()
   const sessionLauncher = new SessionLauncher(db, openCodeClient)
 
@@ -80,23 +68,28 @@ export function createInternalSessionRoutes(db: Database, openCodeClient: OpenCo
     }
 
     try {
+      const project = repo ? await resolveRepoProjectId(openCodeClient, repo.fullPath) : undefined
       const response = await openCodeClient.api.session.list({
         limit,
         order: 'desc',
         parentID: null,
-        ...(repo ? { directory: repo.fullPath } : {}),
+        ...(project ? { project } : {}),
       })
       const active = await openCodeClient.api.session.active()
-      const repos = listRepos(db)
+
+      const repoIdByDirectory = new Map<string, number | null>()
+      for (const directory of new Set(response.data.map((session) => session.location.directory))) {
+        const matchedRepo = await resolveRepoForDirectory(db, directory)
+        repoIdByDirectory.set(directory, matchedRepo?.id ?? null)
+      }
 
       const sessions = response.data.map((session) => {
         const directory = session.location.directory
-        const matchedRepo = repos.find((candidate) => candidate.fullPath === directory)
         return {
           id: session.id,
           title: session.title ?? null,
           directory,
-          repoId: matchedRepo?.id ?? null,
+          repoId: repoIdByDirectory.get(directory) ?? null,
           busy: session.id in active,
           outcome: session.outcome ?? null,
           updated: session.time.updated,
@@ -105,23 +98,17 @@ export function createInternalSessionRoutes(db: Database, openCodeClient: OpenCo
 
       return c.json({ sessions })
     } catch (error) {
-      const mapped = openCodeErrorResponse(error)
-      return c.json(mapped.body, mapped.status)
+      return handleSessionRouteError(c, error)
     }
   })
 
   app.post('/', async (c) => {
-    const body = await readJsonBody(c)
+    const body = await parseJsonBody(c, InternalCreateSessionRequestSchema)
     if (!body.ok) {
-      return c.json({ error: 'Invalid JSON' }, 400)
+      return body.response
     }
 
-    const parsed = InternalCreateSessionRequestSchema.safeParse(body.value)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid request body', details: parsed.error.issues }, 400)
-    }
-
-    const input = parsed.data
+    const input = body.data
     try {
       const launched = await sessionLauncher.launch({
         repoId: input.repoId,
@@ -132,50 +119,58 @@ export function createInternalSessionRoutes(db: Database, openCodeClient: OpenCo
         ...(input.worktree
           ? {
               workspace: {
-                name: workspaceNameFromTitle(input.title),
+                name: input.title ?? INTERNAL_SESSION_WORKSPACE_NAME_FALLBACK,
                 ...(input.ref ? { ref: input.ref } : {}),
               },
             }
           : {}),
       })
 
-      const url = `/repos/${launched.repoId}/sessions/${launched.sessionId}${launched.workspaceDirectory ? '?repoTab=workspaces' : ''}`
+      permissionModes.pinAsk(launched.sessionId)
+
+      const url = buildSessionPath(
+        launched.repoId,
+        launched.sessionId,
+        launched.workspaceDirectory ? { repoTab: 'workspaces' } : undefined,
+      )
       return c.json({ ...launched, url }, 201)
     } catch (error) {
-      const mapped = openCodeErrorResponse(error)
-      return c.json(mapped.body, mapped.status)
+      return handleSessionRouteError(c, error)
     }
   })
 
   app.post('/:sessionId/prompt', async (c) => {
     const sessionId = c.req.param('sessionId')
-    const body = await readJsonBody(c)
+    const body = await parseJsonBody(c, InternalSessionPromptRequestSchema)
     if (!body.ok) {
-      return c.json({ error: 'Invalid JSON' }, 400)
-    }
-
-    const parsed = InternalSessionPromptRequestSchema.safeParse(body.value)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid request body', details: parsed.error.issues }, 400)
+      return body.response
     }
 
     try {
       await openCodeClient.api.session.prompt({
         sessionID: sessionId,
-        text: parsed.data.text,
+        text: body.data.text,
         delivery: 'queue',
       })
       return c.json({ queued: true }, 202)
     } catch (error) {
-      const mapped = openCodeErrorResponse(error)
-      return c.json(mapped.body, mapped.status)
+      return handleSessionRouteError(c, error)
     }
   })
 
   app.get('/:sessionId/reply', async (c) => {
     const sessionId = c.req.param('sessionId')
+    const parsedQuery = ReplyQuerySchema.safeParse(c.req.query())
+    if (!parsedQuery.success) {
+      return c.json({ error: 'Invalid query', details: parsedQuery.error.issues }, 400)
+    }
 
     try {
+      const waitMs = parsedQuery.data.waitMs ?? 0
+      if (waitMs > 0) {
+        await waitForSessionSettled(openCodeClient, sessionId, waitMs)
+      }
+
       const [busy, reply] = await Promise.all([
         isSessionBusy(openCodeClient, sessionId),
         readLatestAssistantReply(openCodeClient, sessionId),
@@ -183,38 +178,32 @@ export function createInternalSessionRoutes(db: Database, openCodeClient: OpenCo
 
       return c.json({
         busy,
-        responseText: reply?.responseText ?? null,
+        responseText: reply?.responseText ? truncateSessionReply(reply.responseText) : null,
         errorText: reply?.errorText ?? null,
         completed: reply?.completed ?? false,
       })
     } catch (error) {
-      const mapped = openCodeErrorResponse(error)
-      return c.json(mapped.body, mapped.status)
+      return handleSessionRouteError(c, error)
     }
   })
 
   app.post('/:sessionId/fork', async (c) => {
     const sessionId = c.req.param('sessionId')
-    const body = await readJsonBody(c)
+    const body = await parseJsonBody(c, InternalForkSessionRequestSchema, { allowEmpty: true })
     if (!body.ok) {
-      return c.json({ error: 'Invalid JSON' }, 400)
+      return body.response
     }
 
-    const parsed = InternalForkSessionRequestSchema.safeParse(body.value)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid request body', details: parsed.error.issues }, 400)
-    }
-
-    const beforeMessageId = parsed.data.beforeMessageId
+    const beforeMessageId = body.data.beforeMessageId
     try {
       const forked = await openCodeClient.api.session.fork({
         sessionID: sessionId,
         ...(beforeMessageId ? { before: beforeMessageId } : {}),
       })
+      permissionModes.pinAsk(forked.id)
       return c.json({ sessionId: forked.id, directory: forked.location.directory })
     } catch (error) {
-      const mapped = openCodeErrorResponse(error)
-      return c.json(mapped.body, mapped.status)
+      return handleSessionRouteError(c, error)
     }
   })
 

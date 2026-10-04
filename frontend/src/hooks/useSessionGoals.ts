@@ -9,7 +9,7 @@ import {
 import { showToast } from '@/lib/toast'
 import type { SessionGoal, StartSessionGoalRequest } from '@opencode-manager/shared/schemas'
 
-export function sessionGoalQueryKey(sessionId: string) {
+function sessionGoalQueryKey(sessionId: string) {
   return ['session-goal', sessionId] as const
 }
 
@@ -17,10 +17,7 @@ export function useSessionGoal(sessionId: string) {
   return useQuery({
     queryKey: sessionGoalQueryKey(sessionId),
     queryFn: () => getLatestSessionGoal(sessionId),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === 'active' || status === 'paused' ? 3000 : false
-    },
+    refetchInterval: (query) => (query.state.data?.status === 'active' ? 3000 : false),
   })
 }
 

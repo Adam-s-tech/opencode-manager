@@ -1,5 +1,6 @@
 import { Shield, ShieldCheck } from 'lucide-react'
 import { useSessionPermissionMode, useSetSessionPermissionMode } from '@/hooks/useSessionPermissionMode'
+import { IconToggleButton } from '@/components/ui/icon-toggle-button'
 
 interface PermissionModeToggleProps {
   sessionID: string
@@ -12,18 +13,20 @@ export function PermissionModeToggle({ sessionID, directory }: PermissionModeTog
 
   const loaded = data !== undefined
   const isAuto = data?.mode === 'auto'
-  const inherited = data?.inherited ?? false
-  const disabled = !loaded || inherited || setMode.isPending
+  const lockedReason = data?.lockedReason ?? null
+  const disabled = !loaded || lockedReason !== null || setMode.isPending
 
   const label = !loaded
     ? isError
       ? 'Permissions: unavailable'
       : 'Permissions: loading'
-    : inherited
+    : lockedReason === 'child'
       ? 'Inherited from parent session'
-      : isAuto
-        ? 'Permissions: accept everything'
-        : 'Permissions: ask every time'
+      : lockedReason === 'schedule'
+        ? "Scheduled runs use the schedule's permission configuration"
+        : isAuto
+          ? 'Permissions: accept everything'
+          : 'Permissions: ask every time'
 
   const handleClick = () => {
     if (disabled) return
@@ -31,19 +34,8 @@ export function PermissionModeToggle({ sessionID, directory }: PermissionModeTog
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={disabled}
-      title={label}
-      aria-label={label}
-      className={`p-2 rounded-lg transition-all duration-200 active:scale-95 hover:scale-105 shadow-md border disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 disabled:hover:scale-100 ${
-        isAuto
-          ? 'bg-highlight hover:bg-highlight/90 text-highlight-foreground border-highlight'
-          : 'bg-muted hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground border-border'
-      }`}
-    >
+    <IconToggleButton active={isAuto} label={label} disabled={disabled} onClick={handleClick}>
       {isAuto ? <ShieldCheck className="w-5 h-5" /> : <Shield className="w-5 h-5" />}
-    </button>
+    </IconToggleButton>
   )
 }

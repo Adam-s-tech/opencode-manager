@@ -6,11 +6,18 @@ export interface FakePendingPermissionRequest {
   sessionID: string
 }
 
+export interface FakeSessionInfo {
+  parentID?: string | null
+  location?: { directory: string }
+}
+
 export interface FakeSessionPermissionClientOptions {
   parents?: Record<string, string | null>
+  directories?: Record<string, string>
+  activeSessions?: string[]
   failSessionGet?: boolean
   pendingRequests?: Record<string, FakePendingPermissionRequest[]>
-  getSession?: (sessionID: string) => Promise<{ parentID?: string | null }>
+  getSession?: (sessionID: string) => Promise<FakeSessionInfo>
   listRequests?: (directory: string) => Promise<FakePendingPermissionRequest[]>
 }
 
@@ -22,6 +29,7 @@ export function createFakeSessionPermissionClient(
   options: FakeSessionPermissionClientOptions = {},
 ): FakeSessionPermissionClient {
   const parents = options.parents ?? {}
+  const directories = options.directories ?? {}
   const pendingRequests = options.pendingRequests ?? {}
   const replyPermission = vi.fn(async () => {})
 
@@ -31,7 +39,10 @@ export function createFakeSessionPermissionClient(
       if (options.failSessionGet) {
         throw new Error('upstream unavailable')
       }
-      return { parentID: parents[sessionID] ?? undefined }
+      return {
+        parentID: parents[sessionID] ?? undefined,
+        location: { directory: directories[sessionID] ?? '' },
+      }
     })
 
   const listRequests =
@@ -43,6 +54,9 @@ export function createFakeSessionPermissionClient(
     api: {
       session: {
         get: async ({ sessionID }: { sessionID: string }) => getSession(sessionID),
+        active: async () => Object.fromEntries(
+          (options.activeSessions ?? []).map(sessionID => [sessionID, { type: 'running' as const }]),
+        ),
       },
       permission: {
         request: {

@@ -5,12 +5,10 @@ import { allMigrations } from '../../src/db/migrations'
 import { createRepo } from '../../src/db/queries'
 import { createScheduleRun, updateScheduleRunMetadata } from '../../src/db/schedules'
 import { NotificationService } from '../../src/services/notification'
-import { SessionGoalService } from '../../src/services/session-goals'
 import { SettingsService } from '../../src/services/settings'
 import { sseAggregator, type SSEEvent } from '../../src/services/sse-aggregator'
 import type { PushNotificationPayload } from '@opencode-manager/shared/types'
 import type { SessionGoal } from '@opencode-manager/shared/schemas'
-import { createFakeSessionGoalClient } from '../helpers/fake-session-goal-client'
 
 const DIRECTORY = '/abs/repo'
 const USER_ID = 'user-1'
@@ -194,16 +192,6 @@ describe('NotificationService goal outcomes', () => {
     vi.restoreAllMocks()
   })
 
-  function sessionIdleEvent(sessionID: string): SSEEvent {
-    return {
-      id: `evt_idle_${sessionID}`,
-      created: 1700000000000,
-      type: 'session.idle',
-      location: { directory: DIRECTORY },
-      data: { sessionID },
-    } as SSEEvent
-  }
-
   const completedGoal: SessionGoal = {
     id: 1,
     sessionId: 'ses_goal',
@@ -315,23 +303,74 @@ describe('NotificationService goal outcomes', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('suppresses session.idle while the session goal is active and notifies once it ends', async () => {
-    const db = new Database(':memory:')
-    const service = createService(db)
-    const fake = createFakeSessionGoalClient()
-    const goalService = new SessionGoalService(db, fake.client, new SettingsService(db), { quietMs: 0 })
-    service.addEventSuppressor(async (event, sessionId) => {
-      if (event.type !== 'session.idle' || !sessionId) return false
-      return goalService.hasActiveGoal(sessionId)
-    })
-    const started = await goalService.start({ sessionId: 'ses_goal', directory: DIRECTORY, objective: 'Ship it' })
+  it('does not notify when the goal stopped because its turn failed', async () => {
+    const service = createService()
     const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
 
-    await service.handleSSEEvent(DIRECTORY, sessionIdleEvent('ses_goal'))
-    expect(send).not.toHaveBeenCalled()
+    await service.notifyGoalOutcome({
+      ...completedGoal,
+      id: 11,
+      status: 'stopped',
+      stopReason: 'turn_error',
+    })
 
-    goalService.pause(started.id)
-    await service.handleSSEEvent(DIRECTORY, sessionIdleEvent('ses_goal'))
-    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('does not notify when the user cancelled the goal', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.notifyGoalOutcome({
+      ...completedGoal,
+      id: 12,
+      status: 'stopped',
+      stopReason: 'cancelled',
+    })
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('does not notify when the user paused the goal', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+
+    await service.notifyGoalOutcome({
+      ...completedGoal,
+      id: 13,
+      status: 'paused',
+      stopReason: 'user_paused',
+    })
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('does not notify while the goal session is being viewed', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+    vi.spyOn(sseAggregator, 'isSessionBeingViewed').mockReturnValue(true)
+
+    await service.notifyGoalOutcome(completedGoal)
+
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('notifies the remaining goal outcomes', async () => {
+    const service = createService()
+    const send = vi.spyOn(service, 'sendToUser').mockResolvedValue(sendResult)
+    const outcomes: Array<Pick<SessionGoal, 'status' | 'stopReason'>> = [
+      { status: 'blocked', stopReason: null },
+      { status: 'stopped', stopReason: 'continuation_limit' },
+      { status: 'stopped', stopReason: 'token_budget' },
+      { status: 'stopped', stopReason: 'interrupted' },
+      { status: 'paused', stopReason: 'audit_failed' },
+      { status: 'stopped', stopReason: 'session_deleted' },
+    ]
+
+    for (const [index, outcome] of outcomes.entries()) {
+      await service.notifyGoalOutcome({ ...completedGoal, id: 100 + index, ...outcome })
+    }
+
+    expect(send).toHaveBeenCalledTimes(outcomes.length)
   })
 })

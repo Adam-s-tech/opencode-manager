@@ -90,6 +90,7 @@ describe('multi-run routes', () => {
     })
 
     expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Invalid request body', details: expect.any(Array) })
     expect(service.launch).not.toHaveBeenCalled()
   })
 
@@ -101,6 +102,19 @@ describe('multi-run routes', () => {
     })
 
     expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Invalid request body', details: expect.any(Array) })
+    expect(service.launch).not.toHaveBeenCalled()
+  })
+
+  it('POST rejects malformed JSON with 400', async () => {
+    const res = await app.request('/multi-runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not json',
+    })
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Invalid JSON' })
     expect(service.launch).not.toHaveBeenCalled()
   })
 

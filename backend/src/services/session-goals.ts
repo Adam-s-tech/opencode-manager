@@ -5,6 +5,7 @@ import {
   type SessionGoalStatus,
   type SessionGoalStopReason,
   type SessionGoalTurnState,
+  type SessionLockReason,
   type StartSessionGoalRequest,
 } from '@opencode-manager/shared/schemas'
 import {
@@ -45,6 +46,7 @@ type PrerequisiteResult<T> = { ok: true; value: T } | { ok: false }
 export interface SessionGoalServiceOptions {
   quietMs?: number
   onOutcome?: (goal: SessionGoal) => void
+  resolveSessionLock?: (sessionId: string) => Promise<SessionLockReason | null>
 }
 
 export class SessionGoalError extends Error {
@@ -60,7 +62,7 @@ export function sessionTokenTotal(tokens: { input: number; output: number; reaso
   return tokens.input + tokens.output + tokens.reasoning
 }
 
-export function toSessionGoal(record: SessionGoalRecord): SessionGoal {
+function toSessionGoal(record: SessionGoalRecord): SessionGoal {
   return {
     id: record.id,
     sessionId: record.sessionId,
@@ -91,6 +93,7 @@ export class SessionGoalService {
   private readonly auditGeneration = new Map<string, number>()
   private readonly quietMs: number
   private readonly onOutcome: (goal: SessionGoal) => void
+  private readonly resolveSessionLock: (sessionId: string) => Promise<SessionLockReason | null>
 
   constructor(
     private readonly db: Database,
@@ -100,6 +103,7 @@ export class SessionGoalService {
   ) {
     this.quietMs = options.quietMs ?? DEFAULT_QUIET_MS
     this.onOutcome = options.onOutcome ?? (() => {})
+    this.resolveSessionLock = options.resolveSessionLock ?? (async () => null)
   }
 
   loadOpenGoals(): void {
@@ -180,6 +184,8 @@ export class SessionGoalService {
   }
 
   async start(input: StartSessionGoalRequest): Promise<SessionGoal> {
+    await this.assertSessionCanStartGoal(input.sessionId)
+
     const defaults = this.settingsService.getSettings().preferences.sessionDefaults
     const maxContinuations =
       input.maxContinuations ?? defaults?.goalMaxContinuations ?? DEFAULT_SESSION_DEFAULTS.goalMaxContinuations
@@ -208,8 +214,21 @@ export class SessionGoalService {
     return record ? toSessionGoal(record) : null
   }
 
-  hasActiveGoal(sessionId: string): boolean {
-    return getLatestSessionGoal(this.db, sessionId)?.status === 'active'
+  private async assertSessionCanStartGoal(sessionId: string): Promise<void> {
+    let lock: SessionLockReason | null
+    try {
+      lock = await this.resolveSessionLock(sessionId)
+    } catch (error) {
+      logger.error(`Failed to resolve session lock for ${sessionId}:`, error)
+      return
+    }
+
+    if (lock === 'schedule') {
+      throw new SessionGoalError('Scheduled runs cannot run goals', 409)
+    }
+    if (lock === 'child') {
+      throw new SessionGoalError('Goals can only be started on top-level sessions', 400)
+    }
   }
 
   pause(id: number): SessionGoal {
@@ -601,7 +620,7 @@ export class SessionGoalService {
   }
 
   private transition(id: number, fromStatuses: SessionGoalStatus[], patch: SessionGoalPatch): SessionGoalRecord {
-    const record = transitionSessionGoal(this.db, id, fromStatuses, patch)
+    const record = this.applyTransition(id, fromStatuses, patch)
     if (!record) {
       if (!getSessionGoalById(this.db, id)) {
         throw new SessionGoalError('Session goal not found', 404)
@@ -609,8 +628,6 @@ export class SessionGoalService {
       throw new SessionGoalError('Session goal cannot transition from its current state', 409)
     }
 
-    this.syncGoalIndex(record)
-    this.maybeInvalidateAudits(record, patch)
     return record
   }
 

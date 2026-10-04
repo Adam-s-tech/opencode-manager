@@ -60,6 +60,7 @@ const providers = [
       { id: 'claude-opus', name: 'Claude Opus' },
       { id: 'claude-sonnet', name: 'Claude Sonnet' },
       { id: 'claude-haiku', name: 'Claude Haiku' },
+      { id: 'claude-sonnet-4-5', key: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
     ],
   },
 ]
@@ -158,6 +159,28 @@ describe('MultiRunDialog', () => {
         name: 'Sweep',
         prompt: 'go',
         models: ['openai/gpt-4o'],
+        isolate: true,
+        baseRef: 'main',
+      })
+    })
+  })
+
+  it('submits the catalog id for configured model aliases', async () => {
+    const user = userEvent.setup()
+    mocks.launchMultiRun.mockResolvedValue(startedRun)
+    renderDialog()
+
+    await user.type(screen.getByLabelText('Group name'), 'Sweep')
+    await user.type(screen.getByLabelText('Prompt'), 'go')
+    await user.click(screen.getByRole('checkbox', { name: 'Claude Sonnet 4.5' }))
+    await user.click(screen.getByRole('button', { name: 'Launch' }))
+
+    await waitFor(() => {
+      expect(mocks.launchMultiRun).toHaveBeenCalledWith({
+        repoId: 7,
+        name: 'Sweep',
+        prompt: 'go',
+        models: ['anthropic/claude-sonnet-4.5'],
         isolate: true,
         baseRef: 'main',
       })

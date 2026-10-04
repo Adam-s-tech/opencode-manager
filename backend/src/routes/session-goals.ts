@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { StartSessionGoalRequestSchema } from '@opencode-manager/shared/schemas'
 import { SessionGoalError, type SessionGoalService } from '../services/session-goals'
-import { handleServiceError, parseId } from '../utils/route-helpers'
+import { handleServiceError, parseId, parseJsonBody } from '../utils/route-helpers'
 
 export function createSessionGoalRoutes(service: SessionGoalService) {
   const app = new Hono()
@@ -19,16 +19,9 @@ export function createSessionGoalRoutes(service: SessionGoalService) {
   })
 
   app.post('/', async (c) => {
-    let body: unknown
-    try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: 'Invalid request' }, 400)
-    }
-
-    const parsed = StartSessionGoalRequestSchema.safeParse(body)
-    if (!parsed.success) {
-      return c.json({ error: 'Invalid request' }, 400)
+    const parsed = await parseJsonBody(c, StartSessionGoalRequestSchema)
+    if (!parsed.ok) {
+      return parsed.response
     }
 
     try {

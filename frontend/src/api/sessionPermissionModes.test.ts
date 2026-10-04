@@ -14,7 +14,7 @@ describe('sessionPermissionModes', () => {
   })
 
   it('calls GET /api/session-permission-modes/:id and returns the state', async () => {
-    const state = { sessionId: 'ses_1', rootSessionId: 'ses_1', mode: 'ask', inherited: false }
+    const state = { sessionId: 'ses_1', rootSessionId: 'ses_1', mode: 'ask', lockedReason: null }
     fetchMock.mockResolvedValue(new Response(JSON.stringify(state), { status: 200 }))
 
     const result = await getSessionPermissionMode('ses_1')
@@ -26,7 +26,7 @@ describe('sessionPermissionModes', () => {
 
   it('calls PUT /api/session-permission-modes/:id with the mode and directory', async () => {
     const input = { directory: '/repo', mode: 'auto' as const }
-    const state = { sessionId: 'ses_1', rootSessionId: 'ses_1', mode: 'auto' as const, inherited: false }
+    const state = { sessionId: 'ses_1', rootSessionId: 'ses_1', mode: 'auto' as const, lockedReason: null }
     fetchMock.mockResolvedValue(new Response(JSON.stringify(state), { status: 200 }))
 
     const result = await setSessionPermissionMode('ses_1', input)

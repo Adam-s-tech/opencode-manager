@@ -121,7 +121,7 @@ function buildWorkspaceAliasCandidates(sourcePath: string, rootPath?: string): s
     if (relativePath && !relativePath.startsWith('..')) {
       const relativeAlias = relativePath
         .split(path.sep)
-        .map(sanitizeRepoDirectoryName)
+        .map((segment) => sanitizeRepoDirectoryName(segment))
         .filter(Boolean)
         .join('--')
 
@@ -1168,6 +1168,30 @@ export async function resolveRepoProjectId(openCodeClient: OpenCodeClient, direc
   return project.id
 }
 
+export async function resolveRepoForDirectory(
+  database: Database,
+  directory: string,
+): Promise<Repo | null> {
+  const repo =
+    getRepoBySourcePath(database, path.resolve(directory)) ??
+    getRepoByLocalPath(database, path.relative(getReposPath(), directory))
+  if (repo) return repo
+
+  const projectId = await resolveProjectId(directory)
+  if (!projectId) return null
+
+  const readyRepos = listRepos(database).filter(
+    (candidate) => candidate.cloneStatus === 'ready',
+  )
+  for (const candidate of readyRepos) {
+    const candidateProjectId = await resolveProjectId(candidate.fullPath).catch(
+      () => null,
+    )
+    if (candidateProjectId === projectId) return candidate
+  }
+  return null
+}
+
 export async function getSiblingRepos(
   database: Database,
   repoId: number,
@@ -1265,9 +1289,9 @@ export async function getSiblingRepos(
 }
 
 export class RepoWorkspaceError extends Error {
-  readonly status: 400 | 404
+  readonly status: 400
 
-  constructor(message: string, status: 400 | 404) {
+  constructor(message: string, status: 400) {
     super(message)
     this.name = 'RepoWorkspaceError'
     this.status = status

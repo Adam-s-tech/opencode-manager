@@ -4,7 +4,7 @@ import { repoSiblingsQueryKey } from '@/hooks/useRepoSiblings'
 import { showToast } from '@/lib/toast'
 import type { LaunchMultiRunRequest, MultiRun } from '@opencode-manager/shared/schemas'
 
-export function multiRunQueryKey(repoId: number) {
+function multiRunQueryKey(repoId: number) {
   return ['multi-runs', repoId] as const
 }
 

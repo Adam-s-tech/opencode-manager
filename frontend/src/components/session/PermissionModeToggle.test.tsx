@@ -11,7 +11,7 @@ const baseState: SessionPermissionModeState = {
   sessionId: 'ses_1',
   rootSessionId: 'ses_1',
   mode: 'ask',
-  inherited: false,
+  lockedReason: null,
 }
 
 function mockHooks(overrides: {
@@ -66,11 +66,19 @@ describe('PermissionModeToggle', () => {
     expect(mutate).toHaveBeenCalledWith({ directory: '/repo', mode: 'ask' })
   })
 
-  it('is disabled and labelled as inherited for child sessions', () => {
-    mockHooks({ state: { inherited: true, mode: 'auto' } })
+  it('is disabled and labelled as locked for child sessions', () => {
+    mockHooks({ state: { lockedReason: 'child', mode: 'auto' } })
     render(<PermissionModeToggle sessionID="ses_child" directory="/repo" />)
 
     const button = screen.getByRole('button', { name: 'Inherited from parent session' })
+    expect(button).toBeDisabled()
+  })
+
+  it('is disabled and labelled for schedule-run sessions', () => {
+    mockHooks({ state: { lockedReason: 'schedule', mode: 'ask' } })
+    render(<PermissionModeToggle sessionID="ses_sched" directory="/repo" />)
+
+    const button = screen.getByRole('button', { name: "Scheduled runs use the schedule's permission configuration" })
     expect(button).toBeDisabled()
   })
 

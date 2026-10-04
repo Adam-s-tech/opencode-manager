@@ -41,7 +41,20 @@ describe('session permission mode routes', () => {
       sessionId: 'ses_root',
       rootSessionId: 'ses_root',
       mode: 'ask',
-      inherited: false,
+      lockedReason: null,
+    })
+  })
+
+  it('GET reports the child lock reason for a child session', async () => {
+    const app = createTestApp(db, { ses_child: 'ses_root', ses_root: null })
+
+    const res = await app.request('/session-permission-modes/ses_child')
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      sessionId: 'ses_child',
+      rootSessionId: 'ses_root',
+      mode: 'ask',
+      lockedReason: 'child',
     })
   })
 
@@ -58,7 +71,7 @@ describe('session permission mode routes', () => {
       sessionId: 'ses_root',
       rootSessionId: 'ses_root',
       mode: 'auto',
-      inherited: false,
+      lockedReason: null,
     })
 
     const getRes = await app.request('/session-permission-modes/ses_root')
@@ -75,6 +88,7 @@ describe('session permission mode routes', () => {
       body: JSON.stringify({ directory: '/abs/repo', mode: 'always' }),
     })
     expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Invalid request body', details: expect.any(Array) })
   })
 
   it('PUT rejects malformed JSON with 400', async () => {
@@ -86,6 +100,7 @@ describe('session permission mode routes', () => {
       body: '{not json',
     })
     expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Invalid JSON' })
   })
 
   it('PUT rejects setting the mode of a child session with 400', async () => {

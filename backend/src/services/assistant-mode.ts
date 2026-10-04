@@ -932,7 +932,7 @@ Use the \`${MANAGER_TOOL_NAME}\` tool with the \`request\` action. The tool runs
 
 ### GET /sessions
 
-List sessions, newest first. Pass \`repoId\` to restrict the list to one repo and \`limit\` (1-50, default 10) to bound it.
+List sessions, newest first. Pass \`repoId\` to restrict the list to one repo; this covers every OpenCode workspace of that repo, not only the repo directory. Pass \`limit\` (1-50, default 10) to bound it.
 
 Query params: \`repoId\`, \`limit\`
 
@@ -953,7 +953,7 @@ Query params: \`repoId\`, \`limit\`
     id: string
     title: string | null
     directory: string
-    repoId: number | null   // null when the directory matches no known repo
+    repoId: number | null   // null when the directory belongs to no known repo
     busy: boolean           // true while the session is running
     outcome: 'succeeded' | 'failed' | 'interrupted' | null
     updated: number
@@ -963,9 +963,11 @@ Query params: \`repoId\`, \`limit\`
 
 ### POST /sessions
 
-Create a session in a repo and send the first prompt. The response returns as soon as the prompt is queued, not when the run finishes. Use \`GET /sessions/:sessionId/reply\` to poll for the result.
+Create a session in a repo and send the first prompt. The response returns as soon as the prompt is queued, not when the run finishes. Use \`GET /sessions/:sessionId/reply\` to read the result.
 
-Pass \`worktree: true\` to run the session in a new isolated workspace instead of the repo directory. \`ref\` selects the base ref for that workspace. \`model\` must be an available model reference; an unavailable model is rejected with \`400\` rather than silently substituted.
+Sessions created through this tool always start in \`ask\` permission mode; existing sessions keep the mode the user chose.
+
+Pass \`worktree: true\` to run the session in a new isolated workspace instead of the repo directory. Creating a workspace can take tens of seconds; if the request times out it may still have succeeded, so call \`GET /sessions\` before retrying. \`ref\` selects the base ref for that workspace. \`model\` must be an available model reference; an unavailable model is rejected with \`400\` rather than silently substituted.
 
 \`\`\`json
 {
@@ -1015,14 +1017,14 @@ Queue a follow-up prompt for an existing session.
 
 ### GET /sessions/:sessionId/reply
 
-Read the latest assistant reply for a session and whether it is still running. Poll this after creating a session or queueing a prompt until \`busy\` is \`false\`.
+Read the latest assistant reply for a session and whether it is still running. Prefer \`?waitMs=30000\` (integer, 0-45000) to wait for the session to settle instead of polling in a loop; the response returns once it settles or the timeout elapses. \`responseText\` is capped.
 
 \`\`\`json
 {
   "action": "request",
   "params": {
     "method": "GET",
-    "path": "/sessions/ses_abc/reply"
+    "path": "/sessions/ses_abc/reply?waitMs=30000"
   }
 }
 \`\`\`
@@ -1039,7 +1041,7 @@ Read the latest assistant reply for a session and whether it is still running. P
 
 ### POST /sessions/:sessionId/fork
 
-Fork a session, optionally before a specific message. Omit \`beforeMessageId\` to fork from the current point.
+Fork a session, optionally before a specific message. Omit \`beforeMessageId\` to fork from the current point. The forked session starts in \`ask\` permission mode.
 
 \`\`\`json
 {

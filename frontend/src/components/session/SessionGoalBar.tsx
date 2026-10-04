@@ -1,32 +1,15 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, Target } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   useCancelSessionGoal,
   usePauseSessionGoal,
   useResumeSessionGoal,
   useSessionGoal,
 } from '@/hooks/useSessionGoals'
-import type { SessionGoalStatus, SessionGoalStopReason } from '@opencode-manager/shared/schemas'
-
-const STATUS_LABELS: Record<SessionGoalStatus, string> = {
-  active: 'Goal active',
-  paused: 'Goal paused',
-  completed: 'Goal completed',
-  blocked: 'Goal blocked',
-  stopped: 'Goal stopped',
-}
-
-const STOP_REASON_LABELS: Record<SessionGoalStopReason, string> = {
-  cancelled: 'cancelled',
-  user_paused: 'paused by you',
-  continuation_limit: 'continuation limit reached',
-  token_budget: 'token budget reached',
-  turn_error: 'turn failed',
-  interrupted: 'interrupted',
-  audit_failed: 'auditor failed',
-  session_deleted: 'session deleted',
-}
+import { getGoalOutcomeTitle, getGoalStopReasonLabel } from '@opencode-manager/shared/notifications'
+import type { SessionGoalStatus } from '@opencode-manager/shared/schemas'
 
 const STATUS_CHIP_CLASSES: Record<SessionGoalStatus, string> = {
   active: 'bg-highlight text-highlight-foreground border-highlight',
@@ -54,17 +37,18 @@ export function SessionGoalBar({ sessionID }: { sessionID: string }) {
   if (isTerminal(goal.status) && dismissedGoalId === goal.id) return null
 
   const terminal = isTerminal(goal.status)
-  const reason = goal.stopReason ? STOP_REASON_LABELS[goal.stopReason] : goal.lastReason
+  const reason = goal.stopReason ? getGoalStopReasonLabel(goal.stopReason) : goal.lastReason
 
   return (
     <div className="mb-1 flex flex-col gap-1 rounded-lg border border-border bg-card/70 px-2 py-1.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium ${STATUS_CHIP_CLASSES[goal.status]}`}
+        <Badge
+          variant="outline"
+          className={`gap-1 px-2 py-0.5 font-medium ${STATUS_CHIP_CLASSES[goal.status]}`}
         >
           <Target className="h-3 w-3" />
-          {STATUS_LABELS[goal.status]}
-        </span>
+          {getGoalOutcomeTitle(goal.status)}
+        </Badge>
 
         {!terminal && (
           <span className="text-muted-foreground">

@@ -3,6 +3,7 @@ import { NotificationPreferencesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from 
 import { OPENCODE_CONFIG_SOURCE_NAMES } from "../config/defaults";
 import { ColorThemeIdSchema, MANAGER_COLOR_THEME_ID } from "../themes";
 import { SessionPermissionModeSchema } from "./session-permissions";
+import { GOAL_MAX_CONTINUATIONS_MIN, GOAL_MAX_CONTINUATIONS_MAX } from "./limits";
 
 export const CustomCommandSchema = z.object({
   name: z.string(),
@@ -145,7 +146,7 @@ export const DEFAULT_SANDBOX_PREFERENCES: SandboxPreferences = {
 
 export const SessionDefaultsSchema = z.object({
   permissionMode: SessionPermissionModeSchema,
-  goalMaxContinuations: z.number().int().min(1).max(200).optional(),
+  goalMaxContinuations: z.number().int().min(GOAL_MAX_CONTINUATIONS_MIN).max(GOAL_MAX_CONTINUATIONS_MAX).optional(),
   goalTokenBudget: z.number().int().positive().optional(),
   goalAuditorModel: z.string().optional(),
 });

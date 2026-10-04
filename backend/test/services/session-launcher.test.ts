@@ -114,7 +114,7 @@ describe('SessionLauncher', () => {
     })
 
     expect(worktreeCreate).toHaveBeenCalledWith({ projectID: 'commit-A', name: 'feature-x', branch: 'feature/x' })
-    expect(mocks.resolveOpenCodeModel).toHaveBeenCalledWith(client, '/worktrees/feature-x', { preferredModel: undefined })
+    expect(mocks.resolveOpenCodeModel).toHaveBeenCalledWith(client, REPO_DIR, { preferredModel: undefined })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ location: { directory: '/worktrees/feature-x' } }))
     expect(result).toMatchObject({
       sessionId: 'ses_new',
@@ -124,16 +124,33 @@ describe('SessionLauncher', () => {
     })
   })
 
-  it('rejects an unavailable requested model without creating a session', async () => {
+  it('rejects an unavailable requested model before creating a workspace or session', async () => {
     const repoId = readyRepo()
-    const { client, create } = createClient()
+    const { client, create, worktreeCreate } = createClient()
     const launcher = new SessionLauncher(db, client)
 
-    const error = await launcher.launch({ repoId, prompt: 'hello', model: 'openai/retired' }).catch((caught: unknown) => caught)
+    const error = await launcher
+      .launch({ repoId, prompt: 'hello', model: 'openai/retired', workspace: { name: 'feature-x' } })
+      .catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(SessionLaunchError)
-    expect(error).toMatchObject({ status: 400, message: 'Model openai/retired is not available' })
+    expect(error).toMatchObject({
+      status: 400,
+      message: 'Model openai/retired is not available',
+      workspaceDirectory: null,
+    })
+    expect(worktreeCreate).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
+  })
+
+  it('slugs a raw workspace name before creating the workspace', async () => {
+    const repoId = readyRepo()
+    const { client, worktreeCreate } = createClient({ workspaceDirectory: '/worktrees/Feature-Sweep' })
+    const launcher = new SessionLauncher(db, client)
+
+    await launcher.launch({ repoId, prompt: 'hello', workspace: { name: 'Feature Sweep!' } })
+
+    expect(worktreeCreate).toHaveBeenCalledWith({ projectID: 'commit-A', name: 'Feature-Sweep' })
   })
 
   it('rejects a repo that is not ready', async () => {
@@ -168,23 +185,6 @@ describe('SessionLauncher', () => {
       workspaceDirectory: '/worktrees/feature-x',
     })
     expect(worktreeCreate).toHaveBeenCalled()
-  })
-
-  it('exposes the created workspace when the requested model is unavailable', async () => {
-    const repoId = readyRepo()
-    const { client, create } = createClient({ workspaceDirectory: '/worktrees/feature-x' })
-    const launcher = new SessionLauncher(db, client)
-
-    const error = await launcher
-      .launch({ repoId, prompt: 'hello', model: 'openai/retired', workspace: { name: 'feature-x' } })
-      .catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(SessionLaunchError)
-    expect(error).toMatchObject({
-      status: 400,
-      workspaceDirectory: '/worktrees/feature-x',
-    })
-    expect(create).not.toHaveBeenCalled()
   })
 
   it('exposes no workspace when workspace creation fails', async () => {

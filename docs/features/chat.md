@@ -103,7 +103,11 @@ Control who answers OpenCode permission requests for a session. The shield butto
 
 The mode is owned by the backend, so a session in Accept everything keeps working while the browser is closed. Accept everything answers each request once and never saves a permanent rule, and it never overrides a `deny` rule. When you switch a session to Accept everything, requests already waiting are answered immediately.
 
-Child sessions inherit the mode of their root session and cannot change it. Sessions started by a scheduled run always use their schedule's own permission configuration.
+Child sessions inherit the mode of their root session and cannot change it, and the composer toggle is disabled for them with an explanation. A session forked from another starts with the source session's mode, except that forks of scheduled runs stay **Ask every time**.
+
+Sessions started by a scheduled run always use their schedule's own permission configuration; the composer toggle is disabled there with an explanation. Sessions created or forked by an agent through the `ocm` tool always start in **Ask every time**, regardless of the default, though an agent can still send follow-ups to a session you switched to **Accept everything**.
+
+If Manager restarts or loses its connection to OpenCode, permission requests already waiting in **Accept everything** sessions are answered when it reconnects.
 
 To change the default for new sessions, go to **Settings → General → Sessions** and pick a **Default permission mode for new sessions**. The default is stamped onto a session when it is created, so changing it only affects sessions created afterwards, never existing ones.
 
@@ -113,7 +117,7 @@ Auto-accepted requests send no push notification, so you are not alerted for a r
 
 A goal keeps a session working on an objective until an auditor model decides it is done or blocked, without you sending follow-up messages.
 
-Arm goal mode with the target button in the composer, then send your message. That message becomes the goal objective, and it is sent to the session as usual. While a goal is active, each time the session goes idle the auditor decides the next step:
+Arm goal mode with the target button in the composer, then send your message. That message becomes the goal objective, and it is sent to the session as usual. Goals cannot be started on scheduled-run sessions or subagent (child) sessions, and the goal button is disabled there. If you arm a goal and send while the agent is still responding, the message is queued and the goal starts; auditing begins after that queued turn. While a goal is active, each time the session goes idle the auditor decides the next step:
 
 - **done** - the objective is verifiably achieved, and the goal completes.
 - **blocked** - the agent needs a decision or access it cannot obtain. Three consecutive blocked verdicts stop the goal as blocked.

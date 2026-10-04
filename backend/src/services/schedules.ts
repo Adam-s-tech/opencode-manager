@@ -7,7 +7,7 @@ import {
   type ScheduleRunTriggerSource,
   type UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
-import { mcpStatusByName, openCodeLocation, sessionIDFromEvent } from '@opencode-manager/shared/opencode'
+import { mcpStatusByName, openCodeLocation } from '@opencode-manager/shared/opencode'
 import { buildSchedulePermissionRuleset } from '@opencode-manager/shared/schemas'
 import { getRepoById } from '../db/queries'
 import type { ScheduleJobWithRepo } from '../db/schedules'
@@ -46,11 +46,11 @@ import {
   computeNextRunAtForJob,
 } from './schedule-config'
 import { resolveOpenCodeModel } from './opencode-models'
-import { isSessionBusy, readLatestAssistantReply, type AssistantReplyState } from './session-reply'
+import { isSessionBusy, readLatestAssistantReply, sessionSettleSignal, type AssistantReplyState } from './session-reply'
 import type { OpenCodeClient } from './opencode/client'
 import type { ScheduleWorktreeManager } from './schedule-worktree'
 import type { Repo } from '../types/repo'
-import { sseAggregator, type SSEEvent, type ScheduledSessionRef } from './sse-aggregator'
+import { sseAggregator, type ScheduledSessionRef } from './sse-aggregator'
 import { getErrorMessage } from '../utils/error-utils'
 import { logger } from '../utils/logger'
 import { buildAssistantRepo } from './assistant-mode'
@@ -166,18 +166,6 @@ function buildRunStartedLog(input: {
   ].join('\n')
 }
 
-function getSessionErrorText(event: SSEEvent): string | null {
-  if (event.type !== 'session.execution.failed') {
-    return null
-  }
-
-  return event.data.error.message || null
-}
-
-function getSessionStatusType(event: SSEEvent): string | null {
-  return event.type === 'session.status' ? event.data.status.type : null
-}
-
 function createSessionMonitor(directory: string, sessionId: string): SessionMonitor {
   const queued: SessionSignal[] = []
   let waiting: ((signal: SessionSignal) => void) | null = null
@@ -198,26 +186,9 @@ function createSessionMonitor(directory: string, sessionId: string): SessionMoni
       return
     }
 
-    if (sessionIDFromEvent(event) !== sessionId) {
-      return
-    }
-
-    if (event.type === 'session.execution.failed') {
-      push({ errorText: getSessionErrorText(event) ?? 'The session reported an unknown error.', disposed: false })
-      return
-    }
-
-    if (event.type === 'session.execution.interrupted') {
-      push({ errorText: 'The session execution was interrupted.', disposed: false })
-      return
-    }
-
-    if (
-      event.type === 'session.idle'
-      || event.type === 'session.execution.succeeded'
-      || (event.type === 'session.status' && getSessionStatusType(event) === 'idle')
-    ) {
-      push({ errorText: null, disposed: false })
+    const signal = sessionSettleSignal(event, sessionId)
+    if (signal) {
+      push({ errorText: signal.errorText, disposed: false })
     }
   })
 

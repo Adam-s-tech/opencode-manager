@@ -378,11 +378,11 @@ Retrieve a list of all managed repositories, ordered by the user's repo preferen
 
 ### Sessions
 
-These routes back the `session-management` skill, so an agent can start work in a repo, hand a task to a new session, follow it up, read its reply, and fork it. Session creation always goes through the Manager's session launcher, which validates the repository and the requested model before creating anything.
+These routes back the `session-management` skill, so an agent can start work in a repo, hand a task to a new session, follow it up, read its reply, and fork it. Session creation always goes through the Manager's session launcher, which validates the repository and the requested model before creating anything. Malformed JSON is rejected with `{ "error": "Invalid JSON" }`; a body that fails validation is rejected with `{ "error": "Invalid request body", "details": [...] }`; unknown upstream failures return `502`.
 
 **GET `/api/internal/sessions`**
 
-List sessions, newest first. Pass `repoId` to restrict the list to one repo and `limit` (1-50, default 10) to bound it.
+List sessions, newest first. Pass `repoId` to restrict the list to one repo — this covers every OpenCode workspace of that repo, not only the repo directory — and `limit` (1-50, default 10) to bound it.
 
 **Query Parameters:**
 - `repoId` (optional): Restrict to a repository. An unknown id returns `404`.
@@ -395,7 +395,7 @@ List sessions, newest first. Pass `repoId` to restrict the list to one repo and 
     id: string
     title: string | null
     directory: string
-    repoId: number | null   // null when the directory matches no known repo
+    repoId: number | null   // null only when the directory belongs to no known repo
     busy: boolean           // true while the session is running
     outcome: 'succeeded' | 'failed' | 'interrupted' | null
     updated: number
@@ -412,7 +412,7 @@ List sessions, newest first. Pass `repoId` to restrict the list to one repo and 
 
 **POST `/api/internal/sessions`**
 
-Create a session in a repo and send the first prompt. The response returns as soon as the prompt is queued, not when the run finishes; poll `GET /api/internal/sessions/:sessionId/reply` for the result. Pass `worktree: true` to run in a new isolated workspace, with `ref` selecting its base ref. A requested `model` must be available; an unavailable model is rejected with `400` rather than silently substituted.
+Create a session in a repo and send the first prompt. The response returns as soon as the prompt is queued, not when the run finishes; poll `GET /api/internal/sessions/:sessionId/reply` for the result. Pass `worktree: true` to run in a new isolated workspace, with `ref` selecting its base ref. A requested `model` must be available; an unavailable model is rejected with `400` rather than silently substituted. Sessions created here are pinned to **ask** permission mode. With `worktree: true`, creation can take tens of seconds; a request that times out may still have succeeded, so check `GET /api/internal/sessions` before retrying.
 
 **Request Body:**
 ```ts
@@ -472,7 +472,7 @@ Queue a follow-up prompt for an existing session.
 
 **GET `/api/internal/sessions/:sessionId/reply`**
 
-Read the latest assistant reply for a session and whether it is still running. Poll this after creating a session or queueing a prompt until `busy` is `false`.
+Read the latest assistant reply for a session and whether it is still running. Poll this after creating a session or queueing a prompt until `busy` is `false`. Pass `waitMs` (0-45000) to wait until the session settles instead of polling in a loop; the response returns when it settles or the timeout elapses. `responseText` is capped at 20,000 characters, with a truncation marker appended when it is longer.
 
 **Response:**
 ```ts
@@ -486,13 +486,14 @@ Read the latest assistant reply for a session and whether it is still running. P
 
 **Status Codes:**
 - `200`: Reply state returned
+- `400`: Invalid `waitMs`
 - `401`: Missing or invalid bearer token
 - `404`: Session not found
 - `502`: OpenCode error
 
 **POST `/api/internal/sessions/:sessionId/fork`**
 
-Fork a session, optionally before a specific message. Omit `beforeMessageId` to fork from the current point.
+Fork a session, optionally before a specific message. Omit `beforeMessageId` to fork from the current point. The forked session is pinned to **ask** permission mode.
 
 **Request Body:**
 ```ts
