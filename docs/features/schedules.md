@@ -152,7 +152,7 @@ Each schedule stores a run history panel with:
 - **Status** - Running, completed, failed, or cancelled (a running run can be stopped with **Cancel run**)
 - **Trigger source** - Manual or scheduled
 - **Log output** - Execution metadata and captured results
-- **Assistant output** - Rendered markdown
+- **Assistant output** - Rendered markdown, with a **Read aloud** button when Text-to-Speech is enabled
 - **Errors** - Failure details when a run does not complete
 
 This makes recurring jobs easy to review without digging through raw session data first.
