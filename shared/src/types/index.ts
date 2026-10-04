@@ -189,3 +189,33 @@ export {
   InstallSkillUploadRequestSchema,
   InstallSkillUploadManifestEntrySchema,
 } from '../schemas/skills'
+
+export type {
+  TerminalKind,
+  TerminalInfo,
+  CreateTerminalRequest,
+  ResizeTerminalRequest,
+} from '../schemas/terminal'
+
+export type {
+  PreviewPort,
+  PreviewPortsResponse,
+  CreatePreviewSessionRequest,
+  CreatePreviewSessionResponse,
+} from '../schemas/preview'
+
+export type {
+  ProjectActionIcon,
+  ProjectAction,
+  WorktreeSetupCommands,
+  ProjectItemSource,
+  RepoProjectFile,
+  ProjectConfigResponse,
+  UpdateProjectActionsRequest,
+  UpdateWorktreeSetupRequest,
+  TrustRepoConfigRequest,
+  MoveProjectItemRequest,
+  RunProjectActionRequest,
+  RunProjectActionResponse,
+  WorktreeSetupResult,
+} from '../schemas/project-config'

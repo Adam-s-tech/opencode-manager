@@ -40,6 +40,7 @@ services:
     container_name: opencode-manager
     ports:
       - "5003:5003"
+      - "5004:5004"
       - "5100:5100"
       - "5101:5101"
       - "5102:5102"
@@ -157,7 +158,14 @@ ports:
 
 ### Dev Server Ports
 
-Ports 5100-5103 are exposed for running dev servers inside repositories:
+Port 5004 is the [preview gateway](../features/preview.md). It proxies a running dev server through an authenticated origin and supports HMR, so it is the recommended way to view a dev server:
+
+```yaml
+ports:
+  - "5004:5004"
+```
+
+Ports 5100-5103 remain exposed for running dev servers inside repositories and reaching them directly:
 
 ```yaml
 ports:
@@ -166,6 +174,8 @@ ports:
   - "5102:5102"
   - "5103:5103"
 ```
+
+Exposing these raw ports bypasses the preview gateway's authentication and same-origin isolation. Prefer the gateway unless you need direct access to a dev server.
 
 Configure your dev server to use one of these ports:
 

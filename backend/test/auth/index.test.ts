@@ -31,7 +31,13 @@ const { ENV } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('@opencode-manager/shared/config/env', () => ({ ENV }))
+vi.mock('@opencode-manager/shared/config/env', () => ({
+  ENV,
+  getTrustedOrigins: () => ENV.AUTH.TRUSTED_ORIGINS
+    .split(',')
+    .map((origin: string) => origin.trim())
+    .filter((origin: string) => origin.length > 0),
+}))
 
 vi.mock('../../src/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

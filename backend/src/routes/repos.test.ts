@@ -4,9 +4,13 @@ import { Database } from 'bun:sqlite'
 import { migrate } from '../db/migration-runner'
 import { allMigrations } from '../db/migrations'
 import { createRepoRoutes } from './repos'
-import { createRepo, getRepoById } from '../db/queries'
+import { createRepo, getRepoById, setRepoSetting } from '../db/queries'
 import { createStubOpenCodeClient } from '../../test/helpers/stub-opencode-client'
+import { createGitService } from '../services/git/GitService'
+import { ProjectConfigService } from '../services/project-config'
+import { RepoWorkspaceService } from '../services/repo-workspace'
 import type { GitAuthService } from '../services/git-auth'
+import type { TerminalService } from '../services/terminal'
 import type { OpenCodeClient } from '../services/opencode/client'
 import type { Repo } from '@opencode-manager/shared/types'
 import { getReposPath } from '@opencode-manager/shared/config/env'
@@ -30,7 +34,15 @@ const stubGitAuthService = {
   getGitCredentials: async () => [],
 } as unknown as GitAuthService
 
-function createTestApp(db: Database, openCodeClient: OpenCodeClient = createStubOpenCodeClient()): Hono {
+const stubTerminalService = {
+  removeAll: mock(async () => undefined),
+} as unknown as TerminalService
+
+function createTestApp(
+  db: Database,
+  openCodeClient: OpenCodeClient = createStubOpenCodeClient(),
+  terminalService: TerminalService = stubTerminalService,
+): Hono {
   const app = new Hono()
   const scheduleService = {
     createSchedule: () => {},
@@ -40,7 +52,9 @@ function createTestApp(db: Database, openCodeClient: OpenCodeClient = createStub
     deleteSchedule: () => {},
     prepareRepoDelete: () => {},
   } as any
-  app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient))
+  const projectConfigService = new ProjectConfigService(db, createGitService(stubGitAuthService), stubGitAuthService)
+  const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, stubGitAuthService, projectConfigService, terminalService)
+  app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient, terminalService, projectConfigService, repoWorkspaces))
   return app
 }
 
@@ -437,8 +451,30 @@ describe('POST /api/repos/:id/workspaces', () => {
     const res = await app.request('/repos/1/workspaces', { method: 'POST' })
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ directory: '/tmp/wrk-test' })
+    expect(await res.json()).toEqual({ directory: '/tmp/wrk-test', worktreeSetup: { status: 'none' } })
     expect(create).toHaveBeenCalledWith({ projectID: 'commit-A' })
+  })
+
+  it('still returns 200 with a failed worktree setup when the setup terminal cannot start', async () => {
+    createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+    setRepoSetting(db, 1, 'worktreeSetupCommands', JSON.stringify(['pnpm install']))
+    const client = createStubOpenCodeClient()
+    client.api.worktree.create = mock(async () => ({ directory: '/tmp/wrk-test' })) as any
+    const failingTerminalService = {
+      removeAll: mock(async () => undefined),
+      create: mock(async () => {
+        throw new Error('spawn failed')
+      }),
+    } as unknown as TerminalService
+    const app = createTestApp(db, client, failingTerminalService)
+
+    const res = await app.request('/repos/1/workspaces', { method: 'POST' })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      directory: '/tmp/wrk-test',
+      worktreeSetup: { status: 'failed', error: 'spawn failed' },
+    })
   })
 
   it('returns 400 for a non-numeric repo id', async () => {

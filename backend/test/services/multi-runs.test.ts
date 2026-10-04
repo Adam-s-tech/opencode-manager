@@ -5,7 +5,9 @@ import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
 import { createMultiRunWithEntries } from '../../src/db/multi-runs'
 import { MultiRunError, MultiRunService } from '../../src/services/multi-runs'
-import type { GitAuthService } from '../../src/services/git-auth'
+import { RepoWorkspaceError } from '../../src/services/repo'
+import type { RepoWorkspaceService } from '../../src/services/repo-workspace'
+import type { Repo } from '../../src/types/repo'
 import type { OpenCodeClient } from '../../src/services/opencode/client'
 
 const REPO_DIR = '/repos/repo-a'
@@ -40,40 +42,54 @@ interface FakeMultiRunClient {
   client: OpenCodeClient
   sessionCreate: ReturnType<typeof vi.fn>
   sessionPrompt: ReturnType<typeof vi.fn>
-  worktreeCreate: ReturnType<typeof vi.fn>
-  worktreeList: ReturnType<typeof vi.fn>
-  worktreeRemove: ReturnType<typeof vi.fn>
-  workspaces: Array<{ directory: string; strategy: string }>
 }
 
 function createClient(): FakeMultiRunClient {
   let sessionCounter = 0
-  const workspaces: Array<{ directory: string; strategy: string }> = []
 
   const sessionCreate = vi.fn(async (input: { title?: string }) => {
     sessionCounter += 1
     return { id: `ses_${sessionCounter}`, title: input?.title }
   })
   const sessionPrompt = vi.fn(async () => ({}))
-  const worktreeCreate = vi.fn(async (input: { name?: string }) => {
-    const directory = `/worktrees/${input.name ?? 'workspace'}`
-    workspaces.push({ directory, strategy: 'git' })
-    return { directory }
-  })
-  const worktreeList = vi.fn(async () => workspaces)
-  const worktreeRemove = vi.fn(async () => undefined)
 
   const client = {
     api: {
-      location: {
-        get: vi.fn(async () => ({ project: { id: 'commit-A', directory: REPO_DIR, canonical: REPO_DIR } })),
-      },
-      worktree: { create: worktreeCreate, list: worktreeList, remove: worktreeRemove },
       session: { create: sessionCreate, prompt: sessionPrompt },
     },
   } as unknown as OpenCodeClient
 
-  return { client, sessionCreate, sessionPrompt, worktreeCreate, worktreeList, worktreeRemove, workspaces }
+  return { client, sessionCreate, sessionPrompt }
+}
+
+interface FakeRepoWorkspaces {
+  service: RepoWorkspaceService
+  create: ReturnType<typeof vi.fn>
+  remove: ReturnType<typeof vi.fn>
+  removeRepoTerminals: ReturnType<typeof vi.fn>
+}
+
+function createRepoWorkspaces(): FakeRepoWorkspaces {
+  const known = new Set<string>()
+  const create = vi.fn(async (_repo: Repo, options: { name?: string } = {}) => {
+    const directory = `/worktrees/${options.name ?? 'workspace'}`
+    known.add(directory)
+    return { directory, worktreeSetup: { status: 'none' as const } }
+  })
+  const remove = vi.fn(async (_repo: Repo, directory: string) => {
+    if (!known.has(directory)) {
+      throw new RepoWorkspaceError('Not a deletable worktree of this repo', 400)
+    }
+    known.delete(directory)
+  })
+  const removeRepoTerminals = vi.fn(async () => undefined)
+
+  return {
+    service: { create, remove, removeRepoTerminals } as unknown as RepoWorkspaceService,
+    create,
+    remove,
+    removeRepoTerminals,
+  }
 }
 
 describe('MultiRunService', () => {
@@ -119,15 +135,15 @@ describe('MultiRunService', () => {
     return repo.id
   }
 
-  function createService(client: OpenCodeClient): MultiRunService {
-    const gitAuthService = { getGitEnvironment: () => ({}) } as unknown as GitAuthService
-    return new MultiRunService(db, client, gitAuthService)
+  function createService(client: OpenCodeClient, repoWorkspaces: RepoWorkspaceService): MultiRunService {
+    return new MultiRunService(db, client, repoWorkspaces)
   }
 
   it('launches one session per model, each in its own workspace named from the group', async () => {
     const repoId = readyRepo()
-    const { client, sessionCreate, sessionPrompt, worktreeCreate } = createClient()
-    const service = createService(client)
+    const { client, sessionCreate, sessionPrompt } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -162,19 +178,20 @@ describe('MultiRunService', () => {
       sessionCreate.mock.calls.map((call) => `${call[0].model.providerID}/${call[0].model.id}`).sort(),
     ).toEqual(['openai/a', 'openai/b', 'openai/c'])
 
-    const workspaceCalls = worktreeCreate.mock.calls.map((call) => call[0])
+    const workspaceCalls = repoWorkspaces.create.mock.calls.map((call) => call[1])
     expect(workspaceCalls.map((call) => call.name).sort()).toEqual([
       'Feature-Sweep-1',
       'Feature-Sweep-2',
       'Feature-Sweep-3',
     ])
-    expect(workspaceCalls.every((call) => call.branch === 'develop')).toBe(true)
+    expect(workspaceCalls.every((call) => call.ref === 'develop')).toBe(true)
   })
 
   it('keeps launching the other models when one model fails', async () => {
     const repoId = readyRepo()
-    const { client, worktreeCreate } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -189,13 +206,14 @@ describe('MultiRunService', () => {
     expect(run.entries[1]!.sessionId).toBeNull()
     expect(run.entries[0]!.sessionId).toBeTruthy()
     expect(run.entries[2]!.sessionId).toBeTruthy()
-    expect(worktreeCreate).not.toHaveBeenCalled()
+    expect(repoWorkspaces.create).not.toHaveBeenCalled()
   })
 
   it('does not create workspaces when isolation is off', async () => {
     const repoId = readyRepo()
-    const { client, worktreeCreate } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -208,12 +226,13 @@ describe('MultiRunService', () => {
     expect(run.entries.map((entry) => entry.status)).toEqual(['started', 'started'])
     expect(run.entries.every((entry) => entry.directory === REPO_DIR)).toBe(true)
     expect(run.entries.every((entry) => entry.isolated === false)).toBe(true)
-    expect(worktreeCreate).not.toHaveBeenCalled()
+    expect(repoWorkspaces.create).not.toHaveBeenCalled()
   })
 
   it('rejects a repository that is not ready', async () => {
     const { client } = createClient()
-    const service = createService(client)
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const error = await service
       .launch({ repoId: 999, name: 'Sweep', prompt: 'go', models: ['openai/a'], isolate: false })
@@ -225,8 +244,9 @@ describe('MultiRunService', () => {
 
   it('removes the workspace when discarding an isolated entry', async () => {
     const repoId = readyRepo()
-    const { client, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -241,17 +261,17 @@ describe('MultiRunService', () => {
     const discarded = await service.discard(run.id, entry.id)
 
     expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).toHaveBeenCalledWith({
-      projectID: 'commit-A',
-      directory: '/worktrees/Sweep-1',
-      force: true,
-    })
+    expect(repoWorkspaces.remove).toHaveBeenCalledWith(
+      expect.objectContaining({ id: repoId }),
+      '/worktrees/Sweep-1',
+    )
   })
 
   it('rejects discarding an entry twice', async () => {
     const repoId = readyRepo()
-    const { client, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -267,13 +287,14 @@ describe('MultiRunService', () => {
 
     expect(error).toBeInstanceOf(MultiRunError)
     expect(error).toMatchObject({ status: 409 })
-    expect(worktreeRemove).toHaveBeenCalledTimes(1)
+    expect(repoWorkspaces.remove).toHaveBeenCalledTimes(1)
   })
 
   it('does not remove a workspace when discarding a non-isolated entry', async () => {
     const repoId = readyRepo()
-    const { client, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -286,13 +307,14 @@ describe('MultiRunService', () => {
     const discarded = await service.discard(run.id, run.entries[0]!.id)
 
     expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).not.toHaveBeenCalled()
+    expect(repoWorkspaces.remove).not.toHaveBeenCalled()
   })
 
   it('fails only the entry whose model is unavailable and creates no workspace for it', async () => {
     const repoId = readyRepo()
-    const { client, worktreeCreate, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -309,15 +331,16 @@ describe('MultiRunService', () => {
     expect(run.entries[0]!.directory).toBe('/worktrees/Sweep-1')
     expect(run.entries[2]!.directory).toBe('/worktrees/Sweep-3')
 
-    expect(worktreeCreate).toHaveBeenCalledTimes(2)
-    expect(worktreeCreate.mock.calls.map((call) => call[0].name).sort()).toEqual(['Sweep-1', 'Sweep-3'])
-    expect(worktreeRemove).not.toHaveBeenCalled()
+    expect(repoWorkspaces.create).toHaveBeenCalledTimes(2)
+    expect(repoWorkspaces.create.mock.calls.map((call) => call[1].name).sort()).toEqual(['Sweep-1', 'Sweep-3'])
+    expect(repoWorkspaces.remove).not.toHaveBeenCalled()
   })
 
   it('marks an isolated entry discarded when its workspace directory is gone', async () => {
     const repoId = readyRepo()
-    const { client, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -333,13 +356,14 @@ describe('MultiRunService', () => {
     const discarded = await service.discard(run.id, entry.id)
 
     expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).not.toHaveBeenCalled()
+    expect(repoWorkspaces.remove).not.toHaveBeenCalled()
   })
 
   it('maps a workspace that is not a deletable sibling to 400 and keeps the entry retryable', async () => {
     const repoId = readyRepo()
-    const { client, workspaces, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -350,21 +374,24 @@ describe('MultiRunService', () => {
     })
     const entry = run.entries[0]!
 
-    workspaces.length = 0
+    repoWorkspaces.remove.mockRejectedValueOnce(
+      new RepoWorkspaceError('Not a deletable worktree of this repo', 400),
+    )
 
     const error = await service.discard(run.id, entry.id).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(MultiRunError)
     expect(error).toMatchObject({ status: 400 })
-    expect(worktreeRemove).not.toHaveBeenCalled()
+    expect(repoWorkspaces.remove).toHaveBeenCalledTimes(1)
     expect(service.list(repoId)[0]!.entries[0]!.status).toBe('started')
   })
 
   it('records the workspace of a failed isolated launch when prompting fails and removes it on discard', async () => {
     const repoId = readyRepo()
-    const { client, sessionPrompt, worktreeRemove } = createClient()
+    const { client, sessionPrompt } = createClient()
     sessionPrompt.mockRejectedValueOnce(new Error('prompt boom'))
-    const service = createService(client)
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -382,14 +409,15 @@ describe('MultiRunService', () => {
     const discarded = await service.discard(run.id, entry.id)
 
     expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).toHaveBeenCalledTimes(1)
+    expect(repoWorkspaces.remove).toHaveBeenCalledTimes(1)
   })
 
   it('does not record or remove a workspace when isolated workspace creation fails', async () => {
     const repoId = readyRepo()
-    const { client, worktreeCreate, worktreeRemove } = createClient()
-    worktreeCreate.mockRejectedValueOnce(new Error('no workspace'))
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    repoWorkspaces.create.mockRejectedValueOnce(new Error('no workspace'))
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -406,13 +434,14 @@ describe('MultiRunService', () => {
     const discarded = await service.discard(run.id, entry.id)
 
     expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).not.toHaveBeenCalled()
+    expect(repoWorkspaces.remove).not.toHaveBeenCalled()
   })
 
   it('removes the workspace once when discards race', async () => {
     const repoId = readyRepo()
-    const { client, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -424,7 +453,7 @@ describe('MultiRunService', () => {
     const entry = run.entries[0]!
 
     let releaseRemoval: () => void = () => {}
-    worktreeRemove.mockReturnValueOnce(
+    repoWorkspaces.remove.mockReturnValueOnce(
       new Promise<void>((resolve) => {
         releaseRemoval = resolve
       }),
@@ -441,13 +470,14 @@ describe('MultiRunService', () => {
     const discarded = await first
 
     expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).toHaveBeenCalledTimes(1)
+    expect(repoWorkspaces.remove).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the entry retryable when workspace removal fails', async () => {
     const repoId = readyRepo()
-    const { client, worktreeRemove } = createClient()
-    const service = createService(client)
+    const { client } = createClient()
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     const run = await service.launch({
       repoId,
@@ -458,7 +488,7 @@ describe('MultiRunService', () => {
     })
     const entry = run.entries[0]!
 
-    worktreeRemove.mockRejectedValueOnce(new Error('removal failed'))
+    repoWorkspaces.remove.mockRejectedValueOnce(new Error('removal failed'))
 
     const error = await service.discard(run.id, entry.id).catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(MultiRunError)
@@ -469,13 +499,14 @@ describe('MultiRunService', () => {
     const discarded = await service.discard(run.id, entry.id)
 
     expect(discarded.entries[0]!.status).toBe('discarded')
-    expect(worktreeRemove).toHaveBeenCalledTimes(2)
+    expect(repoWorkspaces.remove).toHaveBeenCalledTimes(2)
   })
 
   it('lists the most recent groups for a repository', async () => {
     const repoId = readyRepo()
     const { client } = createClient()
-    const service = createService(client)
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     await service.launch({ repoId, name: 'First', prompt: 'go', models: ['openai/a'], isolate: false })
     await service.launch({ repoId, name: 'Second', prompt: 'go', models: ['openai/b'], isolate: false })
@@ -503,7 +534,8 @@ describe('MultiRunService', () => {
   it('deletes the repository multi-run rows when the repository is deleted', async () => {
     const repoId = readyRepo()
     const { client } = createClient()
-    const service = createService(client)
+    const repoWorkspaces = createRepoWorkspaces()
+    const service = createService(client, repoWorkspaces.service)
 
     await service.launch({ repoId, name: 'Sweep', prompt: 'go', models: ['openai/a'], isolate: false })
 

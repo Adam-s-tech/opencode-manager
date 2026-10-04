@@ -93,7 +93,7 @@ POST /sessions/*/fork
 **Deliberately not allow-listed:**
 
 - `POST /notifications/send` — use the `send_notification` action instead.
-- `GET /git-credentials/gh-env` — returns the GitHub CLI environment (`GH_TOKEN`, `GITHUB_TOKEN`) for the OpenCode host process; it must not be readable by the agent.
+- `GET /git-credentials/gh-env` — returns the GitHub CLI environment (`GH_TOKEN`, `GITHUB_TOKEN`) for a working directory for the OpenCode host process; it must not be readable by the agent.
 - `POST /sandbox/shell` — the sandbox planner's internal route that resolves and pins the shell for a `shell` call; exposing it would let the agent drive shell planning directly.
 - `/repos/*/mirror/*` — the repo mirror protocol that the `ocm` CLI uses to sync entire repositories; it can create, replace, patch, or delete whole repos, so it stays reserved for the CLI.
 

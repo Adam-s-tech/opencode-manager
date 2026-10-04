@@ -11,6 +11,7 @@ import { getRepoById } from '../../db/queries'
 import { handleOpenCodeError, parseJsonBody } from '../../utils/route-helpers'
 import type { OpenCodeClient } from '../../services/opencode/client'
 import type { SessionPermissionModeService } from '../../services/session-permission-modes'
+import type { RepoWorkspaceService } from '../../services/repo-workspace'
 import { SessionLaunchError, SessionLauncher } from '../../services/session-launcher'
 import {
   isSessionBusy,
@@ -51,9 +52,10 @@ export function createInternalSessionRoutes(
   db: Database,
   openCodeClient: OpenCodeClient,
   permissionModes: SessionPermissionModeService,
+  repoWorkspaces: RepoWorkspaceService,
 ) {
   const app = new Hono()
-  const sessionLauncher = new SessionLauncher(db, openCodeClient)
+  const sessionLauncher = new SessionLauncher(db, openCodeClient, repoWorkspaces)
 
   app.get('/', async (c) => {
     const parsedQuery = ListSessionsQuerySchema.safeParse(c.req.query())

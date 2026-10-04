@@ -15,6 +15,9 @@ import { createWorktreeSafely } from '../../src/services/repo'
 import { syncManagerGitIdentityConfig } from '../../src/services/git-identity'
 import { createGitAuthService, cloneOrigin, createOrigin, git, uniqueName } from '../helpers/git-fixtures'
 import { createStubOpenCodeClient } from '../helpers/stub-opencode-client'
+import type { TerminalService } from '../../src/services/terminal'
+import type { ProjectConfigService } from '../../src/services/project-config'
+import type { RepoWorkspaceService } from '../../src/services/repo-workspace'
 
 const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'repos-git-identity-'))
 const homeDir = path.join(workspaceRoot, 'home')
@@ -49,7 +52,7 @@ describe('repo git identity routes', () => {
     mkdirSync(reposPath, { recursive: true })
     const scheduleService = { prepareRepoDelete: () => {} } as unknown as Parameters<typeof createRepoRoutes>[2]
     app = new Hono()
-    app.route('/repos', createRepoRoutes(db, createGitAuthService(), scheduleService, createStubOpenCodeClient()))
+    app.route('/repos', createRepoRoutes(db, createGitAuthService(), scheduleService, createStubOpenCodeClient(), {} as unknown as TerminalService, {} as unknown as ProjectConfigService, {} as unknown as RepoWorkspaceService))
   })
 
   afterEach(() => {

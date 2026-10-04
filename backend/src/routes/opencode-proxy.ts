@@ -11,21 +11,7 @@ import {
   withDefaultOpenCodeDirectory,
 } from '../services/opencode/upstream'
 import { getRepoById } from '../db/queries'
-
-const HOP_BY_HOP_HEADERS = new Set([
-  'connection',
-  'keep-alive',
-  'proxy-authenticate',
-  'proxy-authorization',
-  'te',
-  'trailers',
-  'upgrade',
-  'transfer-encoding',
-  'content-length',
-  'content-encoding',
-  'host',
-  'authorization',
-])
+import { buildProxyResponseHeaders, filterProxyHeaders } from '../utils/proxy-headers'
 
 interface ProxyRequestParts {
   method: string
@@ -95,13 +81,7 @@ export function createOpenCodeProxyRoutes(db: Database, settingsService: Setting
     const url = new URL(c.req.url)
     const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD'
 
-    const forwardedHeaders: Record<string, string> = {}
-    c.req.raw.headers.forEach((value, key) => {
-      const lowerKey = key.toLowerCase()
-      if (!HOP_BY_HOP_HEADERS.has(lowerKey)) {
-        forwardedHeaders[key] = value
-      }
-    })
+    const forwardedHeaders = filterProxyHeaders(c.req.raw.headers)
     const headers = withDefaultOpenCodeDirectory(forwardedHeaders)
 
     headers['Authorization'] = buildOpenCodeBasicAuth(settingsService.getOpenCodeServerPassword())
@@ -140,13 +120,7 @@ export function createOpenCodeProxyRoutes(db: Database, settingsService: Setting
         duplex: 'half',
       })
 
-      const responseHeaders: Record<string, string> = {}
-      upstreamResponse.headers.forEach((value, key) => {
-        const lowerKey = key.toLowerCase()
-        if (!HOP_BY_HOP_HEADERS.has(lowerKey)) {
-          responseHeaders[key] = value
-        }
-      })
+      const responseHeaders = buildProxyResponseHeaders(upstreamResponse.headers)
 
       return new Response(upstreamResponse.body, {
         status: upstreamResponse.status,

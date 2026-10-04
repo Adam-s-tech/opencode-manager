@@ -3,11 +3,46 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const serveMock = vi.fn()
+interface MockServeServer {
+  on: (event: string, handler: (...args: unknown[]) => void) => void
+  emit: (event: string, ...args: unknown[]) => void
+}
+
+const serveServers = vi.hoisted(() => [] as MockServeServer[])
+
+const serveMock = vi.fn<(options: unknown) => MockServeServer>(() => {
+  const handlers = new Map<string, Array<(...args: unknown[]) => void>>()
+  const server: MockServeServer = {
+    on: (event, handler) => {
+      const registered = handlers.get(event) ?? []
+      registered.push(handler)
+      handlers.set(event, registered)
+    },
+    emit: (event, ...args) => {
+      for (const handler of handlers.get(event) ?? []) handler(...args)
+    },
+  }
+  serveServers.push(server)
+  return server
+})
 
 vi.mock('@hono/node-server', () => ({
   serve: serveMock,
 }))
+
+const previewAvailabilityInstances = vi.hoisted(() => [] as Array<{ isEnabled: () => boolean }>)
+
+vi.mock('../src/routes/preview', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/routes/preview')>()
+  return {
+    ...actual,
+    createPreviewAvailability: (initialEnabled: boolean) => {
+      const availability = actual.createPreviewAvailability(initialEnabled)
+      previewAvailabilityInstances.push(availability)
+      return availability
+    },
+  }
+})
 
 const supervisorMock = vi.hoisted(() => ({
   start: vi.fn().mockResolvedValue({ healthy: true, port: 5551, state: 'running' }),
@@ -144,6 +179,8 @@ describe('backend entrypoint', () => {
   beforeEach(async () => {
     vi.resetModules()
     vi.clearAllMocks()
+    serveServers.length = 0
+    previewAvailabilityInstances.length = 0
     tempWorkspace = await mkdtemp(join(tmpdir(), 'ocm-entrypoint-'))
     previousWorkspace = process.env.WORKSPACE_PATH
     process.env.WORKSPACE_PATH = tempWorkspace
@@ -163,7 +200,7 @@ describe('backend entrypoint', () => {
   it('initializes the workspace, registers every route group, and serves the app', async () => {
     await import('../src/index')
 
-    expect(serveMock).toHaveBeenCalledTimes(1)
+    expect(serveMock).toHaveBeenCalledTimes(2)
     const options = serveMock.mock.calls[0]![0] as { fetch: unknown; port: number; hostname: string }
     expect(typeof options.fetch).toBe('function')
     expect(options.port).toBe(3001)
@@ -174,6 +211,22 @@ describe('backend entrypoint', () => {
     expect(scheduleRunnerMock.start).toHaveBeenCalledTimes(1)
     expect(sseAggregatorMock.start).toHaveBeenCalledTimes(1)
     expect(ipcServerMock.dispose).not.toHaveBeenCalled()
+  })
+
+  it('marks the preview gateway unavailable instead of crashing when its port cannot be bound', async () => {
+    await import('../src/index')
+
+    expect(serveServers).toHaveLength(2)
+    const availability = previewAvailabilityInstances[0]
+    expect(availability?.isEnabled()).toBe(false)
+
+    const previewServer = serveServers[1]!
+    previewServer.emit('listening')
+    expect(availability?.isEnabled()).toBe(true)
+
+    const error = Object.assign(new Error('bind failed'), { code: 'EADDRINUSE' })
+    expect(() => previewServer.emit('error', error)).not.toThrow()
+    expect(availability?.isEnabled()).toBe(false)
   })
 
   it('imports home state without rewriting an existing valid config', async () => {
