@@ -100,13 +100,12 @@ VAPID_SUBJECT=mailto:you@yourdomain.com
 
 Navigate to **Settings** → **Notifications** to see all registered devices:
 
-- Device name (if provided)
-- Subscription date
-- Last used timestamp
+- Device name, or a truncated endpoint when the device has no name
+- One relative timestamp: when it was last used, or when it was added if it has never been used
 
 ### Remove a Device
 
-Click **Unsubscribe** next to a device to remove it from receiving notifications.
+Click the **trash** icon next to a device to remove it from receiving notifications.
 
 ### Test Notifications
 
@@ -118,8 +117,8 @@ Control which events trigger notifications:
 
 **Notification Settings:**
 - **Enable Push Notifications** - Master toggle (default: off)
-- **Permission Requested** - Get notified when agent needs permission (default: on)
-- **Question Asked** - Get notified when agent has a question (default: on)
-- **Session Error** - Get notified on session errors (default: on)
-- **Session Complete** - Get notified when session finishes (default: off)
+- **Permission requests** - Get notified when agent needs permission (default: on)
+- **Agent questions** - Get notified when agent has a question (default: on)
+- **Session errors** - Get notified on session errors (default: on)
+- **Session completion** - Get notified when session finishes (default: off)
 - **Goal outcomes** - Get notified when a session goal completes, is blocked, stops, or pauses (default: on)

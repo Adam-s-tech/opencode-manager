@@ -155,7 +155,7 @@ With `AUTH_SECURE_COOKIES=true` you also cannot sign in over plain HTTP, because
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Preview stays blank or cannot connect | `PREVIEW_PUBLIC_URL` is not set, so the panel uses port 5004 on the Manager hostname | Set `PREVIEW_PUBLIC_URL` and restart the Manager |
-| **Preview session is invalid or expired.** inside the panel | The browser blocked the preview cookie: the hostnames are on different domains, or the Manager was opened by its LAN address | Put both hostnames on the same domain and open the Manager through the tunnel, or use **Open in new tab** |
+| **Preview session expired. Reopen it from OpenCode Manager.** inside the panel right after selecting a port | The browser blocked the preview cookie: the hostnames are on different domains, or the Manager was opened by its LAN address | Put both hostnames on the same domain and open the Manager through the tunnel, or use **Open in new tab** |
 | **Preview must run on a different origin than OpenCode Manager.** | `PREVIEW_PUBLIC_URL` points at the Manager's own hostname | Use a separate hostname for the preview |
 | Old file contents, or another project's files | Cloudflare cached the files | Add the [cache rule](#3-turn-off-caching-for-the-preview-hostname), then purge the cache under **Caching > Configuration** |
 | Live reload does not work, or the Terminal does not connect | WebSockets are off | Turn on [WebSockets](#4-check-websockets) |

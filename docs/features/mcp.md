@@ -18,7 +18,7 @@ Local servers run as processes on your machine:
 
 1. Open a repository and click **MCP** in the sidebar
 2. Click **Add Server**
-3. Select **Local**
+3. Select **Local (Command)**
 4. Configure:
 
 ![MCP Servers List](../images/mcp-servers-list.png)
@@ -51,9 +51,9 @@ Local servers run as processes on your machine:
 
 Remote servers are accessed over HTTP/SSE:
 
-1. Go to **Settings > MCP Servers**
+1. Go to **Settings → OpenCode Config → MCP Servers**
 2. Click **Add Server**
-3. Select **Remote**
+3. Select **Remote (HTTP)**
 4. Configure:
 
 ```json
@@ -179,7 +179,7 @@ Web search capabilities:
 
 Toggle servers on/off:
 
-1. Go to **Settings > MCP Servers**
+1. Go to **Settings → OpenCode Config → MCP Servers**
 2. Find the server
 3. Click the toggle switch
 
@@ -189,12 +189,12 @@ Disabled servers won't be started or connected.
 
 Remove a server:
 
-1. Click the **Delete** button
+1. Click the **Delete Server** action
 2. Confirm deletion
 
 ### Refresh Status
 
-Use the refresh button in **Settings > MCP Servers** to reload the current connection status after changing a server outside the UI or completing OAuth.
+Use the refresh button in **Settings → OpenCode Config → MCP Servers** to reload the current connection status after changing a server outside the UI or completing OAuth.
 
 ### Configuration Shape
 
@@ -209,9 +209,9 @@ Monitor server health:
 | Status | Description |
 |--------|-------------|
 | Connected | Server is active and connected |
+| Connecting | Connection is pending |
 | Disabled | Server is configured but disabled |
 | Auth Required | Remote server needs OAuth authentication |
-| Registration Required | Remote server needs OAuth client registration |
 | Failed | Server failed to start or connect |
 
 ## Tool Permissions

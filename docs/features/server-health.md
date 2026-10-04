@@ -4,7 +4,7 @@ Monitor the managed OpenCode server's status and control restarts and upgrades f
 
 ## Overview
 
-OpenCode Manager runs a supervised OpenCode server process to handle agent sessions. The **OpenCode** tab in Settings shows the server's current status, version information, and provides controls for restarting or upgrading the server without bringing down the Manager itself.
+OpenCode Manager runs a supervised OpenCode server process to handle agent sessions. The **OpenCode Config** tab in Settings shows the server's current status, version information, and provides controls for restarting or upgrading the server without bringing down the Manager itself.
 
 ![Server Health and Status](../images/server-health-status.png)
 
@@ -14,7 +14,8 @@ OpenCode Manager runs a supervised OpenCode server process to handle agent sessi
 |-----------|---------|
 | **Healthy** | The OpenCode server is running and responding to health checks |
 | **Unhealthy** | The server is not responding. The Manager will attempt automatic recovery. |
-| **Starting** | The server is being initialized after a restart or Manager startup |
+
+The panel shows a single **Server Status** value, `Healthy` or `Unhealthy`. A server that is still starting after a restart or Manager startup is reported as **Unhealthy** until its first successful health check.
 
 The panel also displays:
 
@@ -85,7 +86,7 @@ Click **Update** to check for and install the newest supported OpenCode 2 versio
 3. Restarts the server using the same session-resume flow described above
 4. The new version is displayed in the status panel after restart
 
-Installing a specific version from Settings → OpenCode works the same way; versions outside the supported range are rejected before any download. A failure before the installed binary is replaced (registry lookup, download, or extraction) returns an error without restarting the server. If the failure happens after the binary is replaced and the server recovers to a usable state, a recovery notice is shown with the fallback version.
+Installing a specific version from Settings → OpenCode Config works the same way; versions outside the supported range are rejected before any download. A failure before the installed binary is replaced (registry lookup, download, or extraction) returns an error without restarting the server. If the failure happens after the binary is replaced and the server recovers to a usable state, a recovery notice is shown with the fallback version.
 
 When `OPENCODE_BIN` is set, the OpenCode binary is managed outside the Manager: **Update** and version installs are refused with `409` and nothing is downloaded or restarted.
 

@@ -55,9 +55,9 @@ docker exec -it opencode-manager sh
 
 | Volume | Container Path | Purpose |
 |--------|---------------|---------|
-| `opencode-workspace` | `/workspace` | Repository storage |
-| `opencode-data` | `/app/data` | Database and config |
-| `opencode-bin` | `/home/node/.opencode/bin` | OpenCode binary, persisted across container recreations |
+| `opencode-workspace` | `/workspace` | Repository storage, plus OpenCode configuration and state |
+| `opencode-data` | `/app/data` | SQLite database |
+| `opencode-bin` | `/home/node/.opencode/bin` | OpenCode versions installed from Settings, persisted across container recreations (the bundled binary is part of the image) |
 
 ## Local Development
 
@@ -65,6 +65,7 @@ For contributors who want to develop locally instead of using Docker.
 
 ### Prerequisites
 
+- [Git](https://git-scm.com/downloads) - Required; `pnpm dev` checks for it
 - [pnpm](https://pnpm.io/installation) - Package manager (required for workspaces)
 - [Bun](https://bun.sh) - Backend runtime
 - [OpenCode TUI](https://opencode.ai) 2.x, 2.0.15 or newer - `curl -fsSL https://opencode.ai/v2/install | bash`

@@ -20,7 +20,7 @@ OpenCode Manager provides a comprehensive web interface for managing OpenCode AI
 ### File Management
 
 - **Directory Browser** - Navigate files with tree view and search
-- **Syntax Highlighting** - Code preview with highlighting for 100+ languages
+- **Syntax Highlighting** - Code preview with highlighting for common languages
 - **File Operations** - Create, rename, delete, and drag-and-drop upload
 - **ZIP Download** - Download repos as ZIP (respects .gitignore)
 
@@ -43,7 +43,7 @@ OpenCode Manager provides a comprehensive web interface for managing OpenCode AI
 - **Permission Modes** — Ask every time or Accept everything, per session, with a default for new sessions
 - **Session Goals** — Keep a session working toward an objective until an auditor model says it is done or blocked
 - **Multi-run** — Run one prompt across up to five models at once, optionally each in its own workspace
-- **Per-Agent Model Selection** — Each agent retains its own model selection independently
+- **Agent Model Selection** — Switching agents applies that agent's configured model
 - **Session Pinning** — Pin important sessions to a dedicated section at the top of the session list
 - **Mermaid Diagrams** - Visual diagram rendering in chat
 
@@ -72,10 +72,30 @@ OpenCode Manager provides a comprehensive web interface for managing OpenCode AI
 
 - **Local Servers** - Add command-based MCP servers
 - **Remote Servers** - Connect to HTTP-based MCP servers
-- **Templates** - Pre-built configurations for common servers
 - **Management** - Enable, disable, and configure servers
 
 [Learn more →](mcp.md)
+
+### Skills
+
+- **Reusable Instructions** - `SKILL.md` instruction sets that give agents domain-specific workflows
+- **Global and Project Scopes** - Share skills across all repositories or scope them to one repo
+
+[Learn more →](skills.md)
+
+### Agent Sandboxing
+
+- **Isolated Shell Commands** - Run agent `shell` tool commands inside a microVM instead of the Manager container
+- **Same Files, Separate Kernel** - Repositories are bind-mounted at the same paths, without access to Manager configuration, provider credentials, or SSH keys
+
+[Learn more →](sandboxing.md)
+
+### `ocm` CLI
+
+- **Local TUI, Remote Repo** - Attach your local OpenCode TUI to a repo hosted on the Manager
+- **Push and Pull** - Sync a local working tree with the Manager repo
+
+[Learn more →](../ocm-cli.md)
 
 ### Text-to-Speech
 
@@ -130,7 +150,7 @@ Both pickers live under **Settings → General**.
 
 ### OpenCode Server Health
 
-- **Live Status** — Server health indicator in Settings (Healthy/Unhealthy/Starting)
+- **Live Status** — Server health indicator in Settings (Healthy/Unhealthy)
 - **Graceful Restart** — Interrupted sessions resume natively after restart
 - **Auto-Recovery** — Configurable health monitoring with automatic recovery on failure
 - **Version Management** — View current versions and trigger OpenCode 2 upgrades from the UI

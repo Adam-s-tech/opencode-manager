@@ -119,14 +119,14 @@ Kokoro-style composite voices are supported. Combine multiple voices for unique 
 
 To listen to an AI response:
 
-1. Click the **Play** button on a message
+1. Click the **Read aloud** button on a message
 2. Audio streams and plays
 
 ### Playback Controls
 
 While audio is playing:
 
-- **Stop** - End playback immediately
+- **Stop playback** - End playback immediately
 - Audio stops if you navigate away
 
 ## Markdown Sanitization
@@ -135,8 +135,8 @@ Before sending text to TTS, markdown is cleaned for better speech:
 
 - Code blocks removed entirely
 - Inline code: `code` → code
-- Links: [text](url) → text
-- Images: ![alt](url) → alt
+- Links: `[text](url)` → text
+- Images: `![alt](url)` → alt
 - Bold/italic/strikethrough markers removed
 - Headers: ### Header → Header
 - List markers removed

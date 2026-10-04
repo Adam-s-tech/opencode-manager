@@ -10,7 +10,7 @@ Open a repository and click **Multi-run** in the header, next to **New Session**
 2. Enter the **Prompt** to send to every model.
 3. Select up to **five models** from the checkbox list, grouped by provider.
 4. Leave **Isolate runs** on to give each model its own workspace.
-5. Optionally set **Start from** to a branch or ref. Empty starts from the current HEAD.
+5. With **Isolate runs** on, optionally change **Start from**: a local or `origin` branch. It defaults to the repository's current branch.
 
 Click **Launch**. Each selected model gets its own session, and the same prompt is sent to all of them. Models are checked before any workspace is created, so a model that is not available fails its entry without creating a workspace while the other models still launch. Launching is parallel, and one model failing does not stop the others: the failed entry records its error while the rest keep running.
 
@@ -20,7 +20,7 @@ With **Isolate runs** on, each run is created in its own OpenCode workspace: a d
 
 ## Runs
 
-The **Runs** tab lists each group and its entries. Every entry shows the model, its status, and for a started run the live session status indicator. From here you can:
+The **Runs** tab lists the 20 most recent groups and their entries. Every entry shows the model, its status, and for a started run the live session status indicator. From here you can:
 
 - **Open** a run to view its session and compare the result.
 - **Discard** a run after confirmation. Discarding an isolated run also removes its workspace directory from the Workspaces tab; if that workspace was already removed, for example from the Workspaces tab, discarding still succeeds. A non-isolated run keeps its session in the repository.

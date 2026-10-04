@@ -6,18 +6,18 @@ Comprehensive git integration for managing repositories and source control.
 
 Clone any git repository:
 
-1. Click the **Repositories** button in the sidebar
-2. Click **Clone Repository**
+1. Click the **Repos** button in the sidebar
+2. Click **Add Repository**
 3. Paste the repository URL
-4. Click **Clone**
+4. Click **Add Repository**
 
 ## Discovering Existing Repositories
 
 Import repositories you already have on disk without recloning them:
 
-1. Click the **Repositories** button in the sidebar
+1. Click the **Repos** button in the sidebar
 2. Click **Add Repository**
-3. Select **Folder Discovery**
+3. Select **Folder**
 4. Enter a parent folder such as `/Users/you/Development`
 5. Click **Discover Repositories**
 

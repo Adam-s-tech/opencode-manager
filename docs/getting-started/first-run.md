@@ -12,9 +12,9 @@ Fill in your account details:
 
 - **Name** - Your display name
 - **Email** - Used for login
-- **Password** - Minimum 8 characters recommended
+- **Password** - At least 8 characters (required)
 
-Click **Create Account** to continue.
+Click **Create Admin Account** to continue.
 
 ### Step 2: Configure Provider (Optional)
 
@@ -41,16 +41,17 @@ When these are set:
 
 - Admin user is created automatically on first startup
 - Setup wizard is skipped
-- Users must log in with configured credentials
+- Registration is disabled, so no new accounts can be created
+- `ADMIN_PASSWORD` sets the password only when the admin is first created, or when `ADMIN_PASSWORD_RESET=true`; changing it later has no effect otherwise
 
 ## Adding Passkeys
 
 After initial setup, you can add passkey authentication for passwordless login:
 
 1. Go to **Settings > Account**
-2. Click **Add Passkey**
-3. Follow your browser/device prompts
-4. Name your passkey (e.g., "MacBook Touch ID")
+2. Optionally enter a passkey name (e.g., "MacBook Touch ID")
+3. Click **Add Passkey**
+4. Follow your browser/device prompts
 
 Passkeys provide:
 

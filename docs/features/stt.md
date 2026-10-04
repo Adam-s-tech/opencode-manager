@@ -55,7 +55,7 @@ Connect to OpenAI-compatible STT endpoints for higher accuracy transcription.
 
 1. Go to **Settings > Voice**
 2. Under **Speech-to-Text**, select **External API** provider
-3. Enter the **STT Server URL**:
+3. Enter the **API Endpoint**:
     - OpenAI: `https://api.openai.com`
 4. Enter your **API Key**
 5. Wait for model discovery

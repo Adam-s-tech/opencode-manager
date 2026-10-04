@@ -149,10 +149,10 @@ You can customize the deny list by adding or removing glob patterns. One pattern
 
 Each schedule stores a run history panel with:
 
-- **Status** - Running, completed, or failed
+- **Status** - Running, completed, failed, or cancelled (a running run can be stopped with **Cancel run**)
 - **Trigger source** - Manual or scheduled
 - **Log output** - Execution metadata and captured results
-- **Assistant output** - Rendered markdown preview and raw markdown
+- **Assistant output** - Rendered markdown
 - **Errors** - Failure details when a run does not complete
 
 This makes recurring jobs easy to review without digging through raw session data first.

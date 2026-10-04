@@ -33,7 +33,7 @@ Open [http://localhost:5003](http://localhost:5003) and create your admin accoun
 OpenCode Manager is a mobile-first web interface for [OpenCode](https://opencode.ai) AI agents. It combines repository management, chat/session control, Git and file tools, schedules, AI configuration, MCP server management, push notifications, and full PWA support into a single responsive application.
 
 - **Repository management** — Clone, discover, and manage multiple Git repos with SSH authentication and worktree support
-- **Chat & sessions** — Real-time SSE streaming with slash commands, `@file` mentions, Plan/Build modes, and per-agent model selection
+- **Chat & sessions** — Real-time SSE streaming with slash commands, `@file` mentions, Plan/Build modes, and agent switching with configured models
 - **Schedules** — Recurring repo jobs with reusable prompts, run history, and linked sessions
 - **AI configuration** — Model/provider setup, OAuth for Anthropic/GitHub Copilot, custom agents
 - **MCP & Skills** — MCP server management and skill support
@@ -55,6 +55,7 @@ OpenCode Manager runs as a pnpm workspace:
 - **Repositories & Git** — Multi-repo management, local discovery, SSH auth, worktrees, unified diffs, branch/commit management — [Learn more](features/git.md)
 - **Chat & Sessions** — Real-time SSE streaming, slash commands, `@file` mentions, Plan/Build modes, Mermaid diagrams — [Learn more](features/chat.md)
 - **Files** — Directory browser with tree view, syntax highlighting, create/rename/delete, ZIP download — [Learn more](features/files.md)
+- **Terminal & Dev Loop** — Repo terminals, project actions, and an authenticated dev-server preview — [Learn more](features/terminal.md)
 - **Schedules** — Recurring repo jobs with reusable prompts, run history, linked sessions — [Learn more](features/schedules.md)
 - **Session Pinning** — Pin important sessions to the top of the session list — [Learn more](features/session-pins.md)
 - **Assistant Mode** — Dedicated AI workspace with auto-provisioned skills for schedule management, notifications, settings, repo listing, and session management — [Learn more](features/assistant-mode.md)
@@ -63,6 +64,8 @@ OpenCode Manager runs as a pnpm workspace:
 - **Manager Logs** — Manager log lines plus captured OpenCode server stdout/stderr in Settings, with level/source filters, search, and pause/copy controls — [Learn more](features/logs.md)
 - **MCP Servers** — Add local or remote MCP servers with OAuth support — [Learn more](features/mcp.md)
 - **Skills** — Skill support for extended agent capabilities — [Learn more](features/skills.md)
+- **Agent Sandboxing** — Run agent shell commands inside an isolated microVM — [Learn more](features/sandboxing.md)
+- **`ocm` CLI** — Attach your local OpenCode TUI to a Manager-hosted repo — [Learn more](ocm-cli.md)
 - **Mobile & PWA** — Responsive UI, installable on any device, iOS-optimized — [Learn more](features/mobile.md)
 - **Push Notifications** — Background alerts for agent events — [Learn more](features/notifications.md)
 - **Audio** — Text-to-speech and speech-to-text (browser + OpenAI-compatible) — [Learn more](features/tts.md) | [Learn more](features/stt.md)

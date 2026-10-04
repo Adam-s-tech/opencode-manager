@@ -33,7 +33,7 @@ docker-compose build --no-cache
 
 **Symptoms:** Container won't start after an OpenCode upgrade, or the OpenCode settings show a malformed binary
 
-The OpenCode binary lives in its own named volume (`opencode-bin`). To remove only that volume and let the entrypoint reinstall the pinned bundled version on next start, without touching the workspace or database volumes:
+OpenCode versions installed from Settings live in their own named volume (`opencode-bin`); the bundled version is part of the image. On start, the entrypoint already removes a persisted binary that is malformed or outside the supported range. If a persisted version still misbehaves, remove only that volume so the container falls back to the bundled binary, without touching the workspace or database volumes:
 
 ```bash
 docker-compose down
@@ -69,6 +69,13 @@ ports:
   - "8080:5003"  # Use different host port
 ```
 
+Then add the new URL to the allowed origins in `.env`, or sign-in fails with an invalid-origin error:
+
+```bash
+AUTH_TRUSTED_ORIGINS=http://localhost:8080
+PASSKEY_ORIGIN=http://localhost:8080
+```
+
 ### Permission Denied Errors
 
 **Symptoms:** Container can't write to volumes
@@ -77,7 +84,13 @@ Startup tolerates workspace directories that already exist with wrong ownership;
 
 **Solutions:**
 
-1. Fix ownership:
+1. In Docker, the entrypoint re-owns `/app/data` and `/workspace` on every start, so a host-side `chown` is overwritten. When you bind-mount a host directory with `OCM_WORKSPACE_HOST_PATH`, set `PUID` and `PGID` in `.env` to the host user that owns it:
+```bash
+PUID=1000
+PGID=1000
+```
+
+2. For local development, fix ownership of the local directories:
 ```bash
 sudo chown -R $(id -u):$(id -g) ./workspace ./data
 ```
@@ -277,8 +290,8 @@ docker compose start app
 
 **Solutions:**
 
-1. Swipe from screen edge
-2. Swipe faster (within 300ms)
+1. Start the swipe within 30px of the screen edge
+2. Swipe at least 80px
 3. Check no UI element is blocking
 
 ## Getting More Help

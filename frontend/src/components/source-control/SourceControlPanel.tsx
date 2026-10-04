@@ -196,14 +196,15 @@ export function SourceControlPanel({
               <button
                 key={tab.id}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-2 text-sm transition-colors border-b-2 -mb-px',
+                  'flex items-center gap-1.5 py-2 text-sm whitespace-nowrap transition-colors border-b-2 -mb-px',
+                  isMobile ? 'flex-1 justify-center px-2' : 'px-3',
                   activeTab === tab.id
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent'
                 )}
                 onClick={() => setActiveTab(tab.id)}
               >
-                <Icon className="w-4 h-4" />
+                {!isMobile && <Icon className="w-4 h-4" />}
                 <span>{tab.label}</span>
                 {tab.id === 'changes' && changesCount > 0 && (
                   <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent">

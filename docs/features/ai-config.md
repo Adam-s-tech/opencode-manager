@@ -14,7 +14,7 @@ A compact model switcher is embedded directly in the chat interface. Click the *
 | **Favorites** | Pinned models always appear first in the list. |
 | **Recents** | Last 10 used models appear below favorites (excluding the active one and any favorites). |
 | **Variants** | Some models offer tier options (e.g., fast or pro). Variant items are highlighted and show a checkmark on the active selection. |
-| **All Models…** | Opens the full model browser when you need a model not in recents or favorites. |
+| **More models** | Opens the full model browser when you need a model not in recents or favorites. |
 
 Favorites, recents, and variant choices are stored in OpenCode's own state file (`.opencode/state/opencode/model.json` in the workspace), so they are shared with the OpenCode TUI and survive Manager restarts. The active model itself is not persisted: on page load it resolves the same way the OpenCode TUI does — the `model` set in `opencode.json`, otherwise your most recent valid model, otherwise the provider default. A model you pick during a session stays active until the page is reloaded.
 
@@ -26,7 +26,7 @@ Each agent can declare its own `model` in `opencode.json`, which becomes that ag
 
 To browse all available models:
 
-1. Click **All Models…** in the quick-select popover
+1. Click **More models** in the quick-select popover
 2. Filter by provider or search by name
 3. Click a model to select it
 
@@ -52,12 +52,11 @@ Configure API keys or OAuth for AI providers.
 For providers that support OAuth (Anthropic, GitHub Copilot):
 
 1. Go to **Settings > Providers**
-2. Select a provider with the OAuth badge
-3. Click **Add OAuth**
-4. Choose authorization method:
-   - **Open Authorization Page** - Opens browser for sign-in
-   - **Use Authorization Code** - Provides code for manual entry
-5. Complete the authorization flow
+2. Under **OAuth Providers**, click **Connect** (or **Reconnect**) on the provider
+3. In the **Connect to <provider>** dialog, choose an authentication method
+4. Complete the flow:
+   - Browser-based methods open the provider's sign-in page
+   - Code-based methods show an **Authorization Code** field; paste the code and click **Complete Authentication**
 
 ### Testing Credentials
 
@@ -75,14 +74,14 @@ Create specialized AI agents with custom configurations.
 
 ### Creating an Agent
 
-1. Go to **Settings > Agents**
-2. Click **Create Agent**
+1. Go to **Settings → OpenCode Config → Agents**
+2. Click **Add Agent**
 3. Configure:
    - **Name** - Display name for the agent
    - **Description** - What this agent does
    - **System Prompt** - Instructions for the AI
    - **Default Model** - Model to use
-   - **Allowed Tools** - Which MCP tools it can access
+   - **Tools Configuration** - Toggle the built-in Write, Edit, Bash, and Web Fetch tools
 
 4. Click **Save**
 
@@ -104,11 +103,14 @@ Be concise but thorough. Prioritize issues by severity.
 
 ### Tool Permissions
 
-Control which MCP tools an agent can use:
+The **Tools Configuration** section toggles each built-in tool on or off:
 
-- **All Tools** - Access to everything
-- **Selected Tools** - Only specific tools
-- **No Tools** - Pure conversation, no tool access
+- **Write** - Create and modify files
+- **Edit** - Edit existing files
+- **Bash** - Run shell commands
+- **Web Fetch** - Fetch content from the web
+
+The **Permissions** section sets each of **Edit**, **Bash**, and **Web Fetch** to **Ask**, **Allow**, or **Deny**.
 
 This is useful for:
 

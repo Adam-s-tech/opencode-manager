@@ -94,11 +94,12 @@ Use **Shift+Enter** for new lines.
 
 ### Keyboard Shortcuts
 
-Mobile keyboards have limited shortcut support. Use the toolbar buttons instead:
+Mobile keyboards have limited shortcut support. Type directly in the composer:
 
-- Mention files with the **@** button
-- Access commands with the **/** button
-- Toggle modes with the mode selector
+- Type **@** to mention files
+- Type **/** to access commands
+- Toggle Plan/Build modes with the mode selector
+- Use the composer **+** menu to accept all permissions, arm goal mode, or attach an image or PDF
 
 ## Swipe Navigation
 
@@ -106,15 +107,15 @@ Navigate with gestures:
 
 ### Swipe Right
 
-Swipe from the left edge to go back:
+Swipe from the left edge to go back to the previous view, wherever a back target exists.
 
-- Opens the sidebar
-- Returns to previous view
-- Works throughout the app
+### Swipe Left
+
+On a session route, swipe from the right edge to open the More drawer.
 
 ### Swipe Requirements
 
-- Start from the left edge (first 30px)
+- Start from the left edge (first 30px) to go back
 - Swipe at least 80px right
 
 ## Touch Optimizations
@@ -123,11 +124,11 @@ Swipe from the left edge to go back:
 
 All interactive elements have minimum 44x44px touch targets for easy tapping.
 
-### Long Press
+### Row Actions
 
-Long press for context menus:
+Per-item actions are available without a context menu:
 
-- Files: Rename, delete, copy path
-- Messages: Copy, delete, regenerate
-- Sessions: Rename, delete
+- Files: open the **⋯** menu on a row for download, rename, and delete
+- Messages: use the **copy** button on a message block
+- Sessions: swipe a session left to reveal **delete**, or use manage mode to delete several
 

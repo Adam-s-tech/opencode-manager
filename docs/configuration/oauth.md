@@ -10,6 +10,9 @@ Configure social login with OAuth providers.
 | Google | Social login |
 | Discord | Social login |
 
+!!! note "Callback base URL"
+    Callback URLs are built from the **first** entry in `AUTH_TRUSTED_ORIGINS`. The `localhost:5003` examples below match the Docker default. With `pnpm dev`, the default first origin is `http://localhost:5173`, so register `http://localhost:5173/api/auth/callback/<provider>` instead.
+
 ## GitHub OAuth
 
 ### Create OAuth App
@@ -96,20 +99,20 @@ Once configured:
 
 1. Go to the login page
 2. Click the provider button (GitHub, Google, Discord)
-3. Authorize in the popup
+3. Authorize on the provider's page (the browser redirects there and back)
 4. You're logged in
 
 ### First OAuth Login
 
 On first OAuth login:
 
-- Account is created automatically
+- An account is created automatically, unless a preconfigured admin (`ADMIN_EMAIL` and `ADMIN_PASSWORD`) is set; then sign-up is disabled and an OAuth login without an existing account is rejected
 - Email from provider is used
 - No password is set (OAuth-only)
 
 ### Linking Accounts
 
-If you have an existing password account, logging in with an OAuth provider that uses the same email will link the accounts automatically.
+If you have an existing account, logging in with an OAuth provider that uses the same email links the accounts automatically, as long as the provider reports that email as verified. Otherwise the login fails with an "account not linked" error.
 
 ## Production Considerations
 

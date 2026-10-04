@@ -17,7 +17,7 @@ The token has two in-product consumers, neither of which is an agent:
 | Consumer | How it obtains the token |
 |----------|--------------------------|
 | Generated plugins (`ocm-manager.js`, `ocm-sandbox.js`, `ocm-gh-env.js`) | The `OCM_INTERNAL_TOKEN` environment variable, injected into the OpenCode child process |
-| External clients such as the `ocm` CLI | Settings -> Manager Token, served by `GET /api/settings/manager-token` |
+| External clients such as the `ocm` CLI | Settings → OpenCode Config → Server maintenance → Manager Internal Token, served by `GET /api/settings/manager-token` |
 
 The generated plugins are OpenCode 2 plugin modules — plain, dependency-free objects that default-export `{ id, setup }` and register their hooks and tools through the `setup` context. The Manager writes them to `<config home>/opencode/plugins/`; the legacy `opencode/plugin/` files are removed on install.
 

@@ -5,7 +5,7 @@
 ## Quickstart
 
 1. **Get your Manager URL** — the web UI address where your OpenCode Manager is running (e.g., `https://manager.example.com`)
-2. **Generate an internal token** — go to **Settings → Manager Token** in the web UI and click **Generate**
+2. **Copy your internal token** — open **Settings → OpenCode Config → Server maintenance**, expand **Manager Internal Token**, and copy the token
 3. **Install the CLI** — `pnpm add -g @opencode-manager/ocm-cli`
 4. **Log in** — `ocm login https://your-manager-url` (paste the token when prompted)
 5. **List repos** — `ocm list` to see repos configured on the Manager
@@ -130,7 +130,7 @@ The token is stored in a platform-specific token store: the macOS Keychain (serv
 
 Windows is not supported: the CLI falls back to the same file store, but the `0600` mode is not enforced there and hidden token entry requires `bash`.
 
-Generate or rotate your internal token from **Settings → Manager Token** in the Manager web UI (Settings cog in the sidebar, then **Manager Token**).
+View, copy, or rotate your internal token from **Settings → OpenCode Config → Server maintenance → Manager Internal Token** (Settings cog in the sidebar). A token exists by default: the disclosure shows it behind an eye toggle with a copy button. Click the refresh icon to rotate it; a second click confirms, invalidating the previous token and marking an OpenCode server restart as pending.
 
 ---
 
@@ -145,8 +145,8 @@ ocm logout                Forget saved token and state
 ocm status                Show current manager URL, repo, and whether token is set
 ocm list                  List ready repos from the manager
 ocm use <repoId|name>     Attach to a specific repo and remember it as last
-ocm push [--force] [--create] [--yes] [--full]   Mirror $PWD to the matching Manager repo (fast bundle/patch sync by default)
-ocm pull [--force] [--full]                      Mirror the matching Manager repo over $PWD (fast bundle/patch sync by default)
+ocm push [repoId] [--force] [--create] [--yes] [--full]   Mirror $PWD to the matching Manager repo (fast bundle/patch sync by default)
+ocm pull [repoId] [--force] [--full]                      Mirror the matching Manager repo over $PWD (fast bundle/patch sync by default)
 ocm install [--dir <path>] [--force] [--no-link]  Vendor the CLI + TUI plugin into the OpenCode config dir
 ocm --help                Show this help
 ```
@@ -218,7 +218,18 @@ The CLI's environment and token inputs:
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/internal/opencode-workspaces` | GET | List ready repos with directory + originUrl |
-| `/api/internal/repo-mirror/:repoId/up` | POST | Receive tarball, write to repo dir |
-| `/api/internal/repo-mirror/:repoId/down` | GET | Stream tarball of repo dir |
+| `/api/internal/repos/:repoId/mirror/begin` | POST | Begin a chunked tarball upload (pass `repoId` `0` with `create` to create the repo) |
+| `/api/internal/repos/:repoId/mirror/parts/:uploadId/:index` | PUT | Upload one tarball chunk |
+| `/api/internal/repos/:repoId/mirror/commit` | POST | Commit the uploaded chunks into the repo dir |
+| `/api/internal/repos/:repoId/mirror/uploads/:uploadId` | DELETE | Abort an upload and clean up staging |
+| `/api/internal/repos/:repoId/mirror` | GET | Stream a tarball of the repo dir (the `--full` pull) |
+| `/api/internal/repos/:repoId/mirror/bundle` | POST | Upload a git bundle (fast push) |
+| `/api/internal/repos/:repoId/mirror/bundle` | GET | Download a git bundle (fast pull) |
+| `/api/internal/repos/:repoId/mirror/patch` | GET | Snapshot branch, HEAD, and working-tree patch |
+| `/api/internal/repos/:repoId/mirror/patch` | POST | Apply a working-tree patch (fast push) |
+| `/api/internal/repos/:repoId/mirror/head` | GET | Read the server branch, HEAD, and dirty state |
+| `/api/internal/repos/:repoId/mirror/contains/:sha` | GET | Check whether a commit is contained in the server HEAD |
+| `/api/internal/repos/:repoId/mirror/target` | GET | Plan the repo/worktree a branch maps to |
+| `/api/internal/repos/:repoId/mirror/target` | POST | Ensure that target repo/worktree exists |
 | `/api/opencode-proxy/*` | ALL | Token-protected proxy from Manager to single OpenCode server |
 | `/api/opencode-proxy/repos/:repoId/*` | ALL | Token-protected proxy that defaults the request location to the repo directory |

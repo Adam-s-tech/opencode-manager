@@ -11,7 +11,6 @@ The file browser displays your repository as an expandable tree:
 - Click folders to expand/collapse
 - Click files to preview content
 - Icons indicate file types
-- Modified files are highlighted
 
 ![File Browser](../images/file-browser.png)
 
@@ -26,16 +25,14 @@ Navigate quickly using the breadcrumb path at the top:
 
 Filter files by name:
 
-1. Click the search icon or press `/`
-2. Type to filter visible files
-3. Results update as you type
-4. Press `Escape` to clear search
+1. Type in the always-visible **Search** box
+2. Results update as you type
 
 ## File Preview
 
 Click any file to preview with:
 
-- **Syntax Highlighting** - Support for 100+ languages
+- **Syntax Highlighting** - Support for common languages
 - **Line Numbers** - Easy reference for code discussions
 - **Large File Support** - Virtualization for files with many lines
 
@@ -45,7 +42,7 @@ Syntax highlighting is provided for common languages including:
 
 - JavaScript, TypeScript, JSX, TSX
 - Python, Ruby, Go, Rust
-- HTML, CSS, SCSS, Sass
+- HTML, CSS, SCSS
 - JSON, YAML, TOML, XML
 - Markdown, SQL, Shell scripts
 - And many more...
@@ -54,15 +51,17 @@ Syntax highlighting is provided for common languages including:
 
 ### Create File
 
-1. Click the **New File** button in the file browser toolbar
-2. Enter filename with extension
-3. File is created and opened for editing
+1. Click the **+** button in the file browser toolbar
+2. In the **Create New** dialog, choose **File**
+3. Enter a filename with extension
+4. Click **Create**; the list refreshes with the new file
 
 ### Create Folder
 
-1. Click the **New Folder** button in the file browser toolbar
-2. Enter folder name
-3. Folder is created in current directory
+1. Click the **+** button in the file browser toolbar
+2. In the **Create New** dialog, choose **Folder**
+3. Enter a folder name
+4. Click **Create**; the folder is created in the current directory
 
 ### Rename
 

@@ -183,7 +183,7 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPa
           </Button>
         </div>
 
-        <div className="relative flex-1 min-h-0">
+        <div className="relative flex-1 min-h-0 bg-background">
           {terminals.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               {isLoading || isCreating ? 'Starting terminal...' : 'No terminals'}

@@ -472,7 +472,13 @@ docker-compose build
 # Rebuild without cache
 docker-compose build --no-cache
 
-# Update and restart (uses upgrade script)
+# Update and restart (run from the repo root)
+./scripts/docker-upgrade.sh          # cached rebuild, pulls first (~1-2 min)
+./scripts/docker-upgrade.sh --tools  # cached rebuild with a fresh uv/opencode install (~17 min)
+./scripts/docker-upgrade.sh --full   # full --no-cache rebuild (~25 min)
+# Add --no-pull to skip `git pull`, or --logs to follow logs after starting.
+
+# Or manually (equivalent to --full):
 docker-compose down
 git pull
 docker-compose build --no-cache

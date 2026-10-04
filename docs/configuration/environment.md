@@ -96,6 +96,7 @@ The preview gateway serves dev servers through an authenticated, separate origin
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WORKSPACE_PATH` | Path to workspace directory | `./workspace` (Docker: `/workspace`) |
+| `REPO_BROWSE_ROOT` | Root directory the folder browser may browse. When unset, folder browsing is disabled | empty (disabled) |
 
 ## OpenCode Server
 
@@ -107,6 +108,7 @@ The preview gateway serves dev servers through an authenticated, separate origin
 | `OPENCODE_HEALTH_POLL_MS` | OpenCode health watcher poll interval | `30000` |
 | `OPENCODE_HEALTH_FAILURE_THRESHOLD` | Failed health checks before recovery starts | `2` |
 | `OPENCODE_SERVER_PASSWORD` | Basic Auth password for the managed OpenCode server. OpenCode 2 always requires one: when unset, OpenCode Manager generates and persists a password (override it any time via Settings → OpenCode → Server Auth). DB-stored passwords override this env var. The default `docker-compose.yml` does not forward this variable from `.env`; add it to the compose `environment:` block or set it via Settings → OpenCode → Server Auth. | auto-generated |
+| `OPENCODE_BIN` | Path to an externally managed OpenCode binary. Overrides binary discovery; while set, in-app upgrade and version install are disabled (HTTP 409) | - |
 
 > **Upgrade note:** `OPENCODE_PUBLIC_URL` is no longer used. MCP OAuth redirects now point at the Manager's `/api/mcp-oauth-proxy/callback`, built from the request: the scheme comes from `X-Forwarded-Proto` (first value, `http` or `https` only), then the `Origin` header, then `http`; the host comes from `X-Forwarded-Host` when present, otherwise `Host`. Behind a reverse proxy, forward `X-Forwarded-Proto` and `X-Forwarded-Host` (or preserve `Host`) and remove `OPENCODE_PUBLIC_URL`; the Manager logs a warning at startup while it is still set.
 
@@ -125,6 +127,11 @@ Sandboxed agent commands run inside a microVM managed by `msb` (see [Agent Sandb
 |----------|-------------|---------|
 | `MSB_PATH` | Path to the `msb` executable | `msb` |
 | `MSB_LIBKRUNFW_PATH` | Path to the `libkrunfw` firmware library used by `msb` (set in the container image) | `/opt/microsandbox/lib/libkrunfw.so` |
+| `MSB_BACKEND` | Backend the microsandbox client uses | `local` |
+| `MSB_HOME` | Microsandbox home directory for state | `~/.microsandbox` |
+| `MSB_PROFILE` | Microsandbox profile passed through to the client | - |
+| `MSB_API_URL` | Microsandbox API URL passed through to the client | - |
+| `MSB_API_KEY` | Microsandbox API key passed through to the client | - |
 | `SANDBOX_IMAGE` | OCI image the microVM boots from. Digest-pinned by default so a rebuilt guest image is actually adopted; see [Sandbox Guest Image](../features/sandboxing.md#sandbox-guest-image) for what the default ships and how to build your own | `docker.io/cstechdev/ocm-sandbox@sha256:9df035cf…` |
 | `SANDBOX_MEMORY` | MicroVM memory (e.g. `4G`) | `4G` |
 | `SANDBOX_CPUS` | MicroVM CPU count | `2` |
@@ -164,7 +171,7 @@ Sandboxed agent commands run inside a microVM managed by `msb` (see [Agent Sandb
 # Server
 PORT=5003
 HOST=0.0.0.0
-NODE_ENV=development
+NODE_ENV=production
 
 # Required for production
 AUTH_SECRET=generate-with-openssl-rand-base64-32

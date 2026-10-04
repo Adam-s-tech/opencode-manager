@@ -70,7 +70,7 @@ docker compose up -d --force-recreate app
 
 ### AUTH_SECRET
 
-Required for production. Encrypts session data.
+Required for production. Signs session cookies, so changing it signs every user out.
 
 Generate:
 ```bash
@@ -84,7 +84,7 @@ AUTH_SECRET=your-generated-secret
 
 ### Session Duration
 
-Sessions expire after 7 days. A new session is created on each login.
+Sessions last 7 days and slide: once a session is more than a day old, the next request extends it by another 7 days, so an active session does not expire. A new session is created on each login.
 
 ### Secure Cookies
 
@@ -105,12 +105,15 @@ AUTH_SECURE_COOKIES=false
 For accessing via IP on a local network:
 
 ```bash
-# Include all access URLs (both frontend and backend)
-AUTH_TRUSTED_ORIGINS=http://localhost:5173,http://localhost:5003,http://192.168.1.244:5003
+# Include every URL you open the Manager from
+AUTH_TRUSTED_ORIGINS=http://localhost:5003,http://192.168.1.244:5003
 
 # Disable secure cookies for HTTP
 AUTH_SECURE_COOKIES=false
 ```
+
+!!! note "Origin order"
+    The first entry in `AUTH_TRUSTED_ORIGINS` is the Manager's auth base URL, which OAuth providers redirect back to. Put the URL you sign in from first. For `pnpm dev`, that is `http://localhost:5173`.
 
 ### Production (HTTPS)
 
@@ -134,34 +137,34 @@ Passwordless authentication using WebAuthn.
 Configure your domain:
 
 ```bash
-# Local development (use backend port)
+# Docker or a production build on this machine
 PASSKEY_RP_ID=localhost
 PASSKEY_RP_NAME=OpenCode Manager
 PASSKEY_ORIGIN=http://localhost:5003
+
+# Local development with pnpm dev (the page is served by Vite)
+PASSKEY_RP_ID=localhost
+PASSKEY_RP_NAME=OpenCode Manager
+PASSKEY_ORIGIN=http://localhost:5173
 
 # Production
 PASSKEY_RP_ID=yourdomain.com
 PASSKEY_RP_NAME=OpenCode Manager
 PASSKEY_ORIGIN=https://yourdomain.com
-
-# Local network access
-PASSKEY_RP_ID=localhost
-PASSKEY_RP_NAME=OpenCode Manager
-PASSKEY_ORIGIN=http://192.168.1.244:5003
 ```
 
-!!! note "Port Selection"
-    - Use the **backend** port (5003) for PASSKEY_ORIGIN
-    - Not the frontend port (5173)
-    - The origin must match where the auth API is served
+!!! note "Origin selection"
+    - `PASSKEY_ORIGIN` must be the origin of the page you sign in from, which is the URL in the browser's address bar
+    - `PASSKEY_RP_ID` must be that page's hostname or a parent domain of it
+    - Browsers only offer passkeys on HTTPS or `localhost`, so plain-HTTP access by LAN IP cannot use passkeys. For LAN or remote access, serve the Manager over HTTPS on a domain (for example, through a [Cloudflare Tunnel](cloudflare-tunnel.md)) and use that domain
 
 ### Adding a Passkey
 
 1. Log in with password
 2. Go to **Settings > Account**
-3. Click **Add Passkey**
-4. Follow browser/device prompts
-5. Name your passkey
+3. Optionally enter a passkey name
+4. Click **Add Passkey**
+5. Follow browser/device prompts
 
 ### Supported Authenticators
 

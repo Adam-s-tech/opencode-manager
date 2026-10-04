@@ -86,7 +86,7 @@ pnpm test         # Run CLI, backend, and frontend tests
 ```bash
 cd backend
 bun --watch-path src --watch src/index.ts  # Start with hot reload
-pnpm test                 # Run tests (uses Vitest)
+pnpm test                 # Run bun tests, then Vitest with coverage
 vitest <file>             # Run single test file
 vitest --ui               # Test UI
 vitest --coverage         # Coverage report

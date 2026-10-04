@@ -26,7 +26,7 @@ Shell rows can show live output and be killed; subagent rows open the child sess
 
 ## Model Selection
 
-Click the **model name** in the chat prompt area to open the quick model switcher, where you can switch models, mark favorites, and pick variants without leaving the chat. Each agent keeps its own model selection. See [AI Configuration](ai-config.md#model-selection) for the full reference.
+Click the **model name** in the chat prompt area to open the quick model switcher, where you can switch models, mark favorites, and pick variants without leaving the chat. Switching agents applies that agent's configured model. See [AI Configuration](ai-config.md#model-selection) for the full reference.
 
 ## Slash Commands
 
@@ -36,7 +36,7 @@ The fork keyboard shortcut opens the same message picker as `/fork`.
 
 ### Custom Commands
 
-Create your own commands in **Settings > Custom Commands**:
+Create your own commands in **Settings → OpenCode Config → Commands**:
 
 ```yaml
 name: review
@@ -92,7 +92,7 @@ Toggle between two operational modes:
 - AI can delete files
 - Use for implementation tasks
 
-Toggle modes using the mode selector in the chat header.
+Toggle modes using the mode selector in the composer toolbar.
 
 ## Permission modes
 
@@ -176,11 +176,10 @@ Access your sessions from the sidebar:
 
 ### Searching Sessions
 
-Find sessions by content:
+Find sessions by title:
 
-1. Click the search icon in the sessions panel
-2. Type your search query
-3. Results show sessions with matching content
+1. Type in the always-visible **Search sessions...** box in the sessions panel
+2. Results filter as you type
 
 ### Pinning Sessions
 
@@ -190,17 +189,17 @@ Pin important sessions to the top of the list. See [Session Pinning](session-pin
 
 Remove sessions you no longer need:
 
-1. Hover over a session
-2. Click the delete icon
+1. Swipe a session left to reveal the delete button, then tap it
+2. Or click the **Manage sessions** icon and use the trash button on a session
 3. Confirm deletion
 
 ### Bulk Delete
 
 Remove multiple sessions at once:
 
-1. Click **Select** in the sessions panel
-2. Check sessions to delete
-3. Click **Delete Selected**
+1. Click the **Manage sessions** icon in the sessions panel
+2. Check the sessions to delete
+3. Click **Delete**
 4. Confirm deletion
 
 ## Context Management
@@ -227,7 +226,8 @@ Use `/new` to start a new session when:
 
 | Shortcut | Action |
 |----------|--------|
-| `↑` | Edit last message |
 | `/` | Open command menu |
 | `@` | Open file mention menu |
 | `Escape` | Close autocomplete menus |
+
+To edit a message, use the edit action on the last user message while the session is idle.

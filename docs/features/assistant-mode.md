@@ -38,24 +38,16 @@ When the assistant self-edits its agent definition (e.g., to refine behavior or 
 ## Getting Started
 
 1. Click **Assistant** in the sidebar or mobile tab bar
-2. On first visit, OpenCode Manager initializes the workspace and creates a new session
-3. A welcome prompt is automatically sent to orient the agent
-4. Subsequent visits resume the most recent session
+2. The page opens the Assistant session list
+3. Click **New Session** to start a session with the built-in assistant
 
 ![Assistant Page](../images/assistant-page.png)
 
-No manual setup is required. The workspace directory and all managed files are created automatically.
+No manual setup is required. The workspace directory and all managed files are created automatically when the Manager starts.
 
 ## Session Views
 
-The assistant page works in two modes:
-
-| Mode | URL | What you see |
-|------|-----|-------------|
-| Redirect | `/assistant` | Instantly redirects to the last session or creates one |
-| Session list | `/assistant?view=sessions` | Full session history with sidebar panels |
-
-The session list exposes the same management panels as regular repos — file browser, MCP servers, skills, source control, and permissions reset.
+The Assistant page (`/assistant`) shows the Assistant session list. Selecting a session opens it; **New Session** starts a new one. The page exposes the same management panels as regular repos — file browser, MCP servers, skills, source control, and permissions reset.
 
 ## Workspace Initialization
 
@@ -67,8 +59,4 @@ If a managed file was modified after initialization, the next session will recei
 
 ### Re-initializing
 
-To re-apply all managed files to their latest defaults:
-
-1. Navigate to the session list (`?view=sessions`)
-2. Open the **Permissions** panel
-3. Use the reset action to re-initialize the workspace
+The workspace is re-applied to its latest defaults automatically when the Manager starts; managed files are only rewritten when their content changed. To clear the Assistant workspace's saved "Allow Always" permissions, open the **Reset Permissions** dialog from the Assistant sidebar (desktop) or the **More** drawer (mobile) and confirm.

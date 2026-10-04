@@ -18,7 +18,7 @@ The microVM sees repositories through bind mounts at the same paths used by the 
 | WebUI `!command` shell mode (`POST /api/session/:sessionID/shell`) | Yes; it spawns through the same `Shell.create` path as the `shell` tool, so it is planned and routed into the microVM. It is not badged in the UI because the surface fires no `tool.execute.after` hook |
 | Shell API (`POST /api/shell`) | Yes; it spawns through the same `Shell.create` path as the `shell` tool. It is not badged in the UI because the surface fires no `tool.execute.after` hook |
 | Slash-command shell templates (`` !`cmd` ``, `POST /api/session/:sessionID/command`) | No; OpenCode expands each interpolation itself with the configured shell, directly on the host and outside `Shell.create`, so the `create.before` hook never sees it |
-| PTY terminals (`POST /api/pty`, `POST /api/pty/:ptyID/connect`), including the Manager Terminal panel and project action terminals | No; normal OpenCode behavior, with the user's configured shell. Manager terminals and project actions receive the repo-scoped GitHub token env through `CredentialProvider.getGhCliEnv` at creation; commits take their identity from git config |
+| PTY terminals (`POST /api/pty`, `GET /api/pty/:ptyID/connect`), including the Manager Terminal panel and project action terminals | No; normal OpenCode behavior, with the user's configured shell. Manager terminals and project actions receive the repo-scoped GitHub token env through `CredentialProvider.getGhCliEnv` at creation; commits take their identity from git config |
 | OpenCode file tools | No; while enforcement is on they are denied the global configuration directory (see [Mounts and Secrets](#mounts-and-secrets)) |
 | Manager-side git operations | No |
 | Plugins and custom tools | No; normal OpenCode behavior |
@@ -69,7 +69,7 @@ The overlay exposes `/dev/kvm`, `/dev/net/tun`, and `NET_ADMIN` without enabling
 
 All projects share one microVM named `ocm-workspace`:
 
-- It mounts the four project roots plus the OpenCode directories agents are handed absolute paths to, at identical guest paths. See [Mounts and Secrets](#mounts-and-secrets).
+- It mounts the four project roots plus the OpenCode tool-output, global-skills, and agent temporary directories, at identical guest paths. See [Mounts and Secrets](#mounts-and-secrets).
 - Repositories and worktrees created after boot are visible immediately because their parent roots are mounted.
 - Each command supplies its own working directory through `msb exec -w`.
 - A session outside the mounted roots is refused rather than executed on the host.
@@ -97,9 +97,12 @@ The microVM receives writable bind mounts for:
 | `/workspace/.opencode/state/opencode/forge/worktrees` | Project root: worktrees created by the opencode-forge plugin for its loops |
 | `/workspace/.opencode/state/opencode/tool-output` | Where OpenCode saves the full content of a truncated tool result before handing the agent that absolute path |
 | `/workspace/.config/opencode/skills` | Global skills, including the scripts and reference files a skill bundles and refers to by absolute path |
-| `/workspace/.opencode/tmp/opencode` | The temporary directory the `shell` tool description tells agents to use for work outside the workspace |
+| `/workspace/.opencode/tmp/opencode` | The temporary directory OpenCode's environment instructions tell agents to prefer for work outside the workspace |
 
 Each is mounted at the identical guest path. That is the point: OpenCode hands the model absolute host paths, and the host-side `read`, `write`, and `glob` tools resolve them against the container. A path that is not mounted resolves for those tools but not for a sandboxed `shell` call, which is how an agent ends up searching for a file it was just told the exact location of.
+
+!!! warning "Known gap: shell output files"
+    OpenCode writes background and truncated `shell` output to files under `/workspace/.opencode/state/opencode/shell/` and tells the agent their paths. That directory is not mounted, so a sandboxed `shell` call cannot read them; the host-side `read` tool can.
 
 Only the four project roots are accepted as working directories. The other three mounts are readable and writable but are never a valid working directory, so `shell` calls still have to run inside a repository or a worktree.
 
@@ -109,7 +112,7 @@ Because `localhost` inside the microVM is the guest rather than the Manager, and
 
 The microVM also mounts a runtime-owned tmpfs at `/tmp`. It is sized to one quarter of the microVM memory, clamped to 1-512 MiB, so agent commands get guest-only scratch space that is not backed by a host filesystem.
 
-The agent temporary directory is separate from that tmpfs. The Manager sets `TMPDIR=/workspace/.opencode/tmp` on the OpenCode child, which puts OpenCode's own temporary directory at `/workspace/.opencode/tmp/opencode` — the path its `shell` tool description advertises — so the same files are visible to sandboxed commands and to the host-side file tools. Everything else under `TMPDIR` (temporary files from host-side `git`, `gh`, and MCP servers) stays out of the guest. The Manager empties the mounted directory each time it starts the OpenCode child, matching the lifetime it had in the container's `/tmp`; it clears the contents rather than the directory itself, because replacing the directory would detach a running microVM's bind mount.
+The agent temporary directory is separate from that tmpfs. The Manager sets `TMPDIR=/workspace/.opencode/tmp` on the OpenCode child, which puts OpenCode's own temporary directory at `/workspace/.opencode/tmp/opencode` — the path its environment instructions advertise — so the same files are visible to sandboxed commands and to the host-side file tools. Everything else under `TMPDIR` (temporary files from host-side `git`, `gh`, and MCP servers) stays out of the guest. The Manager empties the mounted directory each time it starts the OpenCode child, matching the lifetime it had in the container's `/tmp`; it clears the contents rather than the directory itself, because replacing the directory would detach a running microVM's bind mount.
 
 The following remain outside the microVM:
 
@@ -157,7 +160,7 @@ The enforcement stamp remains authoritative for the lifetime of the OpenCode chi
 
 ## Git Credentials in the Sandbox
 
-The guest environment is empty by default, so a sandboxed `git push`, `git pull`, or `gh` call has no credentials and fails to authenticate. This applies to agent `shell` calls, WebUI `!command` shell mode, and the shell API alike, since all three are routed into the microVM.
+By default the guest receives no credentials, so a sandboxed `git push`, `git pull`, or `gh` call fails to authenticate. The repo's git identity (`GIT_AUTHOR_*` / `GIT_COMMITTER_*`) is always forwarded, so `git commit` works either way. This applies to agent `shell` calls, WebUI `!command` shell mode, and the shell API alike, since all three are routed into the microVM.
 
 Forwarding is opt-in, off by default:
 
@@ -170,7 +173,7 @@ When enabled, the planner resolves credentials on the host and the shim forwards
 
 - One `http.<host>.extraheader` pair per configured host, so a command can authenticate against every host you have a credential for, not just the repo's own remote.
 - Where several credentials share a host, the repo-bound credential wins, then `defaultGitCredentialId`. Exactly one credential is ever sent per host — git treats `http.<url>.extraheader` as multi-valued and would otherwise send competing `Authorization` headers.
-- `GIT_AUTHOR_*` / `GIT_COMMITTER_*` so `git commit` has an identity, and `GH_TOKEN` / `GITHUB_TOKEN` for `gh`.
+- `GH_TOKEN` / `GITHUB_TOKEN` for `gh`.
 - At most 16 hosts. Beyond that the Manager logs a warning and forwards the first 16 rather than emitting a `GIT_CONFIG_COUNT` that git would reject.
 
 Both the switch and the credentials themselves are resolved per command, so turning forwarding on or off, or changing a credential, takes effect on the next sandboxed command without restarting the OpenCode server. Only the sandbox enable toggle requires a restart.
@@ -179,7 +182,7 @@ Understand the trade-off before enabling it. `msb exec -e` is the only injection
 
 ## Sandbox Guest Image
 
-`SANDBOX_IMAGE` defaults to a digest-pinned reference of `docker.io/cstechdev/ocm-sandbox`. The `Sandbox Image` workflow (`.github/workflows/sandbox-image.yml`) builds `Dockerfile.sandbox` natively: `linux/amd64` on `ubuntu-latest` and `linux/arm64` on `ubuntu-24.04-arm`. Pull requests from this repository that touch the Dockerfile or workflow run build-time verification without publishing or requiring registry credentials. A manual `workflow_dispatch` publishes both platforms by digest and merges them into one manifest list, tagged with the commit SHA, package version, and optional `tag` input (default `latest`). Publishing requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets. The job summary prints the index digest to pin.
+`SANDBOX_IMAGE` defaults to a digest-pinned reference of `docker.io/cstechdev/ocm-sandbox`. The `Sandbox Image` workflow (`.github/workflows/sandbox-image.yml`) builds `Dockerfile.sandbox` natively: `linux/amd64` on `ubuntu-latest` and `linux/arm64` on `ubuntu-24.04-arm`. Pull requests from this repository that touch the Dockerfile, the workflow, or `scripts/sandbox-dockerd-start.sh` run build-time verification without publishing or requiring registry credentials. A manual `workflow_dispatch` publishes both platforms by digest and merges them into one manifest list, tagged with the commit SHA, package version, and optional `tag` input (default `latest`). Publishing requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets. The job summary prints the index digest to pin.
 
 Native runners avoid the x86_64 `rustc` segmentation fault observed under qemu-user on the arm64 build host. Later uv releases also failed in that environment. Neither platform skips toolchain execution to work around emulation failures. A single-platform local build on an arm64 host is:
 
@@ -205,7 +208,7 @@ It is built from the same `node:24.21.0-trixie` tag as the Manager image (Debian
 | `ping`, `ip`, `ss`, `netstat`, `dig`, `host`, `nslookup`, `nc`, `traceroute`, `lsof`, `rsync` | apt | The base image ships no network diagnostics at all. The image build fails if any of these is missing |
 | `pnpm` | `npm install -g` (`PNPM_VERSION`) | Installed into `/usr/local` as root. A project `packageManager` pin of a different version is honoured by pnpm itself, which downloads it into the pnpm store on first use; the build verifies that as an unknown uid |
 | `bun`, `bunx` | official installer (`BUN_VERSION`) | Installed to `/opt/bun`, world-readable, both symlinked onto `PATH` |
-| `uv`, `uvx` | Astral installer (`UV_VERSION`) | Standalone binaries on `PATH`; `uv tool` shims land in `/opt/agent-tools/bin`, which is on `PATH`. Held at 0.12.7: later releases segfault under qemu-user x86_64 emulation, which is how the amd64 platform is built from an arm64 host |
+| `uv`, `uvx` | Astral installer (`UV_VERSION`) | Standalone binaries on `PATH`; `uv tool` shims land in `/opt/agent-tools/bin`, which is on `PATH`. Pinned at 0.12.7 |
 | `fallow` | `npm install -g` (`FALLOW_VERSION`) | Dead-code and unused-export analysis CLI |
 | `rustc`, `cargo`, `rustup` | rustup (`RUST_VERSION`, minimal profile) | `RUSTUP_HOME=/usr/local/rustup` and `CARGO_HOME=/usr/local/cargo` follow the official rust image layout and are opened to every uid afterwards, so the exec user can `cargo install` and add toolchains; `/usr/local/cargo/bin` is on `PATH` |
 | `go` | official tarball (`GO_VERSION`) | Unpacked to `/usr/local/go`, on `PATH`. `GOBIN=/opt/agent-tools/bin` puts `go install` binaries next to the other agent tools; `GOPATH` and the module cache default under the writable `HOME` |

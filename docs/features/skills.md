@@ -42,21 +42,22 @@ Skill names must match the pattern `^[a-z0-9]+(-[a-z0-9]+)*$`:
 
 ## Managing Skills
 
-Skills are managed per-repository through the Skills panel in the sidebar, or via the API.
+Create and edit skills in **Settings → OpenCode Config → Skills**. The **Skills** panel in a repository's sidebar lists the skills available there and can install, delete, and load them into a session. Skills can also be managed through the API.
 
 ![Skills Manager](../images/skills-manager.png)
 
 ### API Endpoints
 
-All endpoints are under `/api/settings/skills`.
+All paths are relative to `/api/settings`. `repoId` is required whenever `scope=project`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/skills` | List all skills (optional `?repoId=` filter) |
-| `GET` | `/skills/:name` | Get a specific skill (requires `scope` query param, optional `repoId`) |
+| `GET` | `/skills` | List all skills (optional `?repoId=` or `?directory=` filter) |
+| `POST` | `/skills/install` | Install a skill from a GitHub URL (JSON body with `sourceType: "github"`, `url`, `scope`, `repoId`, `overwrite`) or from uploaded files (multipart form) |
+| `GET` | `/skills/:name` | Get a specific skill (requires `scope` query param) |
 | `POST` | `/skills` | Create a new skill |
-| `PUT` | `/skills/:name` | Update an existing skill (requires `scope` query param, optional `repoId`) |
-| `DELETE` | `/skills/:name` | Delete a skill (requires `scope` query param, optional `repoId`) |
+| `PUT` | `/skills/:name` | Update an existing skill (requires `scope` query param) |
+| `DELETE` | `/skills/:name` | Delete a skill (requires `scope` query param) |
 
 ### Create Request
 

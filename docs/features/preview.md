@@ -6,7 +6,7 @@ The Preview panel lists the loopback ports that are currently listening, then pr
 
 ## Port List
 
-Open **Preview** from the desktop sidebar tool list or the **More** drawer, including in the Assistant workspace. The port menu at the start of the toolbar lists every listening loopback port on the host as `:PORT command`, with the process's working directory underneath. Type in the menu to filter by port, command or directory. Working directories are read on Linux hosts (including the Docker image) and macOS; ports whose process runs inside the selected repository or workspace directory are grouped under **This repo** at the top, and the rest under **Other ports**. Other platforms list no ports.
+Open **Preview** from the desktop sidebar tool list or the **More** drawer, including in the Assistant workspace. The port menu at the start of the toolbar lists every listening loopback port on the host as `:PORT command`, with the process's working directory underneath. Type in the menu to filter by port, command or directory. Working directories are read on Linux hosts (including the Docker image) and macOS; ports whose process runs inside the selected repository or workspace directory are grouped under **This repo** at the top, and the rest under **Other ports**. When no port belongs to the repository, the list is shown without group headings. Other platforms list no ports.
 
 Until a port is selected, the panel body lists the dev servers of this repo so one click opens the preview, and counts the other listening ports. When nothing is listening, it points to the Terminal and Actions to start a dev server.
 
@@ -18,7 +18,7 @@ Selecting a port creates a preview session and renders the target in an iframe o
 
 When preview is unavailable — `PREVIEW_PORT=0`, or the gateway could not listen on its port — the panel shows **Preview is unavailable**.
 
-If the requested port is not listening yet, the panel shows **Waiting for port N…** and refetches the list every 2 seconds for up to 60 seconds, then shows an error with a **Retry** button.
+If the requested port is not listening yet, the panel shows **Waiting for port N…** and refetches the list every 2 seconds. After 60 seconds it shows an error with a **Retry** button, but keeps polling, so the preview still opens if the port starts listening later.
 
 ## Gateway
 
@@ -54,7 +54,7 @@ A preview can be opened from more than one place:
 
 - **Port** — the port menu described in [Port List](#port-list). Press Escape to close the menu without closing the panel.
 - **Path** — enter a path and press **Go** (or Enter) to start a session for that path.
-- **Reload** — remounts the iframe.
+- **Reload** — creates a fresh preview session and remounts the iframe with it.
 - **Open in new tab** — creates a fresh session and opens its start URL in a new tab with `noopener`. Start tokens are single-use, so this always mints a new one.
 - **Viewport** — switch between Mobile (390 px), Tablet (820 px), and Full width. Hidden on small screens, where the panel is already phone-width.
 

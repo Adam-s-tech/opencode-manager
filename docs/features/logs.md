@@ -26,7 +26,7 @@ Each entry shows a timestamp, severity level, source, and message:
 - **Copy** — Copy the currently visible (filtered and searched) entries to the clipboard.
 - **Follow scrolling** — The view scrolls to the newest entry automatically. Scrolling up pauses following; scrolling back to the bottom resumes it.
 
-If entries were evicted before you opened the tab, a notice above the view reports how many earlier entries were dropped.
+When the buffer has evicted entries, a notice below the view reports how many earlier entries have been dropped since the Manager started.
 
 ## OpenCode Server Issues
 

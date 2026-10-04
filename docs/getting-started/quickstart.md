@@ -58,7 +58,7 @@ Choose the onboarding flow that matches your setup:
 
 1. Click the **folder icon** in the sidebar
 2. Click **Add Repository**
-3. Select **Remote Repository**
+3. Select **Remote**
 4. Paste a repository URL (HTTPS or SSH)
 5. Click **Add Repository**
 
@@ -66,7 +66,7 @@ Choose the onboarding flow that matches your setup:
 
 1. Click the **folder icon** in the sidebar
 2. Click **Add Repository**
-3. Select **Folder Discovery**
+3. Select **Folder**
 4. Enter a parent folder such as `/Users/you/Development`
 5. Click **Discover Repositories**
 
