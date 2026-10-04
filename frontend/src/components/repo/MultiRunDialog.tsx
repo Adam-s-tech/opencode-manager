@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Trash2, ArrowUpRight } from 'lucide-react'
+import { Loader2, Trash2, ArrowUpRight, Clock, Search, Star } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -12,9 +12,18 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { ConfirmDestructiveDialog } from '@/components/ui/confirm-destructive-dialog'
 import { SessionStatusIndicator } from '@/components/ui/session-status-indicator'
+import { BaseBranchSelect } from '@/components/repo/BaseBranchSelect'
 import { useProvidersWithModels } from '@/hooks/useProvidersWithModels'
+import { useOpenCodeModelState } from '@/hooks/useModelSelection'
 import { useDiscardMultiRunEntry, useLaunchMultiRun, useMultiRuns } from '@/hooks/useMultiRuns'
-import { formatModelName, formatProviderName, providerModelRef, type ProviderWithModels } from '@/api/providers'
+import {
+  formatModelName,
+  formatProviderName,
+  providerModelRef,
+  type ModelSelection,
+  type OpenCodeModelState,
+  type ProviderWithModels,
+} from '@/api/providers'
 import { buildSessionPath } from '@opencode-manager/shared/utils'
 import {
   MULTI_RUN_MAX_MODELS,
@@ -38,11 +47,74 @@ interface PendingDiscard {
   isolated: boolean
 }
 
+interface ModelOption {
+  value: string
+  label: string
+  providerName: string
+  searchText: string
+}
+
+interface ModelSection {
+  key: string
+  title: string
+  icon?: ReactNode
+  pinned: boolean
+  options: ModelOption[]
+}
+
 const STATUS_LABELS: Record<MultiRunEntryStatus, string> = {
   starting: 'Starting',
   started: 'Started',
   failed: 'Failed',
   discarded: 'Discarded',
+}
+
+function buildModelSections(providers: ProviderWithModels[], modelState: OpenCodeModelState | undefined): ModelSection[] {
+  const optionsByValue = new Map<string, ModelOption>()
+  const providerSections = providers.map((provider): ModelSection => {
+    const providerName = formatProviderName(provider)
+    const options = provider.models.map((model) => {
+      const label = formatModelName(model)
+      const value = providerModelRef(provider, model)
+      const option = { value, label, providerName, searchText: `${label} ${value} ${providerName}`.toLowerCase() }
+      optionsByValue.set(value, option)
+      return option
+    })
+    return { key: `provider:${provider.id}`, title: providerName, pinned: false, options }
+  })
+
+  const pinnedValues = new Set<string>()
+  const pinOptions = (selections: ModelSelection[] = []) =>
+    selections.flatMap((selection) => {
+      const option = optionsByValue.get(providerModelRef({ id: selection.providerID }, { id: selection.modelID }))
+      if (!option || pinnedValues.has(option.value)) return []
+      pinnedValues.add(option.value)
+      return [option]
+    })
+
+  const favoriteOptions = pinOptions(modelState?.favorite)
+  const recentOptions = pinOptions(modelState?.recent)
+  const sections: ModelSection[] = [
+    { key: 'favorites', title: 'Favorites', icon: <Star className="h-3.5 w-3.5" />, pinned: true, options: favoriteOptions },
+    { key: 'recent', title: 'Recent', icon: <Clock className="h-3.5 w-3.5" />, pinned: true, options: recentOptions },
+    ...providerSections.map((section) => ({
+      ...section,
+      options: section.options.filter((option) => !pinnedValues.has(option.value)),
+    })),
+  ]
+  return sections.filter((section) => section.options.length > 0)
+}
+
+function filterModelSections(sections: ModelSection[], query: string): ModelSection[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return sections
+
+  return sections
+    .map((section) => ({
+      ...section,
+      options: section.options.filter((option) => terms.every((term) => option.searchText.includes(term))),
+    }))
+    .filter((section) => section.options.length > 0)
 }
 
 export function MultiRunDialog({
@@ -59,9 +131,12 @@ export function MultiRunDialog({
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [isolate, setIsolate] = useState(true)
   const [baseRef, setBaseRef] = useState('')
+  const [modelSearch, setModelSearch] = useState('')
+  const deferredModelSearch = useDeferredValue(modelSearch)
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null)
 
   const { data: providers } = useProvidersWithModels({ enabled: open, directory })
+  const { data: modelState } = useOpenCodeModelState(directory, open)
   const runsQuery = useMultiRuns(repoId, open)
   const launch = useLaunchMultiRun(repoId)
   const discard = useDiscardMultiRunEntry(repoId)
@@ -74,11 +149,13 @@ export function MultiRunDialog({
     setSelectedModels([])
     setIsolate(true)
     setBaseRef(defaultBaseRef ?? '')
+    setModelSearch('')
   }, [open, defaultBaseRef])
 
-  const modelGroups = useMemo(
-    () => providers.filter((provider) => provider.models.length > 0),
-    [providers],
+  const modelSections = useMemo(() => buildModelSections(providers, modelState), [providers, modelState])
+  const visibleModelSections = useMemo(
+    () => filterModelSections(modelSections, deferredModelSearch),
+    [modelSections, deferredModelSearch],
   )
 
   const toggleModel = useCallback((value: string, checked: boolean) => {
@@ -101,7 +178,7 @@ export function MultiRunDialog({
       prompt: prompt.trim(),
       models: selectedModels,
       isolate,
-      ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {}),
+      ...(isolate && baseRef ? { baseRef } : {}),
     }
     launch.mutate(request, { onSuccess: () => setActiveTab('runs') })
   }
@@ -170,11 +247,23 @@ export function MultiRunDialog({
                     {selectedModels.length}/{MULTI_RUN_MAX_MODELS} selected
                   </span>
                 </div>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={modelSearch}
+                    onChange={(event) => setModelSearch(event.target.value)}
+                    placeholder="Search models..."
+                    aria-label="Search models"
+                    autoComplete="off"
+                    className="pl-9"
+                  />
+                </div>
                 <div className="max-h-56 overflow-y-auto rounded-md border border-border divide-y divide-border">
                   <ModelCheckboxList
-                    providers={modelGroups}
+                    sections={visibleModelSections}
                     selectedModels={selectedModels}
                     onToggle={toggleModel}
+                    emptyLabel={modelSections.length === 0 ? 'No models available.' : 'No models match your search.'}
                   />
                 </div>
               </div>
@@ -187,16 +276,19 @@ export function MultiRunDialog({
                 <Switch id="multi-run-isolate" checked={isolate} onCheckedChange={setIsolate} />
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="multi-run-base-ref">Start from</Label>
-                <Input
-                  id="multi-run-base-ref"
-                  value={baseRef}
-                  onChange={(event) => setBaseRef(event.target.value)}
-                  placeholder="Current HEAD"
-                />
-                <p className="text-xs text-muted-foreground">Branch or ref. Empty starts from the current HEAD.</p>
-              </div>
+              {isolate && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="multi-run-base-ref">Start from</Label>
+                  <BaseBranchSelect
+                    id="multi-run-base-ref"
+                    repoId={repoId}
+                    value={baseRef}
+                    onValueChange={setBaseRef}
+                    placeholder="Current HEAD"
+                  />
+                  <p className="text-xs text-muted-foreground">Each isolated workspace starts from this branch.</p>
+                </div>
+              )}
 
               <div className="flex justify-end">
                 <Button onClick={handleLaunch} disabled={!canSubmit}>
@@ -300,38 +392,45 @@ export function MultiRunDialog({
 }
 
 interface ModelCheckboxListProps {
-  providers: ProviderWithModels[]
+  sections: ModelSection[]
   selectedModels: string[]
   onToggle: (value: string, checked: boolean) => void
+  emptyLabel: string
 }
 
 const ModelCheckboxList = memo(function ModelCheckboxList({
-  providers,
+  sections,
   selectedModels,
   onToggle,
+  emptyLabel,
 }: ModelCheckboxListProps) {
-  if (providers.length === 0) {
-    return <p className="p-3 text-sm text-muted-foreground">No models available.</p>
+  if (sections.length === 0) {
+    return <p className="p-3 text-sm text-muted-foreground">{emptyLabel}</p>
   }
 
   return (
     <>
-      {providers.map((provider) => (
-        <div key={provider.id} className="p-3 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">{formatProviderName(provider)}</p>
-          {provider.models.map((model) => {
-            const value = providerModelRef(provider, model)
-            const checked = selectedModels.includes(value)
+      {sections.map((section) => (
+        <div key={section.key} className="p-3 space-y-2">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            {section.icon}
+            {section.title}
+          </p>
+          {section.options.map((option) => {
+            const checked = selectedModels.includes(option.value)
             const atCapacity = selectedModels.length >= MULTI_RUN_MAX_MODELS && !checked
             return (
-              <label key={value} className="flex items-center gap-2 text-sm">
+              <label key={option.value} className="flex items-center gap-2 text-sm">
                 <Checkbox
-                  aria-label={formatModelName(model)}
+                  aria-label={option.label}
                   checked={checked}
                   disabled={atCapacity}
-                  onCheckedChange={(next) => onToggle(value, next === true)}
+                  onCheckedChange={(next) => onToggle(option.value, next === true)}
                 />
-                <span className="truncate">{formatModelName(model)}</span>
+                <span className="truncate">{option.label}</span>
+                {section.pinned ? (
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{option.providerName}</span>
+                ) : null}
               </label>
             )
           })}

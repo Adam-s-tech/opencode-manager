@@ -2,11 +2,31 @@ import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import type { CSSProperties } from "react"
 import type { Repo } from "@/api/types"
+import type { GitBranch } from "@/api/repos"
 
 export { getRepoDisplayName } from '@opencode-manager/shared/utils'
 
 export function getRepoBranchLabel(repo: Pick<Repo, 'currentBranch' | 'branch'>): string | null {
   return repo.currentBranch || repo.branch || null
+}
+
+const ORIGIN_REMOTE_PREFIX = 'remotes/origin/'
+
+export function getOriginOnlyBranchNames(branches: Pick<GitBranch, 'name' | 'type'>[]): string[] {
+  const localNames = new Set(branches.filter((b) => b.type === 'local').map((b) => b.name))
+  const seen = new Set<string>()
+  const result: string[] = []
+
+  for (const branch of branches) {
+    if (branch.type !== 'remote' || !branch.name.startsWith(ORIGIN_REMOTE_PREFIX)) continue
+    const shortName = branch.name.slice(ORIGIN_REMOTE_PREFIX.length)
+    if (shortName.length === 0 || shortName === 'HEAD') continue
+    if (localNames.has(shortName) || seen.has(shortName)) continue
+    seen.add(shortName)
+    result.push(shortName)
+  }
+
+  return result
 }
 
 export function cn(...inputs: ClassValue[]) {

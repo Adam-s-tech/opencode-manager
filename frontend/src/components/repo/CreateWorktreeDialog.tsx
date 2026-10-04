@@ -8,6 +8,8 @@ import { AlertCircle, GitBranch, Loader2 } from 'lucide-react'
 import { createRepo, listBranches, type CreateRepoOptions } from '@/api/repos'
 import { showToast } from '@/lib/toast'
 import { invalidateRepoGitCaches } from '@/lib/queryInvalidation'
+import { getOriginOnlyBranchNames } from '@/lib/utils'
+import { BaseBranchSelect } from './BaseBranchSelect'
 
 interface CreateWorktreeDialogProps {
   open: boolean
@@ -51,28 +53,18 @@ export function CreateWorktreeDialog({
 
   const localBranches = (branchesData?.branches ?? []).filter((b) => b.type === 'local')
 
-  const seenRemoteNames = new Set<string>()
-  const remoteBranches = (branchesData?.branches ?? [])
-    .filter((b) => b.type === 'remote' && b.name.startsWith('remotes/origin/'))
-    .map((b) => ({ ...b, shortName: b.name.slice('remotes/origin/'.length) }))
-    .filter((b) => b.shortName.length > 0)
-    .filter((b) => !localBranches.some((lb) => lb.name === b.shortName))
-    .filter((b) => {
-      if (seenRemoteNames.has(b.shortName)) return false
-      seenRemoteNames.add(b.shortName)
-      return true
-    })
+  const remoteBranchNames = getOriginOnlyBranchNames(branchesData?.branches ?? [])
 
   const checkoutCandidates = [
     ...localBranches
       .filter((b) => !b.current && !b.isWorktree)
       .map((b) => ({ name: b.name, remote: false })),
-    ...remoteBranches.map((b) => ({ name: b.shortName, remote: true })),
+    ...remoteBranchNames.map((name) => ({ name, remote: true })),
   ]
 
   const existingBranchNames = new Set([
     ...localBranches.map((b) => b.name),
-    ...remoteBranches.map((b) => b.shortName),
+    ...remoteBranchNames,
   ])
 
   const trimmedBranchName = branchName.trim()
@@ -219,37 +211,12 @@ export function CreateWorktreeDialog({
 
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">Base branch</label>
-                    <Select value={baseBranch} onValueChange={setBaseBranch} disabled={branchesLoading}>
-                      <SelectTrigger className="bg-background border-border text-foreground">
-                        <SelectValue placeholder={branchesLoading ? 'Loading branches...' : 'Select a base branch'} />
-                      </SelectTrigger>
-                      <SelectContent className="bg-popover border-border">
-                        {localBranches.length > 0 && (
-                          <>
-                            {localBranches.map((branch) => (
-                              <SelectItem key={`local-${branch.name}`} value={branch.name}>
-                                <div className="flex items-center gap-2">
-                                  <GitBranch className="w-3.5 h-3.5" />
-                                  <span>{branch.name}</span>
-                                  {branch.current && (
-                                    <span className="text-xs text-muted-foreground">(current)</span>
-                                  )}
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </>
-                        )}
-                        {remoteBranches.map((branch) => (
-                          <SelectItem key={`remote-${branch.name}`} value={`origin/${branch.shortName}`}>
-                            <div className="flex items-center gap-2">
-                              <GitBranch className="w-3.5 h-3.5 text-info" />
-                              <span>{branch.shortName}</span>
-                              <span className="text-xs text-muted-foreground">(remote)</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <BaseBranchSelect
+                      repoId={repoId}
+                      value={baseBranch}
+                      onValueChange={setBaseBranch}
+                      placeholder="Select a base branch"
+                    />
                     <p className="text-xs text-muted-foreground">
                       The new branch will be created from this branch.
                     </p>

@@ -6,6 +6,7 @@ import { MessageThread } from "@/components/message/MessageThread";
 import { PromptInput, type PromptInputHandle } from "@/components/message/PromptInput";
 import { FloatingTTSButton } from '@/components/message/FloatingTTSButton'
 import { X, CornerUpLeft } from "lucide-react";
+import { SquareFill } from "@/components/ui/square-fill";
 import { Header } from "@/components/ui/header";
 import { SessionList } from "@/components/session/SessionList";
 import { getSessionListPath } from '@/lib/navigation'
@@ -435,6 +436,12 @@ export function SessionDetail() {
     promptInputRef.current?.openModelPicker();
   }, [])
 
+  const handleInterruptSession = () => {
+    if (sessionId) {
+      interruptSession.mutate(sessionId);
+    }
+  };
+
   const { leaderActive } = useKeyboardShortcuts({
     openModelDialog: handleOpenModelDialog,
     openSessions: handleShowSessionsDialog,
@@ -458,11 +465,7 @@ export function SessionDetail() {
       ) as HTMLButtonElement;
       submitButton?.click();
     },
-    interruptSession: () => {
-      if (sessionId) {
-        interruptSession.mutate(sessionId);
-      }
-    },
+    interruptSession: handleInterruptSession,
   });
 
   
@@ -715,7 +718,7 @@ export function SessionDetail() {
             style={{ bottom: inputBottomOffset }}
           >
             <div className="relative w-[94%] md:max-w-4xl">
-              <div className="absolute -top-9 right-0 z-50 flex flex-col items-end gap-2">
+              <div className="absolute bottom-full right-0 mb-2 z-50 flex flex-col items-end gap-2">
                 {ttsEnabled && !hasPromptContent && !isSessionActive && latestPlayableAssistant && (
                   <FloatingTTSButton
                     messageId={latestPlayableAssistant.messageId}
@@ -735,6 +738,17 @@ export function SessionDetail() {
                   >
                     <X className="w-5 h-5" />
                     <span className="text-sm font-medium hidden sm:inline">Clear</span>
+                  </button>
+                )}
+                {isSessionActive && (
+                  <button
+                    type="button"
+                    onClick={handleInterruptSession}
+                    title="Stop"
+                    aria-label="Stop"
+                    className="md:hidden p-3 rounded-xl transition-all duration-200 active:scale-95 hover:scale-105 bg-destructive hover:bg-destructive/90 text-destructive-foreground border border-destructive/60 shadow-lg shadow-destructive/30"
+                  >
+                    <SquareFill className="w-5 h-5" />
                   </button>
                 )}
               </div>

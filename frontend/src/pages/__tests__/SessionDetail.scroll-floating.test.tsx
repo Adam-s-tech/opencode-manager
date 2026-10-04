@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   useAutoScroll: vi.fn(),
   useDialogParam: vi.fn(),
   useSessionStatusForSession: vi.fn(),
+  interruptMutate: vi.fn(),
   PromptInput: vi.fn(),
   uiState: { isEditingMessage: false },
 }))
@@ -39,7 +40,7 @@ vi.mock('@/config', () => ({
 
 vi.mock('@/hooks/useOpenCode', () => ({
   useSession: mocks.useSession,
-  useInterruptSession: vi.fn(() => ({ mutate: vi.fn() })),
+  useInterruptSession: vi.fn(() => ({ mutate: mocks.interruptMutate })),
   useUpdateSession: vi.fn(() => ({ mutate: vi.fn() })),
   useCreateSession: vi.fn(() => ({ mutateAsync: vi.fn() })),
   useConfig: mocks.useConfig,
@@ -387,6 +388,22 @@ describe('SessionDetail scroll floating button', () => {
 
     await waitFor(() => expect(screen.getByText('MockedPromptInput')).toBeInTheDocument())
     expect(screen.queryByLabelText('Clear')).not.toBeInTheDocument()
+  })
+
+  it('renders the mobile stop button while the session is active and interrupts on click', async () => {
+    renderWith({ mobile: true, showScrollButton: false, sessionActive: true })
+
+    const stopButton = await screen.findByTitle('Stop')
+    fireEvent.click(stopButton)
+
+    expect(mocks.interruptMutate).toHaveBeenCalledWith('test-session')
+  })
+
+  it('does not render the stop button while the session is idle', async () => {
+    renderWith({ mobile: true, showScrollButton: false, sessionActive: false })
+
+    await waitFor(() => expect(screen.getByText('MockedPromptInput')).toBeInTheDocument())
+    expect(screen.queryByTitle('Stop')).not.toBeInTheDocument()
   })
 
   it('clicking PromptInput scroll button calls scrollToBottom from useAutoScroll', async () => {

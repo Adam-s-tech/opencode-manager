@@ -102,7 +102,19 @@ vi.mock('@/components/model/ModelQuickSelect', () => ({
 }))
 
 vi.mock('@/components/session/PermissionModeToggle', () => ({
-  PermissionModeToggle: () => null,
+  PermissionModeToggle: () => <div data-testid="permission-mode-toggle" />,
+}))
+
+vi.mock('./ComposerToolsMenu', () => ({
+  ComposerToolsMenu: ({ goalDisabled, goalLabel, onToggleGoal }: {
+    goalDisabled: boolean
+    goalLabel: string
+    onToggleGoal: () => void
+  }) => (
+    <button type="button" data-testid="composer-tools-menu" title={goalLabel} disabled={goalDisabled} onClick={onToggleGoal}>
+      Composer options
+    </button>
+  ),
 }))
 
 vi.mock('@/components/ui/session-status-indicator', () => ({
@@ -316,6 +328,54 @@ describe('PromptInput goal mode', () => {
 
     const button = await screen.findByRole('button', { name: 'Scheduled runs cannot run goals' })
     expect(button).toBeDisabled()
+  })
+
+  it('keeps permission and goal toggles inline on desktop', async () => {
+    stubMatchMedia(true)
+    renderComponent()
+
+    expect(await screen.findByRole('button', { name: GOAL_BUTTON })).toBeInTheDocument()
+    expect(screen.getByTestId('permission-mode-toggle')).toBeInTheDocument()
+    expect(screen.queryByTestId('composer-tools-menu')).not.toBeInTheDocument()
+  })
+
+  it('moves permission and goal toggles into the composer options menu on mobile', async () => {
+    stubMatchMedia(true)
+    mocks.useMobile.mockReturnValue(true)
+    renderComponent()
+
+    const menu = await screen.findByTestId('composer-tools-menu')
+    expect(menu).toHaveAttribute('title', GOAL_BUTTON)
+    expect(screen.queryByRole('button', { name: GOAL_BUTTON })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('permission-mode-toggle')).not.toBeInTheDocument()
+  })
+
+  it('starts a goal armed from the mobile composer options menu', async () => {
+    stubMatchMedia(true)
+    mocks.useMobile.mockReturnValue(true)
+    renderComponent()
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: 'Ship the feature' } })
+    fireEvent.click(screen.getByTestId('composer-tools-menu'))
+    fireEvent.click(screen.getByTitle('Send'))
+
+    await waitFor(() => expect(mocks.startGoal).toHaveBeenCalledWith({
+      sessionId: 'test-session',
+      directory: '/test',
+      objective: 'Ship the feature',
+    }))
+  })
+
+  it('passes the goal lock reason to the mobile composer options menu', async () => {
+    stubMatchMedia(true)
+    mocks.useMobile.mockReturnValue(true)
+    mocks.useSessionGoal.mockReturnValue({ data: { status: 'active' } })
+    renderComponent()
+
+    const menu = await screen.findByTestId('composer-tools-menu')
+    expect(menu).toHaveAttribute('title', OPEN_GOAL_BUTTON)
+    expect(menu).toBeDisabled()
   })
 
   it('disables goal mode with a reason for child sessions', async () => {

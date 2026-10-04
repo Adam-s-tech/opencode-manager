@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   launchMultiRun: vi.fn(),
   discardMultiRunEntry: vi.fn(),
   useProvidersWithModels: vi.fn(),
+  useOpenCodeModelState: vi.fn(),
+  listBranches: vi.fn(),
 }))
 
 const mockNavigate = vi.fn()
@@ -28,6 +30,14 @@ vi.mock('@/api/multiRuns', () => ({
 
 vi.mock('@/hooks/useProvidersWithModels', () => ({
   useProvidersWithModels: mocks.useProvidersWithModels,
+}))
+
+vi.mock('@/hooks/useModelSelection', () => ({
+  useOpenCodeModelState: mocks.useOpenCodeModelState,
+}))
+
+vi.mock('@/api/repos', () => ({
+  listBranches: mocks.listBranches,
 }))
 
 vi.mock('@/lib/toast', () => ({
@@ -120,11 +130,139 @@ function renderDialog(overrides: Partial<React.ComponentProps<typeof MultiRunDia
   )
 }
 
+function checkboxLabels() {
+  return screen.getAllByRole('checkbox').map((checkbox) => checkbox.getAttribute('aria-label'))
+}
+
+async function fillLaunchForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByLabelText('Group name'), 'Sweep')
+  await user.type(screen.getByLabelText('Prompt'), 'go')
+  await user.click(screen.getByRole('checkbox', { name: 'GPT-4o' }))
+}
+
 describe('MultiRunDialog', () => {
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture ??= () => false
+    Element.prototype.setPointerCapture ??= () => {}
+    Element.prototype.releasePointerCapture ??= () => {}
+    Element.prototype.scrollIntoView ??= () => {}
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.useProvidersWithModels.mockReturnValue({ data: providers, isLoading: false })
+    mocks.useOpenCodeModelState.mockReturnValue({ data: { recent: [], favorite: [], variant: {} } })
+    mocks.listBranches.mockResolvedValue({
+      branches: [
+        { name: 'main', type: 'local', current: true },
+        { name: 'remotes/origin/HEAD', type: 'remote', current: false },
+        { name: 'remotes/origin/release', type: 'remote', current: false },
+      ],
+      status: { ahead: 0, behind: 0 },
+    })
     mocks.listMultiRuns.mockResolvedValue([])
+  })
+
+  it('lists favorite then recent models before provider groups without duplicates', () => {
+    mocks.useOpenCodeModelState.mockReturnValue({
+      data: {
+        favorite: [{ providerID: 'anthropic', modelID: 'claude-sonnet' }],
+        recent: [
+          { providerID: 'openai', modelID: 'gpt-4.1' },
+          { providerID: 'anthropic', modelID: 'claude-sonnet' },
+          { providerID: 'missing', modelID: 'gone' },
+        ],
+        variant: {},
+      },
+    })
+    renderDialog()
+
+    expect(screen.getByText('Favorites')).toBeInTheDocument()
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+    expect(checkboxLabels()).toEqual([
+      'Claude Sonnet',
+      'GPT-4.1',
+      'GPT-4o',
+      'GPT-4o mini',
+      'Claude Opus',
+      'Claude Haiku',
+      'Claude Sonnet 4.5',
+    ])
+  })
+
+  it('filters models by every search term and keeps favorites first', async () => {
+    const user = userEvent.setup()
+    mocks.useOpenCodeModelState.mockReturnValue({
+      data: { favorite: [{ providerID: 'anthropic', modelID: 'claude-sonnet-4.5' }], recent: [], variant: {} },
+    })
+    renderDialog()
+
+    await user.type(screen.getByLabelText('Search models'), 'sonnet')
+    await waitFor(() => expect(checkboxLabels()).toEqual(['Claude Sonnet 4.5', 'Claude Sonnet']))
+
+    await user.clear(screen.getByLabelText('Search models'))
+    await user.type(screen.getByLabelText('Search models'), 'anthropic haiku')
+    await waitFor(() => expect(checkboxLabels()).toEqual(['Claude Haiku']))
+
+    await user.type(screen.getByLabelText('Search models'), 'zzz')
+    expect(await screen.findByText('No models match your search.')).toBeInTheDocument()
+  })
+
+  it('keeps selections that are hidden by the search filter', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.click(screen.getByRole('checkbox', { name: 'GPT-4o' }))
+    await user.type(screen.getByLabelText('Search models'), 'claude')
+
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'GPT-4o' })).not.toBeInTheDocument())
+    expect(screen.getByText('1/5 selected')).toBeInTheDocument()
+  })
+
+  it('submits the selected remote branch as the base ref', async () => {
+    const user = userEvent.setup()
+    mocks.launchMultiRun.mockResolvedValue(startedRun)
+    renderDialog()
+
+    await fillLaunchForm(user)
+    const branchSelect = screen.getByRole('combobox', { name: 'Start from' })
+    await waitFor(() => expect(branchSelect).toBeEnabled())
+    await user.click(branchSelect)
+    expect(screen.queryByRole('option', { name: /HEAD/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('option', { name: /release/ }))
+    await user.click(screen.getByRole('button', { name: 'Launch' }))
+
+    await waitFor(() => {
+      expect(mocks.launchMultiRun).toHaveBeenCalledWith({
+        repoId: 7,
+        name: 'Sweep',
+        prompt: 'go',
+        models: ['openai/gpt-4o'],
+        isolate: true,
+        baseRef: 'origin/release',
+      })
+    })
+  })
+
+  it('hides the base branch and omits it when runs are not isolated', async () => {
+    const user = userEvent.setup()
+    mocks.launchMultiRun.mockResolvedValue(startedRun)
+    renderDialog()
+
+    await fillLaunchForm(user)
+    await user.click(screen.getByRole('switch', { name: 'Isolate runs' }))
+    expect(screen.queryByRole('combobox', { name: 'Start from' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Launch' }))
+
+    await waitFor(() => {
+      expect(mocks.launchMultiRun).toHaveBeenCalledWith({
+        repoId: 7,
+        name: 'Sweep',
+        prompt: 'go',
+        models: ['openai/gpt-4o'],
+        isolate: false,
+      })
+    })
   })
 
   it('caps model selection at five', async () => {

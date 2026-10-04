@@ -40,7 +40,7 @@ export function SessionGoalBar({ sessionID }: { sessionID: string }) {
   const reason = goal.stopReason ? getGoalStopReasonLabel(goal.stopReason) : goal.lastReason
 
   return (
-    <div className="mb-1 flex flex-col gap-1 rounded-lg border border-border bg-card/70 px-2 py-1.5 text-xs">
+    <div className="mb-1 flex flex-col gap-1 rounded-lg border border-border bg-card px-2 py-1.5 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <Badge
           variant="outline"

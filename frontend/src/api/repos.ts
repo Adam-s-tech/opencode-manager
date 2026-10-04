@@ -136,7 +136,7 @@ export async function switchBranch(id: number, branch: string): Promise<Repo> {
   }
 }
 
-interface GitBranch {
+export interface GitBranch {
   name: string
   type: 'local' | 'remote'
   current: boolean
