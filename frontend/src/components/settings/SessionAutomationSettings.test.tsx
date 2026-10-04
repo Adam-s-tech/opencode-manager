@@ -110,6 +110,39 @@ describe('SessionAutomationSettings', () => {
     }
   })
 
+  it('saves the auditor model and max continuations together after the debounce', () => {
+    vi.useFakeTimers()
+    try {
+      const updateSettings = vi.fn()
+      mockUseSettings({
+        preferences: { ...basePreferences, sessionDefaults: { permissionMode: 'ask', goalMaxContinuations: 20 } },
+        updateSettings,
+      })
+      render(<SessionAutomationSettings />)
+
+      fireEvent.change(screen.getByLabelText('Goal auditor model'), {
+        target: { value: 'anthropic/claude-sonnet-4' },
+      })
+      fireEvent.change(screen.getByLabelText('Max automatic continuations'), {
+        target: { value: '50' },
+      })
+      act(() => {
+        vi.advanceTimersByTime(800)
+      })
+
+      expect(updateSettings).toHaveBeenCalledTimes(1)
+      expect(updateSettings).toHaveBeenCalledWith({
+        sessionDefaults: {
+          permissionMode: 'ask',
+          goalAuditorModel: 'anthropic/claude-sonnet-4',
+          goalMaxContinuations: 50,
+        },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('saves an in-range max automatic continuations on blur', () => {
     const updateSettings = vi.fn()
     mockUseSettings({

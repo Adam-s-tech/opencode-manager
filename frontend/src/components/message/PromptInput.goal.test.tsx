@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PromptInput } from './PromptInput'
 import { useUIState } from '@/stores/uiStateStore'
@@ -47,10 +47,26 @@ vi.mock('@/hooks/useOpenCode', async (importOriginal) => {
   }
 })
 
-vi.mock('@/hooks/useSessionGoals', () => ({
-  useSessionGoal: mocks.useSessionGoal,
-  useStartSessionGoal: () => ({ mutateAsync: mocks.startGoal, isPending: false }),
-}))
+vi.mock('@/hooks/useSessionGoals', async () => {
+  const { useState } = await import('react')
+  return {
+    useSessionGoal: mocks.useSessionGoal,
+    useStartSessionGoal: () => {
+      const [isPending, setIsPending] = useState(false)
+      return {
+        mutateAsync: async (variables: unknown) => {
+          setIsPending(true)
+          try {
+            return await mocks.startGoal(variables)
+          } finally {
+            setIsPending(false)
+          }
+        },
+        isPending,
+      }
+    },
+  }
+})
 
 vi.mock('@/hooks/useSessionPermissionMode', () => ({
   useSessionPermissionMode: mocks.useSessionPermissionMode,
@@ -239,6 +255,33 @@ describe('PromptInput goal mode', () => {
       expect.anything(),
     ))
     expect(mocks.startGoal.mock.invocationCallOrder[0]).toBeLessThan(mocks.sendPrompt.mock.invocationCallOrder[0])
+  })
+
+  it('does not start the goal again while it is still starting', async () => {
+    stubMatchMedia(true)
+    let resolveGoal: (value: unknown) => void = () => {}
+    mocks.startGoal.mockImplementation(
+      () => new Promise((resolve) => {
+        resolveGoal = resolve
+      }),
+    )
+    renderComponent({ isStreamingResponse: true })
+
+    const input = await screen.findByPlaceholderText('Send a message...')
+    fireEvent.change(input, { target: { value: 'Ship the feature' } })
+    fireEvent.click(screen.getByRole('button', { name: GOAL_BUTTON }))
+    fireEvent.click(screen.getByTitle('Queue message'))
+
+    await waitFor(() => expect(mocks.startGoal).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTitle('Queue message'))
+
+    expect(mocks.startGoal).toHaveBeenCalledTimes(1)
+    expect(mocks.sendPrompt).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveGoal({ id: 1 })
+    })
   })
 
   it('does not start an armed goal for a slash command', async () => {

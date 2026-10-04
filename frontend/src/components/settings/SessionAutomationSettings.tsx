@@ -60,38 +60,44 @@ export function SessionAutomationSettings() {
     [sessionDefaults, permissionMode, updateSettings],
   )
 
-  const commitGoalAuditorModel = useCallback(() => {
-    const next = goalAuditorModel.trim() || undefined
-    if (next === committed.current.goalAuditorModel) return
-    committed.current.goalAuditorModel = next
-    updateSessionDefaults({ goalAuditorModel: next })
-  }, [goalAuditorModel, updateSessionDefaults])
+  const commitGoalFields = useCallback(() => {
+    const patch: Partial<SessionDefaults> = {}
 
-  const commitGoalMaxContinuations = useCallback(() => {
-    const value = Number(goalMaxContinuations)
-    if (!Number.isInteger(value) || value < GOAL_MAX_CONTINUATIONS_MIN || value > GOAL_MAX_CONTINUATIONS_MAX) return
-    if (value === committed.current.goalMaxContinuations) return
-    committed.current.goalMaxContinuations = value
-    updateSessionDefaults({ goalMaxContinuations: value })
-  }, [goalMaxContinuations, updateSessionDefaults])
+    const nextAuditorModel = goalAuditorModel.trim() || undefined
+    if (nextAuditorModel !== committed.current.goalAuditorModel) {
+      committed.current.goalAuditorModel = nextAuditorModel
+      patch.goalAuditorModel = nextAuditorModel
+    }
 
-  const commitGoalTokenBudget = useCallback(() => {
-    const next = goalTokenBudget.trim() === '' ? undefined : Number(goalTokenBudget)
-    if (next !== undefined && (!Number.isInteger(next) || next <= 0)) return
-    if (next === committed.current.goalTokenBudget) return
-    committed.current.goalTokenBudget = next
-    updateSessionDefaults({ goalTokenBudget: next })
-  }, [goalTokenBudget, updateSessionDefaults])
+    const nextMaxContinuations = Number(goalMaxContinuations)
+    if (
+      Number.isInteger(nextMaxContinuations) &&
+      nextMaxContinuations >= GOAL_MAX_CONTINUATIONS_MIN &&
+      nextMaxContinuations <= GOAL_MAX_CONTINUATIONS_MAX &&
+      nextMaxContinuations !== committed.current.goalMaxContinuations
+    ) {
+      committed.current.goalMaxContinuations = nextMaxContinuations
+      patch.goalMaxContinuations = nextMaxContinuations
+    }
+
+    const nextTokenBudget = goalTokenBudget.trim() === '' ? undefined : Number(goalTokenBudget)
+    const tokenBudgetValid = nextTokenBudget === undefined || (Number.isInteger(nextTokenBudget) && nextTokenBudget > 0)
+    if (tokenBudgetValid && nextTokenBudget !== committed.current.goalTokenBudget) {
+      committed.current.goalTokenBudget = nextTokenBudget
+      patch.goalTokenBudget = nextTokenBudget
+    }
+
+    if (Object.keys(patch).length === 0) return
+    updateSessionDefaults(patch)
+  }, [goalAuditorModel, goalMaxContinuations, goalTokenBudget, updateSessionDefaults])
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      commitGoalAuditorModel()
-      commitGoalMaxContinuations()
-      commitGoalTokenBudget()
+      commitGoalFields()
     }, AUTOSAVE_DELAY_MS)
 
     return () => clearTimeout(timer)
-  }, [commitGoalAuditorModel, commitGoalMaxContinuations, commitGoalTokenBudget])
+  }, [commitGoalFields])
 
   return (
     <div className="space-y-6">
@@ -131,7 +137,7 @@ export function SessionAutomationSettings() {
           placeholder="provider/model"
           className="w-full shrink-0 sm:w-64"
           onChange={(event) => setGoalAuditorModel(event.target.value)}
-          onBlur={commitGoalAuditorModel}
+          onBlur={commitGoalFields}
         />
       </div>
 
@@ -150,7 +156,7 @@ export function SessionAutomationSettings() {
           value={goalMaxContinuations}
           className="w-full shrink-0 sm:w-40"
           onChange={(event) => setGoalMaxContinuations(event.target.value)}
-          onBlur={commitGoalMaxContinuations}
+          onBlur={commitGoalFields}
         />
       </div>
 
@@ -169,7 +175,7 @@ export function SessionAutomationSettings() {
           placeholder="No limit"
           className="w-full shrink-0 sm:w-40"
           onChange={(event) => setGoalTokenBudget(event.target.value)}
-          onBlur={commitGoalTokenBudget}
+          onBlur={commitGoalFields}
         />
       </div>
     </div>

@@ -231,10 +231,10 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
   const setStoredAgent = useSessionAgentStore((s) => s.setAgent)
   const sendPrompt = useSendPrompt(directory)
   const sendShell = useSendShell(directory)
-  const isPromptSubmitPending = sendPrompt.isPending || sendShell.isPending
+  const startGoal = useStartSessionGoal()
+  const isPromptSubmitPending = sendPrompt.isPending || sendShell.isPending || startGoal.isPending
   const interruptSession = useInterruptSession()
   const { data: sessionGoal } = useSessionGoal(sessionID)
-  const startGoal = useStartSessionGoal()
   const { data: permissionMode } = useSessionPermissionMode(sessionID)
   const { filterCommands } = useCommands({ directory })
   const isExactCommandPrompt = (value: string) => {
@@ -311,6 +311,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
 
   const handleSubmit = async () => {
     if (!prompt.trim() && imageAttachments.length === 0) return
+    if (startGoal.isPending) return
 
     pendingVoiceAutoSubmitRef.current = false
     setIsVoiceAutoSendPending(false)
