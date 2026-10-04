@@ -130,6 +130,24 @@ describe('CreateWorktreeDialog', () => {
     })
   })
 
+  it('submits a remote-only base branch qualified with origin', async () => {
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.type(screen.getByPlaceholderText('feature/my-branch'), 'my-new-branch')
+    await user.click(screen.getByRole('combobox'))
+    await user.click(screen.getByRole('option', { name: /release/ }))
+    await user.click(screen.getByRole('button', { name: 'Create Worktree' }))
+
+    await waitFor(() => expect(createRepo).toHaveBeenCalledTimes(1))
+    expect(createRepo).toHaveBeenCalledWith({
+      repoUrl,
+      branch: 'my-new-branch',
+      useWorktree: true,
+      baseBranch: 'origin/release',
+    })
+  })
+
   it('prompts to use existing mode when a new branch name already exists', async () => {
     const user = userEvent.setup()
     renderDialog()

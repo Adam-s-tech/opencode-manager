@@ -305,9 +305,75 @@ describe('GitService real git', () => {
       cloneOrigin(origin, repoPath)
       git(['checkout', '-b', 'feature', 'origin/feature'], repoPath)
       git(['checkout', 'main'], repoPath)
+      git(['merge', 'feature'], repoPath)
       const repo = registerClone(origin, repoPath)
 
       const result = await service.deleteBranch(repo.id, { name: 'feature', force: false, deleteRemote: true }, db)
+
+      expect(result.remoteDeleted).toBe(true)
+      expect(git(['branch', '--list', 'feature'], repoPath)).toBe('')
+      expect(git(['branch', '--list', 'feature'], origin)).toBe('')
+    })
+
+    it('refuses to delete a remote branch whose upstream has a different name', async () => {
+      const origin = path.join(workspaceRoot, uniqueName('delete-mismatch-origin.git'))
+      const work = path.join(workspaceRoot, uniqueName('delete-mismatch-work'))
+      createOrigin(origin, work)
+      const repoPath = path.join(reposPath, uniqueName('delete-mismatch-clone'))
+      cloneOrigin(origin, repoPath)
+      git(['checkout', '-b', 'myfix', 'origin/main'], repoPath)
+      git(['checkout', 'main'], repoPath)
+      const repo = registerClone(origin, repoPath)
+
+      const error = await service
+        .deleteBranch(repo.id, { name: 'myfix', force: true, deleteRemote: true }, db)
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(GitOperationError)
+      expect(parseGitError(error).code).toBe('REMOTE_BRANCH_MISMATCH')
+      expect(git(['branch', '--list', 'myfix'], repoPath)).toContain('myfix')
+      expect(git(['branch', '--list', 'main'], origin)).toContain('main')
+    })
+
+    it('keeps a pushed unmerged branch and its remote without force', async () => {
+      const origin = path.join(workspaceRoot, uniqueName('delete-pushed-unmerged-origin.git'))
+      const work = path.join(workspaceRoot, uniqueName('delete-pushed-unmerged-work'))
+      createOrigin(origin, work)
+      const repoPath = path.join(reposPath, uniqueName('delete-pushed-unmerged-clone'))
+      cloneOrigin(origin, repoPath)
+      git(['checkout', '-b', 'feature'], repoPath)
+      writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n')
+      git(['add', 'feature.txt'], repoPath)
+      git(['commit', '-m', 'feature work'], repoPath)
+      git(['push', '-u', 'origin', 'feature'], repoPath)
+      git(['checkout', 'main'], repoPath)
+      const repo = registerClone(origin, repoPath)
+
+      const error = await service
+        .deleteBranch(repo.id, { name: 'feature', force: false, deleteRemote: true }, db)
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(GitOperationError)
+      expect(parseGitError(error).code).toBe('BRANCH_NOT_MERGED')
+      expect(git(['branch', '--list', 'feature'], repoPath)).toContain('feature')
+      expect(git(['branch', '--list', 'feature'], origin)).toContain('feature')
+    })
+
+    it('force deletes a pushed unmerged branch and its remote', async () => {
+      const origin = path.join(workspaceRoot, uniqueName('delete-pushed-force-origin.git'))
+      const work = path.join(workspaceRoot, uniqueName('delete-pushed-force-work'))
+      createOrigin(origin, work)
+      const repoPath = path.join(reposPath, uniqueName('delete-pushed-force-clone'))
+      cloneOrigin(origin, repoPath)
+      git(['checkout', '-b', 'feature'], repoPath)
+      writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n')
+      git(['add', 'feature.txt'], repoPath)
+      git(['commit', '-m', 'feature work'], repoPath)
+      git(['push', '-u', 'origin', 'feature'], repoPath)
+      git(['checkout', 'main'], repoPath)
+      const repo = registerClone(origin, repoPath)
+
+      const result = await service.deleteBranch(repo.id, { name: 'feature', force: true, deleteRemote: true }, db)
 
       expect(result.remoteDeleted).toBe(true)
       expect(git(['branch', '--list', 'feature'], repoPath)).toBe('')
@@ -760,6 +826,32 @@ describe('GitService real git', () => {
       expect(git(['log', '-1', '--format=%P'], basePath).split(' ')).toHaveLength(1)
     })
 
+    it('skips already-applied commits when cherry-picking the same branch twice', async () => {
+      const { base, basePath, worktree, worktreePath } = await setupWorktreeRepo('integrate-cherry-twice')
+      writeFileSync(path.join(worktreePath, 'a.txt'), 'a\n')
+      git(['add', 'a.txt'], worktreePath)
+      git(['commit', '-m', 'add a'], worktreePath)
+
+      const first = await service.integrateBranch(worktree.id, { targetBranch: 'main', strategy: 'cherry-pick' }, db)
+      expect(first.integratedCommits).toBe(1)
+
+      const error = await service
+        .integrateBranch(worktree.id, { targetBranch: 'main', strategy: 'cherry-pick' }, db)
+        .catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(GitOperationError)
+      expect(parseGitError(error).code).toBe('INTEGRATE_NOTHING_TO_INTEGRATE')
+      expect((await service.getStatus(base.id, db)).operation).toBeNull()
+
+      writeFileSync(path.join(worktreePath, 'b.txt'), 'b\n')
+      git(['add', 'b.txt'], worktreePath)
+      git(['commit', '-m', 'add b'], worktreePath)
+
+      const third = await service.integrateBranch(worktree.id, { targetBranch: 'main', strategy: 'cherry-pick' }, db)
+      expect(third.integratedCommits).toBe(1)
+      expect(git(['log', '-2', '--format=%s'], basePath).split('\n')).toEqual(['add b', 'add a'])
+    })
+
     it('rejects a target with tracked changes', async () => {
       const { basePath, worktree, worktreePath } = await setupWorktreeRepo('integrate-dirty')
       writeFileSync(path.join(basePath, 'tracked.txt'), 'base\n')
@@ -1063,6 +1155,7 @@ describe('GitService real git', () => {
     it('also deletes the pushed origin branch with local-and-remote', async () => {
       const { origin, basePath, worktree, worktreePath } = await setupDeleteWorktree('delete-wt-remote')
       pushFeatureWithUpstream(worktreePath)
+      mergeFeatureIntoMain(basePath)
 
       const res = await createDeleteApp().request(`/repos/${worktree.id}`, {
         method: 'DELETE',
@@ -1078,6 +1171,30 @@ describe('GitService real git', () => {
       expect(existsSync(worktreePath)).toBe(false)
       expect(git(['branch', '--list', 'feature'], basePath)).toBe('')
       expect(git(['branch', '--list', 'feature'], origin)).toBe('')
+    })
+
+    it('keeps an unmerged pushed branch and its remote with local-and-remote', async () => {
+      const { origin, basePath, worktree, worktreePath } = await setupDeleteWorktree('delete-wt-remote-unmerged')
+      pushFeatureWithUpstream(worktreePath)
+
+      const res = await createDeleteApp().request(`/repos/${worktree.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteBranch: 'local-and-remote' }),
+      })
+
+      expect(res.status).toBe(200)
+      const data = await res.json() as { success: boolean; branch?: { name: string; deleted: boolean; remoteDeleted: boolean; error?: string } }
+      expect(data.success).toBe(true)
+      expect(data.branch).toEqual({
+        name: 'feature',
+        deleted: false,
+        remoteDeleted: false,
+        error: "Branch 'feature' was kept because it has unmerged commits.",
+      })
+      expect(existsSync(worktreePath)).toBe(false)
+      expect(git(['branch', '--list', 'feature'], basePath)).toContain('feature')
+      expect(git(['branch', '--list', 'feature'], origin)).toContain('feature')
     })
 
     it('deletes a local worktree without a repoUrl together with its branch', async () => {
@@ -1103,6 +1220,7 @@ describe('GitService real git', () => {
     it('reports local deletion as complete when the remote rejects the branch deletion', async () => {
       const { origin, basePath, worktree, worktreePath } = await setupDeleteWorktree('delete-wt-reject')
       pushFeatureWithUpstream(worktreePath)
+      mergeFeatureIntoMain(basePath)
       rejectPushes(origin)
 
       const res = await createDeleteApp().request(`/repos/${worktree.id}`, {

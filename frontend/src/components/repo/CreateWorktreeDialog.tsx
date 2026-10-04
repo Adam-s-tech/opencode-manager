@@ -240,7 +240,7 @@ export function CreateWorktreeDialog({
                           </>
                         )}
                         {remoteBranches.map((branch) => (
-                          <SelectItem key={`remote-${branch.name}`} value={branch.shortName}>
+                          <SelectItem key={`remote-${branch.name}`} value={`origin/${branch.shortName}`}>
                             <div className="flex items-center gap-2">
                               <GitBranch className="w-3.5 h-3.5 text-info" />
                               <span>{branch.shortName}</span>

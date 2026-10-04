@@ -423,7 +423,8 @@ export function BranchesTab({ repoId, currentBranch }: BranchesTabProps) {
                 checked={deleteRemote}
                 onCheckedChange={(checked) => setDeleteRemote(checked === true)}
               />
-              Also delete remote branch
+              Also delete remote branch{' '}
+              <span className="font-mono">{branchToDelete.upstream}</span>
             </label>
           )}
         </div>

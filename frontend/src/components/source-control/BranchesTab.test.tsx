@@ -72,4 +72,21 @@ describe('BranchesTab', () => {
 
     expect(screen.getByRole('textbox', { name: 'New name for branch feature' })).toBeInTheDocument()
   })
+
+  it('shows the upstream branch name in the delete dialog', async () => {
+    vi.mocked(listBranches).mockResolvedValue({
+      branches: [
+        { name: 'main', type: 'local', current: true },
+        { name: 'feature', type: 'local', current: false, upstream: 'origin/feature' },
+      ],
+      status: { ahead: 0, behind: 0 },
+    })
+    const user = userEvent.setup()
+    render(<BranchesTab repoId={1} currentBranch="main" />, { wrapper: createWrapper() })
+
+    await user.click(await screen.findByRole('button', { name: 'Actions for feature' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }))
+
+    expect(await screen.findByText('origin/feature')).toBeInTheDocument()
+  })
 })

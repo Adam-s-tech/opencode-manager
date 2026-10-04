@@ -33,7 +33,7 @@ import { ASSISTANT_REPO_ID } from "@opencode-manager/shared/utils"
 const DELETE_BRANCH_OPTIONS: Array<RadioOption<DeleteBranchChoice>> = [
   { value: 'none', label: 'Keep branch', description: 'Leave the branch in the parent repository.' },
   { value: 'local', label: 'Delete local branch', description: 'Remove the branch from the parent repository.' },
-  { value: 'local-and-remote', label: 'Delete local and remote branch', description: 'Also delete the branch from origin.' },
+  { value: 'local-and-remote', label: 'Delete local and remote branch', description: 'Also delete its remote branch when it has the same name and is merged.' },
 ]
 
 interface RepoCardWrapperProps {
