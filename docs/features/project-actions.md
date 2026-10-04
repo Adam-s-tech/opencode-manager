@@ -81,7 +81,7 @@ Project actions are not available in the Assistant workspace.
 
 ## Moving Actions and Setup Commands
 
-The Project Actions dialog moves items between personal settings and the repository file:
+The Project Actions dialog moves items between personal settings and the repository file from each row's **⋯** menu:
 
 - **Move to repository** writes the item into `.ocm/project.json` and removes it from personal settings. Because the user authored it, the file is trusted automatically.
 - **Move to my settings** removes the item from `.ocm/project.json` (deleting the file if it becomes empty) and stores it in personal settings.
@@ -93,10 +93,10 @@ Moves are transactional: if the file write or the settings update fails, the fil
 Commands in `.ocm/project.json` run on your machine, so the Manager does not run them until you trust the file:
 
 - Trust covers everything in the file that can run or open: each action's `id`, `name`, `command`, `url` and `autoOpenUrl` (including actions hidden because a personal action has the same `id`), plus every setup command. Changing any of these resets trust; changing an icon does not.
-- Both trust prompts — **Trust these commands** in the dialog and **Trust and run** in the header menu — list every action and setup command that trusting covers, not only the one you clicked.
+- Both trust prompts — **Review** in the dialog and **Trust and run** in the header menu — list every action and setup command that trusting covers, not only the one you clicked.
 - Trusting requires echoing the exact hash of the content shown, so a file cannot be swapped between review and trust.
 - Untrusted repository commands never run — not from the header menu, and not as worktree setup commands.
-- The dialog shows the untrusted commands and a **Trust these commands** button. Attempting to run an untrusted action prompts for trust first.
+- The dialog shows a banner above its tabs while the file is untrusted. **Review** lists the untrusted commands, and **Trust these commands** confirms. Attempting to run an untrusted action prompts for trust first.
 - Moving an item into the file auto-trusts it, because the user authored it.
 
 ## Worktree Setup Commands
@@ -105,7 +105,7 @@ Setup commands run once after a new working directory is created — Manager wor
 
 - `$ROOT_PROJECT_PATH` is available in the environment and points at the repository's main checkout.
 - Personal setup commands always run. Repository setup commands are skipped while the file is untrusted; the skipped result is reported.
-- Setup commands are configured in the **Worktree setup** section of the Project Actions dialog.
+- Setup commands are configured in the **Worktree setup** tab of the Project Actions dialog. Edits are saved together with **Save setup**, which is enabled once there are unsaved changes.
 
 ## Related
 

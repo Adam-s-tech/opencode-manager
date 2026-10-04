@@ -24,6 +24,13 @@ export interface PortDiscoveryDeps {
   readdir: (path: string) => Promise<string[]>
   readlink: (path: string) => Promise<string>
   runLsof: () => Promise<string>
+  runLsofCwd: (pids: number[]) => Promise<string>
+}
+
+interface LsofFieldRecord {
+  pid: number | null
+  command: string | null
+  name: string
 }
 
 const PROC_NET_FILES: ReadonlyArray<readonly [string, 4 | 6]> = [
@@ -142,26 +149,41 @@ function parseLsofName(value: string): { address: string; port: number } | null 
   return { address, port }
 }
 
-export function parseLsofListen(output: string): LsofListener[] {
-  const listeners: LsofListener[] = []
+function* iterateLsofFields(output: string): Generator<LsofFieldRecord> {
   let pid: number | null = null
   let command: string | null = null
   for (const rawLine of output.split('\n')) {
-    const field = rawLine.trim()
-    if (!field) continue
-    const type = field[0]
-    const value = field.slice(1)
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+    if (!line) continue
+    const type = line[0]
+    const value = line.slice(1)
     if (type === 'p') {
       const parsed = Number.parseInt(value, 10)
       pid = Number.isNaN(parsed) ? null : parsed
     } else if (type === 'c') {
       command = value
     } else if (type === 'n') {
-      const parsed = parseLsofName(value)
-      if (parsed) listeners.push({ ...parsed, pid, command })
+      yield { pid, command, name: value }
     }
   }
+}
+
+export function parseLsofListen(output: string): LsofListener[] {
+  const listeners: LsofListener[] = []
+  for (const record of iterateLsofFields(output)) {
+    const parsed = parseLsofName(record.name)
+    if (parsed) listeners.push({ ...parsed, pid: record.pid, command: record.command })
+  }
   return listeners
+}
+
+export function parseLsofCwds(output: string): Map<number, string> {
+  const cwds = new Map<number, string>()
+  for (const record of iterateLsofFields(output)) {
+    if (record.pid === null || record.name === '') continue
+    cwds.set(record.pid, record.name)
+  }
+  return cwds
 }
 
 function toHost(address: string): '127.0.0.1' | '::1' {
@@ -284,15 +306,23 @@ async function listMacPorts(deps: PortDiscoveryDeps): Promise<PreviewPortEntry[]
   } catch {
     return []
   }
-  return parseLsofListen(output)
-    .filter((listener) => isAllowedAddress(listener.address))
-    .map((listener) => ({
-      port: listener.port,
-      host: toHost(listener.address),
-      pid: listener.pid,
-      command: listener.command,
-      cwd: null,
-    }))
+  const listeners = parseLsofListen(output).filter((listener) => isAllowedAddress(listener.address))
+  const pids = [...new Set(listeners.map((listener) => listener.pid).filter((pid): pid is number => pid !== null))]
+  let cwds = new Map<number, string>()
+  if (pids.length > 0) {
+    try {
+      cwds = parseLsofCwds(await deps.runLsofCwd(pids))
+    } catch {
+      cwds = new Map()
+    }
+  }
+  return listeners.map((listener) => ({
+    port: listener.port,
+    host: toHost(listener.address),
+    pid: listener.pid,
+    command: listener.command,
+    cwd: listener.pid === null ? null : (cwds.get(listener.pid) ?? null),
+  }))
 }
 
 export async function listListeningPorts(deps: PortDiscoveryDeps = defaultPortDeps): Promise<PreviewPortEntry[]> {
@@ -308,15 +338,25 @@ export async function listListeningPorts(deps: PortDiscoveryDeps = defaultPortDe
     .sort((left, right) => left.port - right.port)
 }
 
+function unwrapCommandResult(result: string | { exitCode: number; stdout: string; stderr: string }): string {
+  return typeof result === 'string' ? result : result.stdout
+}
+
 const defaultPortDeps: PortDiscoveryDeps = {
   platform: process.platform,
   readFile: (path, encoding) => readFile(path, encoding),
   readdir: (path) => readdir(path),
   readlink: (path) => readlink(path),
-  runLsof: async () => {
-    const result = await executeCommand(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pcn'], {
-      ignoreExitCode: true,
-    })
-    return typeof result === 'string' ? result : (result as { stdout: string }).stdout
-  },
+  runLsof: async () =>
+    unwrapCommandResult(
+      await executeCommand(['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-F', 'pcn'], {
+        ignoreExitCode: true,
+      }),
+    ),
+  runLsofCwd: async (pids) =>
+    unwrapCommandResult(
+      await executeCommand(['lsof', '-a', '-d', 'cwd', '-p', pids.join(','), '-F', 'pn'], {
+        ignoreExitCode: true,
+      }),
+    ),
 }

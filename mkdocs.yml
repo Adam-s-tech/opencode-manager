@@ -55,6 +55,7 @@ nav:
     - Authentication: configuration/authentication.md
     - OAuth Providers: configuration/oauth.md
     - Docker: configuration/docker.md
+    - Cloudflare Tunnel: configuration/cloudflare-tunnel.md
   - Development:
     - Local Setup: development/setup.md
     - Contributing: development/contributing.md

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import type { TerminalInfo } from '@opencode-manager/shared/types'
 import { useCreateTerminal, useRemoveTerminal, useTerminals } from '@/api/terminals'
@@ -128,6 +129,84 @@ describe('TerminalPanel', () => {
 
     expect(createMutate).toHaveBeenCalledTimes(1)
     expect(createMutate).toHaveBeenCalledWith({ directory: '/repo' }, expect.any(Object))
+  })
+
+  it('auto-creates a shell when only exited terminals exist and none is requested', () => {
+    mockTerminalHooks([exitedTerminal])
+    renderPanel()
+
+    expect(createMutate).toHaveBeenCalledTimes(1)
+    expect(createMutate).toHaveBeenCalledWith({ directory: '/repo' }, expect.any(Object))
+  })
+
+  it('decides on auto-creation once per opening, so a shell exiting later is not replaced', () => {
+    mockTerminalHooks([runningTerminal])
+    const { rerender } = renderPanel()
+    expect(createMutate).not.toHaveBeenCalled()
+
+    mockTerminalHooks([{ ...runningTerminal, status: 'exited', exitCode: 0 }])
+    rerender(
+      <MemoryRouter initialEntries={['/repos/1?dialog=terminal']}>
+        <TerminalPanel repoId={1} directory="/repo" isOpen onClose={vi.fn()} />
+      </MemoryRouter>,
+    )
+
+    expect(createMutate).not.toHaveBeenCalled()
+  })
+
+  it('shows a requested exited terminal without auto-creating a shell', async () => {
+    mockTerminalHooks([exitedTerminal])
+    renderPanel('/repos/1?dialog=terminal&terminal=t2')
+
+    const view = await screen.findByTestId('terminal-view')
+    expect(view).toHaveAttribute('data-active', 'true')
+    expect(createMutate).not.toHaveBeenCalled()
+  })
+
+  it('selects a running terminal over an exited one when none is requested', async () => {
+    mockTerminalHooks([exitedTerminal, runningTerminal])
+    renderPanel()
+
+    const views = await screen.findAllByTestId('terminal-view')
+    expect(views.find((view) => view.getAttribute('data-pty-id') === 't1')).toHaveAttribute('data-active', 'true')
+    expect(createMutate).not.toHaveBeenCalled()
+  })
+
+  it('opens a requested terminal without auto-creating a shell from a stale cached empty list', async () => {
+    const actual = await vi.importActual<typeof import('@/api/terminals')>('@/api/terminals')
+    vi.mocked(useTerminals).mockImplementation(actual.useTerminals)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['terminals', 1, '/repo'], [])
+    let resolveList: (response: Response) => void = () => {}
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { resolveList = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    const panel = (isOpen: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/repos/1?dialog=terminal&terminal=t2']}>
+          <TerminalPanel repoId={1} directory="/repo" isOpen={isOpen} onClose={vi.fn()} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    try {
+      const { rerender } = render(panel(false))
+      rerender(panel(true))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+      expect(createMutate).not.toHaveBeenCalled()
+
+      resolveList(new Response(JSON.stringify({ terminals: [exitedTerminal] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+      const view = await screen.findByTestId('terminal-view')
+      expect(view).toHaveAttribute('data-pty-id', 't2')
+      expect(view).toHaveAttribute('data-active', 'true')
+      expect(createMutate).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('exposes an accessible name for the mobile panel close control', async () => {

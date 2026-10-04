@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getRepo } from "@/api/repos"
 import { useCreateSession } from "@/hooks/useOpenCode"
 import { useDialogParam } from "@/hooks/useDialogParam"
+import { useTerminalDialogParam } from "@/hooks/useOpenTerminal"
 import { useSSE } from "@/hooks/useSSE"
 import { getSessionPath } from "@/lib/navigation"
 import { Button } from "@/components/ui/button"
@@ -25,7 +26,7 @@ export function AssistantRedirect() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp')
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills')
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl')
-  const [terminalOpen, setTerminalOpen] = useDialogParam('terminal')
+  const [terminalOpen, setTerminalOpen] = useTerminalDialogParam()
   const [previewOpen, setPreviewOpen] = useDialogParam('preview')
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions')
 

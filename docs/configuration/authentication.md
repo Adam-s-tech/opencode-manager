@@ -121,6 +121,10 @@ AUTH_TRUSTED_ORIGINS=https://yourdomain.com
 AUTH_SECURE_COOKIES=true
 ```
 
+### Cloudflare Tunnel
+
+To reach a Manager on your local network through a Cloudflare Tunnel, including the Preview panel, follow [Cloudflare Tunnel](cloudflare-tunnel.md).
+
 ## Passkeys
 
 Passwordless authentication using WebAuthn.

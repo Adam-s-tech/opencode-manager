@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useState } from "react";
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { stubMatchMedia } from "@/test/test-utils";
+import { Combobox } from "./combobox";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +34,29 @@ describe("DialogContent", () => {
       value: 375,
     })
   })
+
+  it("closes an open combobox on Escape before closing the dialog", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogTitle>Test Dialog</DialogTitle>
+          <Combobox value="" onChange={vi.fn()} options={[{ value: "a", label: "Alpha" }]} ariaLabel="Choice" />
+        </DialogContent>
+      </Dialog>
+    );
+    const combobox = screen.getByRole("combobox", { name: "Choice" });
+
+    await user.click(combobox);
+    expect(combobox).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    expect(combobox).toHaveAttribute("aria-expanded", "false");
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 
   it("applies safe-area padding when fullscreen prop is true", () => {
     render(

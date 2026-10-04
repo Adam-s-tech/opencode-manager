@@ -9,7 +9,7 @@ Open the terminal from either surface:
 - **Desktop sidebar** — click **Terminal** in the tool list for a repository or session.
 - **More drawer** — on mobile or from the overflow menu, open **More** and select **Terminal**.
 
-The terminal panel opens as a dialog. If no terminal exists for the selected directory yet, the panel starts one automatically.
+The terminal panel opens as a dialog. If nothing is running in the selected directory, opening the panel starts a shell automatically; exited terminals do not count. Opening a specific terminal — such as a project action or worktree setup — shows that terminal instead and starts nothing extra.
 
 Terminals are scoped to the selected repository or OpenCode workspace directory. A terminal opened from a repo runs in that repo's path; a terminal opened from a session runs in the session's working directory. Switching directories shows that directory's terminals.
 

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { CreatePreviewSessionResponse } from '@opencode-manager/shared/types'
+import type { CreatePreviewSessionResponse, PreviewPort } from '@opencode-manager/shared/types'
 import { ExternalLink, Globe, Loader2, Monitor, RefreshCw, Smartphone, Tablet, X } from 'lucide-react'
 import { createPreviewSession, usePreviewPorts } from '@/api/preview'
 import { Button } from '@/components/ui/button'
+import { Combobox, type ComboboxOption } from '@/components/ui/combobox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { useMobile } from '@/hooks/useMobile'
 import { useUrlParams } from '@/hooks/useUrlParams'
 import { getOpenCodeApiErrorMessage } from '@/lib/opencode-errors'
 import { buildPreviewStartUrl, getPreviewOrigin, isSameOriginAsManager, parsePort } from '@/lib/preview-url'
-import { cn } from '@/lib/utils'
+import { cn, shortenPath } from '@/lib/utils'
 
 interface PreviewPanelProps {
   isOpen: boolean
@@ -31,6 +33,24 @@ const VIEWPORT_PRESETS: Array<{ preset: ViewportPreset; label: string; icon: typ
 ]
 
 const PORT_WAIT_TIMEOUT_MS = 60_000
+
+function formatPortLabel(entry: PreviewPort): string {
+  return entry.command ? `:${entry.port} ${entry.command}` : `:${entry.port}`
+}
+
+function toPortOptions(ports: PreviewPort[]): ComboboxOption[] {
+  const hasRepoPorts = ports.some((entry) => entry.inDirectory)
+  return ports.map((entry) => ({
+    value: String(entry.port),
+    label: formatPortLabel(entry),
+    description: entry.cwd ? shortenPath(entry.cwd) : undefined,
+    group: hasRepoPorts ? (entry.inDirectory ? 'This repo' : 'Other ports') : undefined,
+  }))
+}
+
+function describeListeningPorts(count: number, qualifier = ''): string {
+  return count === 1 ? `1 ${qualifier}port is listening` : `${count} ${qualifier}ports are listening`
+}
 
 interface ActiveSession {
   targetPort: number
@@ -58,6 +78,7 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
   const sessionPortRef = useRef<number | null>(null)
   const activePathRef = useRef<string | null>(null)
   const requestIdRef = useRef(0)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   const activeSession = session && session.targetPort === requestedPort ? session : null
 
@@ -66,6 +87,8 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
     refetchInterval: isOpen && !activeSession ? 2000 : false,
   })
   const ports = useMemo(() => portsQuery.data?.ports ?? [], [portsQuery.data])
+  const portOptions = useMemo(() => toPortOptions(ports), [ports])
+  const repoPorts = useMemo(() => ports.filter((entry) => entry.inDirectory), [ports])
   const enabled = portsQuery.data?.enabled ?? true
   const portListed = requestedPort !== undefined && ports.some((entry) => entry.port === requestedPort)
 
@@ -134,6 +157,11 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
     }, 'replace')
   }, [updateParams])
 
+  const handlePortChange = useCallback((value: string) => {
+    const port = parsePort(value)
+    if (port) selectPort(port)
+  }, [selectPort])
+
   const reload = useCallback(() => {
     if (!requestedPort) return
     void startSession(requestedPort, requestedPath)
@@ -187,12 +215,64 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
     </div>
   )
 
+  const renderPortChooser = () => {
+    if (ports.length === 0) {
+      return renderMessage(
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">No dev server is listening</p>
+          <p>Start one in the Terminal or from Actions. It appears here automatically.</p>
+        </div>,
+      )
+    }
+    if (repoPorts.length === 0) {
+      return renderMessage(
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Select a port to preview</p>
+          <p>{describeListeningPorts(ports.length)}. Choose one from the port menu above.</p>
+        </div>,
+      )
+    }
+    const otherPortCount = ports.length - repoPorts.length
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-6">
+        <div className="w-full max-w-lg space-y-3">
+          <h3 className="text-sm font-medium text-foreground">Dev servers in this repo</h3>
+          <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
+            {repoPorts.map((entry) => (
+              <li key={entry.port}>
+                <button
+                  type="button"
+                  onClick={() => selectPort(entry.port)}
+                  aria-label={formatPortLabel(entry)}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                >
+                  <span className="font-mono font-medium tabular-nums text-foreground">:{entry.port}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.command}</span>
+                  {entry.cwd && (
+                    <span className="max-w-[45%] truncate text-xs text-muted-foreground" title={entry.cwd}>
+                      {shortenPath(entry.cwd)}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {otherPortCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {describeListeningPorts(otherPortCount, 'other ')} elsewhere. Choose one from the port menu above.
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const body = () => {
     if (!enabled) {
       return renderMessage('Preview is unavailable')
     }
     if (!requestedPort) {
-      return renderMessage('Select a port to preview')
+      return renderPortChooser()
     }
     if (!portListed) {
       if (waitExpired) {
@@ -236,10 +316,15 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
+        ref={contentRef}
         mobileFullscreen
         hideCloseButton={isMobile}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          contentRef.current?.focus()
+        }}
         className={cn(
-          'p-0 flex flex-col bg-card border-border gap-0',
+          'p-0 flex flex-col bg-card border-border gap-0 focus:outline-none',
           isMobile ? 'h-full' : 'w-[90vw] sm:max-w-6xl h-[90vh] sm:pb-0',
         )}
       >
@@ -261,79 +346,67 @@ export function PreviewPanel({ isOpen, onClose, directory }: PreviewPanelProps) 
           )}
         </DialogHeader>
 
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2 flex-shrink-0">
-          <input
-            aria-label="Preview path"
-            value={pathDraft}
-            onChange={(event) => setPathDraft(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') handleGo() }}
-            className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm"
-            placeholder="/"
+        <div className="flex flex-col gap-2 border-b border-border px-3 py-2 flex-shrink-0 sm:flex-row sm:items-center">
+          <Combobox
+            value={requestedPort ? String(requestedPort) : ''}
+            onChange={handlePortChange}
+            options={portOptions}
+            placeholder="Select port"
+            disabled={!enabled}
+            allowCustomValue={false}
+            ariaLabel="Preview port"
+            onOpen={() => { void portsQuery.refetch() }}
+            className="sm:w-72 sm:flex-shrink-0"
           />
-          <Button size="sm" variant="outline" onClick={handleGo} disabled={!requestedPort}>
-            Go
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={reload}
-            disabled={!requestedPort}
-            aria-label="Reload preview"
-            className="h-8 w-8 p-0"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleOpenInNewTab}
-            disabled={!requestedPort}
-            aria-label="Open preview in new tab"
-            className="h-8 w-8 p-0"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </Button>
-          <div className="ml-auto flex items-center gap-1">
-            {VIEWPORT_PRESETS.map(({ preset, label, icon: Icon }) => (
-              <Button
-                key={preset}
-                size="sm"
-                variant={viewport === preset ? 'secondary' : 'ghost'}
-                onClick={() => setViewport(preset)}
-                aria-label={label}
-                aria-pressed={viewport === preset}
-                className="h-8 w-8 p-0"
-              >
-                <Icon className="h-4 w-4" />
-              </Button>
-            ))}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Input
+              aria-label="Preview path"
+              value={pathDraft}
+              onChange={(event) => setPathDraft(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') handleGo() }}
+              className="h-9 min-w-0 flex-1 bg-transparent px-3 py-1"
+              placeholder="/"
+            />
+            <Button size="sm" variant="outline" onClick={handleGo} disabled={!requestedPort} className="h-9">
+              Go
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={reload}
+              disabled={!requestedPort}
+              aria-label="Reload preview"
+              className="h-9 w-9 p-0"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleOpenInNewTab}
+              disabled={!requestedPort}
+              aria-label="Open preview in new tab"
+              className="h-9 w-9 p-0"
+            >
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+            <div className="ml-auto hidden items-center gap-1 sm:flex">
+              {VIEWPORT_PRESETS.map(({ preset, label, icon: Icon }) => (
+                <Button
+                  key={preset}
+                  size="sm"
+                  variant={viewport === preset ? 'secondary' : 'ghost'}
+                  onClick={() => setViewport(preset)}
+                  aria-label={label}
+                  aria-pressed={viewport === preset}
+                  className="h-9 w-9 p-0"
+                >
+                  <Icon className="h-4 w-4" />
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
-
-        {enabled && ports.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 border-b border-border px-3 py-2 flex-shrink-0">
-            {ports.map((entry) => (
-              <button
-                key={entry.port}
-                type="button"
-                onClick={() => selectPort(entry.port)}
-                title={entry.cwd ?? undefined}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors',
-                  entry.port === requestedPort
-                    ? 'border-primary text-foreground'
-                    : 'border-border text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <span className="font-medium">:{entry.port}</span>
-                {entry.command && <span className="truncate">{entry.command}</span>}
-                {entry.inDirectory && (
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">this repo</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
 
         <div className="relative flex-1 min-h-0">{body()}</div>
       </DialogContent>

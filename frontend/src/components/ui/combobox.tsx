@@ -18,6 +18,12 @@ interface ComboboxProps {
   className?: string
   allowCustomValue?: boolean
   showClear?: boolean
+  ariaLabel?: string
+  onOpen?: () => void
+}
+
+function getOptionLabel(options: ComboboxOption[], value: string): string {
+  return options.find(o => o.value === value)?.label || value
 }
 
 export function Combobox({
@@ -29,12 +35,11 @@ export function Combobox({
   className,
   allowCustomValue = true,
   showClear = false,
+  ariaLabel,
+  onOpen,
 }: ComboboxProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [inputValue, setInputValue] = useState(() => {
-    const selectedOption = options.find(o => o.value === value)
-    return selectedOption?.label || value
-  })
+  const [inputValue, setInputValue] = useState(() => getOptionLabel(options, value))
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [isUserTyping, setIsUserTyping] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -43,10 +48,23 @@ export function Combobox({
 
   useEffect(() => {
     if (!isUserTyping) {
-      const selectedOption = options.find(o => o.value === value)
-      setInputValue(selectedOption?.label || value)
+      setInputValue(getOptionLabel(options, value))
     }
   }, [value, options, isUserTyping])
+
+  const onOpenRef = useRef(onOpen)
+  useEffect(() => {
+    onOpenRef.current = onOpen
+  }, [onOpen])
+
+  useEffect(() => {
+    if (isOpen) onOpenRef.current?.()
+  }, [isOpen])
+
+  const restoreSelectedLabel = useCallback(() => {
+    setInputValue(getOptionLabel(options, value))
+    setIsUserTyping(false)
+  }, [options, value])
 
   const isExactMatch = options.some(o => o.value === value || o.label === inputValue)
   
@@ -77,15 +95,15 @@ export function Combobox({
         setIsOpen(false)
         if (allowCustomValue) {
           onChange(inputValue)
-        } else if (!options.some(o => o.value === inputValue)) {
-          setInputValue(value)
+        } else {
+          restoreSelectedLabel()
         }
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isOpen, inputValue, value, onChange, options, allowCustomValue])
+  }, [isOpen, inputValue, onChange, allowCustomValue, restoreSelectedLabel])
 
   useEffect(() => {
     if (!isOpen || !listRef.current) return
@@ -135,7 +153,7 @@ export function Combobox({
       case 'Escape':
         e.preventDefault()
         setIsOpen(false)
-        setInputValue(value)
+        restoreSelectedLabel()
         break
       case 'Tab':
         setIsOpen(false)
@@ -144,7 +162,7 @@ export function Combobox({
         }
         break
     }
-  }, [isOpen, selectedIndex, flatFilteredOptions, handleSelect, allowCustomValue, inputValue, value, onChange])
+  }, [isOpen, selectedIndex, flatFilteredOptions, handleSelect, allowCustomValue, inputValue, onChange, restoreSelectedLabel])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value
@@ -174,6 +192,10 @@ export function Combobox({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}
+          role="combobox"
+          aria-label={ariaLabel}
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
           className={cn(
             'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-[16px] md:text-sm shadow-sm transition-colors',
             'file:border-0 file:bg-transparent file:text-sm file:font-medium',

@@ -59,6 +59,7 @@ import { SessionSendErrorBanner } from "@/components/session/SessionSendErrorBan
 import { BackgroundWorkBar } from "@/components/session/BackgroundWorkBar";
 import { SessionGoalBar } from "@/components/session/SessionGoalBar";
 import { useDialogParam } from "@/hooks/useDialogParam";
+import { useTerminalDialogParam } from "@/hooks/useOpenTerminal";
 import { SessionMoreButton } from "@/components/navigation/SessionMoreButton";
 import { SideQuestionDialog } from "@/components/session/SideQuestionDialog";
 import { SessionMessagePickerDialog } from "@/components/session/SessionMessagePickerDialog";
@@ -123,7 +124,7 @@ export function SessionDetail() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp');
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
-  const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
+  const [terminalOpen, setTerminalOpen] = useTerminalDialogParam();
   const [actionsDialogOpen, setActionsDialogOpen] = useDialogParam('actions');
   const [previewOpen, setPreviewOpen] = useDialogParam('preview');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');

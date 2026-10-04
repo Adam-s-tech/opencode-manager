@@ -33,6 +33,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** Keeps the last `maxSegments` segments of an absolute path, replacing the rest with `/...`. */
+export function shortenPath(path: string, maxSegments = 3): string {
+  const segments = path.split('/').filter(Boolean)
+  if (segments.length === 0) return '/'
+  if (segments.length <= maxSegments) return `/${segments.join('/')}`
+  return `/.../${segments.slice(-maxSegments).join('/')}`
+}
+
 export function randomId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()

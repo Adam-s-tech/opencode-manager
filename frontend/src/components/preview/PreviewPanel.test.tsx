@@ -19,6 +19,7 @@ const portsData = {
 }
 
 let portsState: PreviewPortsResult['data'] = portsData
+const refetchPorts = vi.fn()
 
 const DEFAULT_ENTRY = '/repos/1?dialog=preview&previewPort=5173'
 
@@ -57,7 +58,7 @@ describe('PreviewPanel', () => {
         ({
           data: portsState,
           isLoading: false,
-          refetch: vi.fn(),
+          refetch: refetchPorts,
         }) as unknown as PreviewPortsResult,
     )
     vi.mocked(createPreviewSession).mockResolvedValue({ token: 'tok', previewPort: 5004, publicUrl: null })
@@ -109,20 +110,84 @@ describe('PreviewPanel', () => {
     expect(screen.getByText(/Preview is unavailable/)).toBeInTheDocument()
   })
 
-  it('badges ports marked as inside the directory', () => {
+  it('lists the dev servers of this repo when no port is selected', () => {
+    portsState = {
+      enabled: true,
+      ports: [
+        { port: 5173, host: '127.0.0.1', pid: 10, command: 'vite', cwd: '/repo', inDirectory: true },
+        { port: 9000, host: '127.0.0.1', pid: 11, command: 'Discord', cwd: '/', inDirectory: false },
+        { port: 9001, host: '127.0.0.1', pid: 12, command: 'figma_agent', cwd: null, inDirectory: false },
+      ],
+    }
     renderPanel('/repos/1?dialog=preview')
 
-    expect(screen.getByText('this repo')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Dev servers in this repo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /:5173 vite/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /:9000/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/2 other ports are listening elsewhere/)).toBeInTheDocument()
   })
 
-  it('does not badge ports marked as outside the directory', () => {
+  it('points to the port menu when no listening port belongs to this repo', () => {
     portsState = {
       enabled: true,
       ports: [{ port: 5173, host: '127.0.0.1', pid: 10, command: 'vite', cwd: '/elsewhere', inDirectory: false }],
     }
     renderPanel('/repos/1?dialog=preview')
 
-    expect(screen.queryByText('this repo')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Dev servers in this repo' })).not.toBeInTheDocument()
+    expect(screen.getByText(/1 port is listening\. Choose one from the port menu above\./)).toBeInTheDocument()
+  })
+
+  it('explains how to start a dev server when no port is listening', () => {
+    portsState = { enabled: true, ports: [] }
+    renderPanel('/repos/1?dialog=preview')
+
+    expect(screen.getByText('No dev server is listening')).toBeInTheDocument()
+  })
+
+  it('groups repo ports first in the port menu and starts a session for the picked port', async () => {
+    const user = userEvent.setup()
+    portsState = {
+      enabled: true,
+      ports: [
+        { port: 5173, host: '127.0.0.1', pid: 10, command: 'vite', cwd: '/repo', inDirectory: true },
+        { port: 9000, host: '127.0.0.1', pid: 11, command: 'python3.12', cwd: '/srv/apps/demo/site', inDirectory: false },
+      ],
+    }
+    renderPanel('/repos/1?dialog=preview')
+
+    await user.click(screen.getByRole('combobox', { name: 'Preview port' }))
+
+    const groups = screen.getAllByText(/^(This repo|Other ports)$/).map((element) => element.textContent)
+    expect(groups).toEqual(['This repo', 'Other ports'])
+    expect(screen.getByText('/.../apps/demo/site')).toBeInTheDocument()
+
+    await user.type(screen.getByRole('combobox', { name: 'Preview port' }), 'python')
+    expect(screen.queryByText('This repo')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /:9000 python3\.12/ }))
+
+    expect(await screen.findByTitle('Preview')).toBeInTheDocument()
+    expect(createPreviewSession).toHaveBeenCalledWith(9000)
+    expect(screen.getByRole('combobox', { name: 'Preview port' })).toHaveValue(':9000 python3.12')
+  })
+
+  it('keeps the port menu closed when the dialog opens', () => {
+    renderPanel('/repos/1?dialog=preview')
+
+    expect(screen.getByRole('combobox', { name: 'Preview port' })).not.toHaveFocus()
+    expect(screen.getAllByRole('button', { name: /:5173/ })).toHaveLength(1)
+    expect(refetchPorts).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the port list when the port menu opens', async () => {
+    const user = userEvent.setup()
+    renderPanel()
+    await screen.findByTitle('Preview')
+    refetchPorts.mockClear()
+
+    await user.click(screen.getByRole('combobox', { name: 'Preview port' }))
+
+    expect(refetchPorts).toHaveBeenCalledTimes(1)
   })
 
   it('polls the port list while no preview session is active', () => {

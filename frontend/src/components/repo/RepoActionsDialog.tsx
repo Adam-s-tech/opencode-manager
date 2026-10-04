@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, ShieldAlert } from 'lucide-react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ConfirmDestructiveDialog } from '@/components/ui/confirm-destructive-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SettingsList, SettingsListRow, SettingsListRowActionsMenu } from '@/components/ui/settings-list'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   useMoveProjectItem,
   useProjectConfig,
@@ -21,6 +24,7 @@ import { randomId } from '@/lib/utils'
 import type {
   ProjectAction,
   ProjectActionIcon,
+  ProjectConfigResponse,
   ProjectItemSource,
 } from '@opencode-manager/shared/types'
 import { ACTION_ICON_OPTIONS, actionIcon } from './projectActionIcons'
@@ -85,16 +89,41 @@ interface ActionFormProps {
 
 function ActionForm({ draft, isSaving, onChange, onSave, onCancel }: ActionFormProps) {
   const canSave = draft.name.trim().length > 0 && draft.command.trim().length > 0
+  const formRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    formRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [])
 
   return (
-    <div className="space-y-3">
-      <div className="space-y-1">
-        <Label htmlFor="action-name">Name</Label>
-        <Input
-          id="action-name"
-          value={draft.name}
-          onChange={(event) => onChange({ ...draft, name: event.target.value })}
-        />
+    <div ref={formRef} className="space-y-3 bg-card p-3">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
+        <div className="space-y-1">
+          <Label htmlFor="action-name">Name</Label>
+          <Input
+            id="action-name"
+            value={draft.name}
+            onChange={(event) => onChange({ ...draft, name: event.target.value })}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="action-icon">Icon</Label>
+          <Select
+            value={draft.icon}
+            onValueChange={(value) => onChange({ ...draft, icon: value as ProjectActionIcon })}
+          >
+            <SelectTrigger id="action-icon">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ACTION_ICON_OPTIONS.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <div className="space-y-1">
         <Label htmlFor="action-command">Command</Label>
@@ -103,24 +132,6 @@ function ActionForm({ draft, isSaving, onChange, onSave, onCancel }: ActionFormP
           value={draft.command}
           onChange={(event) => onChange({ ...draft, command: event.target.value })}
         />
-      </div>
-      <div className="space-y-1">
-        <Label htmlFor="action-icon">Icon</Label>
-        <Select
-          value={draft.icon}
-          onValueChange={(value) => onChange({ ...draft, icon: value as ProjectActionIcon })}
-        >
-          <SelectTrigger id="action-icon">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ACTION_ICON_OPTIONS.map(({ value, label }) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
       <div className="space-y-1">
         <Label htmlFor="action-url">URL template</Label>
@@ -151,6 +162,35 @@ function ActionForm({ draft, isSaving, onChange, onSave, onCancel }: ActionFormP
   )
 }
 
+type RepoFileExecutable = NonNullable<ProjectConfigResponse['repoFile']['executable']>
+
+interface TrustReview {
+  hash: string
+  directory: string | undefined
+  executable: RepoFileExecutable
+}
+
+const COMPACT_ROW_CLASS = 'flex-row items-center gap-3 py-2.5'
+
+function ActionTitle({ action }: { action: ProjectAction }) {
+  const Icon = actionIcon(action.icon)
+  return (
+    <>
+      <Icon className="mr-2 inline h-4 w-4 align-[-3px] text-muted-foreground" />
+      {action.name}
+    </>
+  )
+}
+
+function ActionUrl({ url }: { url: string | undefined }) {
+  if (!url) return null
+  return <p className="mt-0.5 truncate text-xs text-muted-foreground">{url}</p>
+}
+
+function TabCount({ count }: { count: number }) {
+  return <span className="ml-1.5 text-xs tabular-nums text-muted-foreground">{count}</span>
+}
+
 interface RepoActionsDialogProps {
   repoId: number
   directory: string | undefined
@@ -167,8 +207,11 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
 
   const [draft, setDraft] = useState<ActionDraft | null>(null)
   const [setupCommands, setSetupCommands] = useState<string[]>([])
+  const [focusSetupIndex, setFocusSetupIndex] = useState<number | null>(null)
+  const [trustReview, setTrustReview] = useState<TrustReview | null>(null)
 
   const config = configQuery.data
+  const repoFile = config?.repoFile
 
   const personalActions = useMemo(
     () => (config?.actions ?? []).filter((action) => action.source === 'personal'),
@@ -192,12 +235,14 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
   useEffect(() => {
     if (!open || !config) {
       setupSyncKey.current = null
+      setTrustReview(null)
       return
     }
     const syncKey = `${directory ?? ''}\u0000${personalSetupBaseline}`
     if (setupSyncKey.current === syncKey) return
     setupSyncKey.current = syncKey
     setSetupCommands(personalSetup)
+    setFocusSetupIndex(null)
   }, [open, config, directory, personalSetup, personalSetupBaseline])
 
   const setupDirty = useMemo(
@@ -206,6 +251,7 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
       setupCommands.some((command, index) => command !== personalSetup[index]),
     [setupCommands, personalSetup],
   )
+  const setupValid = setupCommands.every((command) => command.trim().length > 0)
 
   const handleSaveAction = (nextDraft: ActionDraft) => {
     const payload = draftToPayload(nextDraft)
@@ -231,11 +277,26 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
     })
   }
 
+  const addSetupCommand = () => {
+    setFocusSetupIndex(setupCommands.length)
+    setSetupCommands((current) => [...current, ''])
+  }
+
+  const needsTrust = Boolean(repoFile?.exists && !repoFile.trusted && repoFile.hash && repoFile.executable)
+
+  const openTrustReview = () => {
+    if (!repoFile?.hash || !repoFile.executable) return
+    setTrustReview({ hash: repoFile.hash, directory, executable: repoFile.executable })
+  }
+
   const handleTrust = () => {
-    if (!config?.repoFile.hash) return
+    if (!trustReview) return
     trustConfig.mutate(
-      { hash: config.repoFile.hash, directory },
-      { onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to trust repository commands')) },
+      { hash: trustReview.hash, directory: trustReview.directory },
+      {
+        onSuccess: () => setTrustReview(null),
+        onError: (error) => showToast.error(getOpenCodeApiErrorMessage(error, 'Failed to trust repository commands')),
+      },
     )
   }
 
@@ -254,285 +315,290 @@ export function RepoActionsDialog({ repoId, directory, open, onOpenChange }: Rep
   }
 
   const isAddingAction = draft !== null && !personalActions.some((action) => action.id === draft.id)
+  const hasRepoFileStatus = Boolean(repoFile?.error) || (repoFile?.warnings.length ?? 0) > 0 || needsTrust
+
+  const renderActionForm = (current: ActionDraft) => (
+    <ActionForm
+      key={current.id}
+      draft={current}
+      isSaving={updateActions.isPending}
+      onChange={setDraft}
+      onSave={handleSaveAction}
+      onCancel={() => setDraft(null)}
+    />
+  )
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        mobileFullscreen
-        className="sm:fixed sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[520px] sm:max-w-[520px] sm:h-auto sm:max-h-[85vh] flex flex-col gap-0 pb-safe"
-      >
-        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-2 sm:pb-3 shrink-0">
-          <DialogTitle>Project Actions</DialogTitle>
-          <DialogDescription>Commands and setup steps for this location.</DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          mobileFullscreen
+          className="flex flex-col gap-0 overflow-hidden p-0 pb-safe sm:h-auto sm:max-h-[85vh] sm:max-w-[560px] sm:p-0"
+        >
+          <DialogHeader className="shrink-0 border-b border-border px-4 py-4 sm:px-6">
+            <DialogTitle>Project Actions</DialogTitle>
+            <DialogDescription>Commands and setup steps for this location.</DialogDescription>
+          </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 pb-4 sm:pb-6 space-y-6">
           {configQuery.isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-4 w-4 animate-spin text-primary" />
             </div>
           ) : !config ? (
-            <p className="text-sm text-destructive">
+            <p className="px-4 py-4 text-sm text-destructive sm:px-6">
               {configQuery.error instanceof Error ? configQuery.error.message : 'No configuration available.'}
             </p>
           ) : (
             <>
-              <section className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">Actions</h3>
-                  <Button type="button" size="sm" variant="outline" onClick={() => setDraft(emptyActionDraft())}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add action
-                  </Button>
-                </div>
-
-                {personalActions.length === 0 && repoActions.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No actions configured.</p>
-                )}
-
-                {personalActions.map((action) => {
-                  const Icon = actionIcon(action.icon)
-                  const isEditing = draft?.id === action.id
-                  return (
-                    <div key={action.id} className="rounded-lg border border-border bg-card p-3 space-y-2">
-                      {isEditing && draft ? (
-                        <ActionForm
-                          draft={draft}
-                          isSaving={updateActions.isPending}
-                          onChange={setDraft}
-                          onSave={handleSaveAction}
-                          onCancel={() => setDraft(null)}
-                        />
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                            <span className="text-sm font-medium truncate">{action.name}</span>
-                          </div>
-                          <p className="font-mono text-xs text-muted-foreground truncate">{action.command}</p>
-                          {action.url && (
-                            <p className="text-xs text-muted-foreground truncate">{action.url}</p>
-                          )}
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setDraft(actionToDraft(action))}
-                            >
-                              <Pencil className="h-3 w-3 mr-1" />
-                              Edit
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => moveAction(action, 'repo')}
-                              disabled={moveItem.isPending}
-                            >
-                              Move to repository
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDeleteAction(action.id)}
-                              disabled={updateActions.isPending}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" />
-                              Delete
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )
-                })}
-
-                {repoActions.map((action) => {
-                  const Icon = actionIcon(action.icon)
-                  return (
-                    <div key={action.id} className="rounded-lg border border-border bg-card p-3 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="text-sm font-medium truncate">{action.name}</span>
-                        <Badge variant="secondary">In repo</Badge>
+              {hasRepoFileStatus && (
+                <div className="shrink-0 space-y-2 px-4 pt-3 sm:px-6">
+                  {config.repoFile.error && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {config.repoFile.error}
+                    </p>
+                  )}
+                  {config.repoFile.warnings.map((warning) => (
+                    <p key={warning} className="text-xs text-warning">
+                      {warning}
+                    </p>
+                  ))}
+                  {needsTrust && (
+                    <div className="flex items-center gap-3 rounded-lg border border-warning/50 bg-warning/10 p-3">
+                      <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">Repository commands are not trusted</p>
+                        <p className="text-xs text-muted-foreground">They won't run until you review and trust them.</p>
                       </div>
-                      <p className="font-mono text-xs text-muted-foreground truncate">{action.command}</p>
-                      {action.url && (
-                        <p className="text-xs text-muted-foreground truncate">{action.url}</p>
-                      )}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => moveAction(action, 'personal')}
-                        disabled={moveItem.isPending}
-                      >
-                        Move to my settings
+                      <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={openTrustReview}>
+                        Review
                       </Button>
                     </div>
-                  )
-                })}
+                  )}
+                </div>
+              )}
 
-                {isAddingAction && draft && (
-                  <div className="rounded-lg border border-border bg-card p-3">
-                    <ActionForm
-                      draft={draft}
-                      isSaving={updateActions.isPending}
-                      onChange={setDraft}
-                      onSave={handleSaveAction}
-                      onCancel={() => setDraft(null)}
-                    />
-                  </div>
-                )}
-              </section>
-
-              <section className="space-y-3">
-                <div>
-                  <h3 className="text-sm font-semibold">Worktree setup</h3>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Commands run after a new worktree is created. Use{' '}
-                    <code className="font-mono">$ROOT_PROJECT_PATH</code> to reference the main checkout.
-                  </p>
+              <Tabs defaultValue="actions" className="flex min-h-0 flex-1 flex-col">
+                <div className="shrink-0 px-4 pt-3 sm:px-6">
+                  <TabsList className="w-full justify-start">
+                    <TabsTrigger value="actions">
+                      Actions
+                      <TabCount count={personalActions.length + repoActions.length} />
+                    </TabsTrigger>
+                    <TabsTrigger value="setup">
+                      Worktree setup
+                      <TabCount count={setupCommands.length + repoSetup.length} />
+                    </TabsTrigger>
+                  </TabsList>
                 </div>
 
-                {setupCommands.length === 0 && repoSetup.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No setup commands.</p>
-                )}
-
-                {setupCommands.map((command, index) => (
-                  <div key={index} className="rounded-lg border border-border bg-card p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Input
-                        aria-label={`Setup command ${index + 1}`}
-                        value={command}
-                        onChange={(event) =>
-                          setSetupCommands((current) =>
-                            current.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)),
-                          )
-                        }
-                      />
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        aria-label="Move up"
-                        disabled={index === 0}
-                        onClick={() => setSetupCommands((current) => arrayMove(current, index, index - 1))}
-                      >
-                        <ArrowUp className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        aria-label="Move down"
-                        disabled={index === setupCommands.length - 1}
-                        onClick={() => setSetupCommands((current) => arrayMove(current, index, index + 1))}
-                      >
-                        <ArrowDown className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        aria-label="Remove command"
-                        onClick={() => setSetupCommands((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => moveSetup(command, 'repo')}
-                        disabled={setupDirty || moveItem.isPending}
-                      >
-                        Move to repository
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-
-                {repoSetup.map((item) => (
-                  <div
-                    key={item.command}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card p-3"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-mono text-xs truncate">{item.command}</span>
-                      <Badge variant="secondary">In repo</Badge>
-                    </div>
+                <TabsContent value="actions" className="mt-0 flex min-h-0 flex-1 flex-col px-0">
+                  <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 sm:px-6">
+                    <p className="text-xs text-muted-foreground">Start these from the actions menu in the header.</p>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => moveSetup(item.command, 'personal')}
-                      disabled={moveItem.isPending}
+                      className="shrink-0"
+                      onClick={() => setDraft(emptyActionDraft())}
                     >
-                      Move to my settings
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add action
                     </Button>
                   </div>
-                ))}
+                  <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-6">
+                    <SettingsList
+                      isEmpty={personalActions.length === 0 && repoActions.length === 0 && !isAddingAction}
+                      emptyTitle="No actions configured"
+                      emptyHint="Add a command you run often, like a dev server or test watcher."
+                      maxHeightClassName="max-h-none"
+                    >
+                      {personalActions.map((action) =>
+                        draft?.id === action.id ? (
+                          renderActionForm(draft)
+                        ) : (
+                          <SettingsListRow
+                            key={action.id}
+                            className={COMPACT_ROW_CLASS}
+                            title={<ActionTitle action={action} />}
+                            description={<span className="font-mono" title={action.command}>{action.command}</span>}
+                            belowDescription={<ActionUrl url={action.url} />}
+                            onClick={() => setDraft(actionToDraft(action))}
+                            trailing={
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8"
+                                aria-label={`Edit ${action.name}`}
+                                onClick={() => setDraft(actionToDraft(action))}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            }
+                            actions={[
+                              {
+                                label: 'Move to repository',
+                                onClick: () => moveAction(action, 'repo'),
+                                disabled: moveItem.isPending,
+                              },
+                              {
+                                label: 'Delete',
+                                destructive: true,
+                                separatorBefore: true,
+                                onClick: () => handleDeleteAction(action.id),
+                                disabled: updateActions.isPending,
+                              },
+                            ]}
+                            actionsLabel={`Actions for ${action.name}`}
+                          />
+                        ),
+                      )}
+                      {isAddingAction && draft && renderActionForm(draft)}
+                      {repoActions.map((action) => (
+                        <SettingsListRow
+                          key={`repo:${action.id}`}
+                          className={COMPACT_ROW_CLASS}
+                          title={<ActionTitle action={action} />}
+                          badges={<Badge variant="secondary" className="shrink-0">In repo</Badge>}
+                          description={<span className="font-mono" title={action.command}>{action.command}</span>}
+                          belowDescription={<ActionUrl url={action.url} />}
+                          actions={[
+                            {
+                              label: 'Move to my settings',
+                              onClick: () => moveAction(action, 'personal'),
+                              disabled: moveItem.isPending,
+                            },
+                          ]}
+                          actionsLabel={`Actions for ${action.name}`}
+                        />
+                      ))}
+                    </SettingsList>
+                  </div>
+                </TabsContent>
 
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setSetupCommands((current) => [...current, ''])}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add command
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleSaveSetup}
-                    disabled={setupCommands.some((command) => !command.trim()) || updateSetup.isPending}
-                  >
-                    Save setup
-                  </Button>
-                </div>
-              </section>
-
-              <section className="space-y-2">
-                {config.repoFile.error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {config.repoFile.error}
-                  </p>
-                )}
-                {config.repoFile.warnings.map((warning) => (
-                  <p key={warning} className="text-xs text-warning">
-                    {warning}
-                  </p>
-                ))}
-                {config.repoFile.exists &&
-                  !config.repoFile.trusted &&
-                  config.repoFile.hash &&
-                  config.repoFile.executable && (
-                    <div className="rounded-lg border border-warning/50 bg-warning/10 p-3 space-y-2">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <ShieldAlert className="h-4 w-4 text-warning" />
-                        Repository commands are not trusted
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        This repository defines commands that run on your machine. Review and trust them to enable.
-                      </p>
-                      <TrustExecutableList executable={config.repoFile.executable} />
-                      <Button type="button" size="sm" onClick={handleTrust} disabled={trustConfig.isPending}>
-                        Trust these commands
-                      </Button>
-                    </div>
-                  )}
-              </section>
+                <TabsContent value="setup" className="mt-0 flex min-h-0 flex-1 flex-col px-0">
+                  <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 sm:px-6">
+                    <p className="text-xs text-muted-foreground">
+                      Run in order after a new worktree is created.{' '}
+                      <code className="font-mono">$ROOT_PROJECT_PATH</code> points to the main checkout.
+                    </p>
+                    <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={addSetupCommand}>
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add command
+                    </Button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 sm:px-6">
+                    <SettingsList
+                      isEmpty={setupCommands.length === 0 && repoSetup.length === 0}
+                      emptyTitle="No setup commands"
+                      emptyHint="Add commands such as pnpm install to prepare new worktrees."
+                      maxHeightClassName="max-h-none"
+                    >
+                      {setupCommands.map((command, index) => (
+                        <div key={index} className="flex items-center gap-1 bg-card px-3 py-2">
+                          <Input
+                            aria-label={`Setup command ${index + 1}`}
+                            autoFocus={index === focusSetupIndex}
+                            value={command}
+                            className="mr-1 h-9 min-w-0 flex-1 font-mono md:text-xs"
+                            onChange={(event) =>
+                              setSetupCommands((current) =>
+                                current.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)),
+                              )
+                            }
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 shrink-0"
+                            aria-label="Move up"
+                            disabled={index === 0}
+                            onClick={() => setSetupCommands((current) => arrayMove(current, index, index - 1))}
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 shrink-0"
+                            aria-label="Move down"
+                            disabled={index === setupCommands.length - 1}
+                            onClick={() => setSetupCommands((current) => arrayMove(current, index, index + 1))}
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </Button>
+                          <SettingsListRowActionsMenu
+                            label={`Actions for setup command ${index + 1}`}
+                            actions={[
+                              {
+                                label: 'Move to repository',
+                                onClick: () => moveSetup(command, 'repo'),
+                                disabled: setupDirty || moveItem.isPending,
+                              },
+                              {
+                                label: 'Remove',
+                                destructive: true,
+                                separatorBefore: true,
+                                onClick: () =>
+                                  setSetupCommands((current) => current.filter((_, itemIndex) => itemIndex !== index)),
+                              },
+                            ]}
+                          />
+                        </div>
+                      ))}
+                      {repoSetup.map((item) => (
+                        <SettingsListRow
+                          key={`repo:${item.command}`}
+                          className={COMPACT_ROW_CLASS}
+                          title={<span title={item.command}>{item.command}</span>}
+                          titleClassName="font-mono text-xs font-normal"
+                          badges={<Badge variant="secondary" className="shrink-0">In repo</Badge>}
+                          actions={[
+                            {
+                              label: 'Move to my settings',
+                              onClick: () => moveSetup(item.command, 'personal'),
+                              disabled: moveItem.isPending,
+                            },
+                          ]}
+                          actionsLabel={`Actions for ${item.command}`}
+                        />
+                      ))}
+                    </SettingsList>
+                  </div>
+                  <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-6">
+                    <p className="text-xs text-muted-foreground" aria-live="polite">
+                      {setupDirty ? 'Unsaved changes' : ''}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleSaveSetup}
+                      disabled={!setupDirty || !setupValid || updateSetup.isPending}
+                    >
+                      Save setup
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </>
           )}
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDestructiveDialog
+        open={open && trustReview !== null}
+        onOpenChange={(next) => { if (!next) setTrustReview(null) }}
+        onConfirm={handleTrust}
+        onCancel={() => setTrustReview(null)}
+        title="Trust repository commands"
+        description="This repository defines commands that run on your machine."
+        warning={trustReview ? <TrustExecutableList executable={trustReview.executable} /> : undefined}
+        confirmLabel="Trust these commands"
+        pendingLabel="Trusting…"
+        isPending={trustConfig.isPending}
+      />
+    </>
   )
 }

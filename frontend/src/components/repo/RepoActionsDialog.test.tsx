@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { FetchError } from '@opencode-manager/shared'
 import { RepoActionsDialog } from './RepoActionsDialog'
 import type { ProjectConfigResponse } from '@opencode-manager/shared/types'
@@ -54,6 +54,25 @@ function renderDialog() {
   )
 }
 
+async function openSetupTab(user: UserEvent) {
+  await user.click(screen.getByRole('tab', { name: /worktree setup/i }))
+}
+
+async function openRowMenu(user: UserEvent, label: string) {
+  await user.click(screen.getByRole('button', { name: label }))
+  return screen.findByRole('menu')
+}
+
+async function closeRowMenu(user: UserEvent) {
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+}
+
+async function openTrustReview(user: UserEvent) {
+  await user.click(screen.getByRole('button', { name: /^review$/i }))
+  return screen.findByRole('dialog', { name: /trust repository commands/i })
+}
+
 describe('RepoActionsDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -104,7 +123,7 @@ describe('RepoActionsDialog', () => {
     }
   })
 
-  it('offers no edit button for repo items but allows moving them to personal settings', () => {
+  it('offers no edit button for repo items but allows moving them to personal settings', async () => {
     mockConfig(
       baseConfig({
         actions: [
@@ -113,12 +132,38 @@ describe('RepoActionsDialog', () => {
         ],
       }),
     )
+    const user = userEvent.setup()
     renderDialog()
 
     expect(screen.getAllByRole('button', { name: /edit/i })).toHaveLength(1)
     expect(screen.getByText('In repo')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /move to my settings/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /move to repository/i })).toBeInTheDocument()
+
+    const repoMenu = await openRowMenu(user, 'Actions for Repo action')
+    expect(within(repoMenu).getByRole('menuitem', { name: /move to my settings/i })).toBeInTheDocument()
+    expect(within(repoMenu).queryByRole('menuitem', { name: /delete/i })).not.toBeInTheDocument()
+    await closeRowMenu(user)
+
+    const personalMenu = await openRowMenu(user, 'Actions for Personal action')
+    expect(within(personalMenu).getByRole('menuitem', { name: /move to repository/i })).toBeInTheDocument()
+    expect(within(personalMenu).getByRole('menuitem', { name: /delete/i })).toBeInTheDocument()
+  })
+
+  it('moves a repo action to personal settings from its row menu', async () => {
+    mockConfig(
+      baseConfig({
+        actions: [
+          { id: 'repo-1', name: 'Repo action', command: 'echo repo', autoOpenUrl: false, source: 'repo' },
+        ],
+      }),
+    )
+    const user = userEvent.setup()
+    renderDialog()
+
+    const menu = await openRowMenu(user, 'Actions for Repo action')
+    await user.click(within(menu).getByRole('menuitem', { name: /move to my settings/i }))
+
+    await waitFor(() => expect(mocks.moveMutate).toHaveBeenCalledTimes(1))
+    expect(mocks.moveMutate.mock.calls[0][0]).toEqual({ kind: 'action', id: 'repo-1', to: 'personal', directory: '/repo' })
   })
 
   it('shows the trust banner for an untrusted repo file and sends the displayed hash', async () => {
@@ -146,12 +191,13 @@ describe('RepoActionsDialog', () => {
     renderDialog()
 
     expect(screen.getByText(/not trusted/i)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /trust these commands/i }))
+    const review = await openTrustReview(user)
+    await user.click(within(review).getByRole('button', { name: /trust these commands/i }))
 
     expect(mocks.trustMutate.mock.calls[0][0]).toEqual({ hash: HASH, directory: '/repo' })
   })
 
-  it('lists every executable action and setup command, including shadowed actions', () => {
+  it('lists every executable action and setup command, including shadowed actions', async () => {
     mockConfig(
       baseConfig({
         actions: [
@@ -172,15 +218,17 @@ describe('RepoActionsDialog', () => {
         },
       }),
     )
+    const user = userEvent.setup()
     renderDialog()
 
-    expect(screen.getAllByText('Actions').length).toBeGreaterThan(1)
-    expect(screen.getByText('Repo action')).toBeInTheDocument()
-    expect(screen.getByText('echo repo')).toBeInTheDocument()
-    expect(screen.getByText('https://example.com')).toBeInTheDocument()
-    expect(screen.getByText('Opens URL automatically')).toBeInTheDocument()
-    expect(screen.getByText('Worktree setup commands')).toBeInTheDocument()
-    expect(screen.getByText('pnpm install')).toBeInTheDocument()
+    const review = await openTrustReview(user)
+    expect(within(review).getByText('Actions')).toBeInTheDocument()
+    expect(within(review).getByText('Repo action')).toBeInTheDocument()
+    expect(within(review).getByText('echo repo')).toBeInTheDocument()
+    expect(within(review).getByText('https://example.com')).toBeInTheDocument()
+    expect(within(review).getByText('Opens URL automatically')).toBeInTheDocument()
+    expect(within(review).getByText('Worktree setup commands')).toBeInTheDocument()
+    expect(within(review).getByText('pnpm install')).toBeInTheDocument()
   })
 
   it('does not offer trust when the repo file has no executable commands', () => {
@@ -192,7 +240,7 @@ describe('RepoActionsDialog', () => {
     renderDialog()
 
     expect(screen.queryByText(/not trusted/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /trust these commands/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^review$/i })).not.toBeInTheDocument()
   })
 
   it('uses the shared action icon map', () => {
@@ -223,7 +271,8 @@ describe('RepoActionsDialog', () => {
     )
     renderDialog()
 
-    expect(screen.queryByRole('button', { name: /trust these commands/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/not trusted/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^review$/i })).not.toBeInTheDocument()
   })
 
   it('renders repository config parse errors', () => {
@@ -254,8 +303,11 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     renderDialog()
 
-    await user.click(screen.getByRole('button', { name: /move to repository/i }))
+    await openSetupTab(user)
+    const menu = await openRowMenu(user, 'Actions for setup command 1')
+    await user.click(within(menu).getByRole('menuitem', { name: /move to repository/i }))
 
+    await waitFor(() => expect(mocks.moveMutate).toHaveBeenCalledTimes(1))
     expect(mocks.moveMutate.mock.calls[0][0]).toEqual({
       kind: 'setup',
       command: 'pnpm install',
@@ -273,12 +325,45 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     renderDialog()
 
-    expect(screen.getByRole('button', { name: /move to repository/i })).toBeEnabled()
+    await openSetupTab(user)
+    let menu = await openRowMenu(user, 'Actions for setup command 1')
+    expect(within(menu).getByRole('menuitem', { name: /move to repository/i })).not.toHaveAttribute('aria-disabled')
+    await closeRowMenu(user)
 
     await user.type(screen.getByLabelText('Setup command 1'), ' --frozen-lockfile')
+    await user.tab()
 
-    expect(screen.getByRole('button', { name: /move to repository/i })).toBeDisabled()
+    menu = await openRowMenu(user, 'Actions for setup command 1')
+    expect(within(menu).getByRole('menuitem', { name: /move to repository/i })).toHaveAttribute('aria-disabled', 'true')
+    await closeRowMenu(user)
     expect(mocks.moveMutate).not.toHaveBeenCalled()
+  })
+
+  it('enables saving setup only after an edit and pins the save button outside the scrolling list', async () => {
+    mockConfig(
+      baseConfig({
+        worktreeSetup: [{ command: 'pnpm install', source: 'personal' }],
+      }),
+    )
+    const user = userEvent.setup()
+    renderDialog()
+
+    await openSetupTab(user)
+    const save = screen.getByRole('button', { name: /save setup/i })
+    expect(save).toBeDisabled()
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /add command/i }))
+    expect(screen.getByLabelText('Setup command 2')).toHaveFocus()
+    expect(save).toBeDisabled()
+
+    await user.type(screen.getByLabelText('Setup command 2'), 'pnpm build')
+    expect(save).toBeEnabled()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(save.closest('.overflow-y-auto')).toBeNull()
+
+    await user.click(save)
+    expect(mocks.updateSetupMutate.mock.calls[0][0]).toEqual(['pnpm install', 'pnpm build'])
   })
 
   it('reports a failed action save and keeps the draft', async () => {
@@ -321,6 +406,7 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     renderDialog()
 
+    await openSetupTab(user)
     const input = screen.getByLabelText('Setup command 1')
     await user.clear(input)
     await user.type(input, 'pnpm ci')
@@ -359,7 +445,8 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     renderDialog()
 
-    await user.click(screen.getByRole('button', { name: /trust these commands/i }))
+    const review = await openTrustReview(user)
+    await user.click(within(review).getByRole('button', { name: /trust these commands/i }))
 
     expect(mocks.showToastError).toHaveBeenCalledWith('Trust rejected')
   })
@@ -380,9 +467,10 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     renderDialog()
 
-    await user.click(screen.getByRole('button', { name: /move to repository/i }))
+    const menu = await openRowMenu(user, 'Actions for Personal action')
+    await user.click(within(menu).getByRole('menuitem', { name: /move to repository/i }))
 
-    expect(mocks.showToastError).toHaveBeenCalledWith('Move rejected')
+    await waitFor(() => expect(mocks.showToastError).toHaveBeenCalledWith('Move rejected'))
   })
 
   it('preserves unsaved setup edits when unrelated config data refetches', async () => {
@@ -397,6 +485,7 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     const view = renderDialog()
 
+    await openSetupTab(user)
     await user.type(screen.getByLabelText('Setup command 1'), ' --frozen-lockfile')
 
     mockConfig(
@@ -414,13 +503,15 @@ describe('RepoActionsDialog', () => {
     expect(screen.getByLabelText('Setup command 1')).toHaveValue('pnpm install --frozen-lockfile')
   })
 
-  it('reflects persisted setup commands after a setup operation', () => {
+  it('reflects persisted setup commands after a setup operation', async () => {
     mockConfig(
       baseConfig({
         worktreeSetup: [{ command: 'pnpm install', source: 'personal' }],
       }),
     )
+    const user = userEvent.setup()
     const view = renderDialog()
+    await openSetupTab(user)
 
     mockConfig(
       baseConfig({
@@ -441,10 +532,12 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     const view = renderDialog()
 
+    await openSetupTab(user)
     await user.type(screen.getByLabelText('Setup command 1'), ' --frozen-lockfile')
 
     view.rerender(<RepoActionsDialog repoId={1} directory="/repo" open={false} onOpenChange={vi.fn()} />)
     view.rerender(<RepoActionsDialog repoId={1} directory="/repo" open onOpenChange={vi.fn()} />)
+    await openSetupTab(user)
 
     expect(screen.getByLabelText('Setup command 1')).toHaveValue('pnpm install')
   })
@@ -458,6 +551,7 @@ describe('RepoActionsDialog', () => {
     const user = userEvent.setup()
     const view = renderDialog()
 
+    await openSetupTab(user)
     await user.type(screen.getByLabelText('Setup command 1'), ' --frozen-lockfile')
 
     mockConfig(

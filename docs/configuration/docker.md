@@ -76,6 +76,7 @@ services:
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
       - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-OpenCode Manager}
       - PASSKEY_ORIGIN=${PASSKEY_ORIGIN:-http://localhost:5003}
+      - PREVIEW_PUBLIC_URL=${PREVIEW_PUBLIC_URL:-}
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
@@ -119,6 +120,9 @@ GITHUB_CLIENT_SECRET=your-client-secret
 # Optional - passkeys
 PASSKEY_RP_ID=localhost
 PASSKEY_ORIGIN=http://localhost:5003
+
+# Optional - preview gateway behind HTTPS (see Cloudflare Tunnel)
+PREVIEW_PUBLIC_URL=https://preview.example.com
 
 # Optional - push notifications
 VAPID_PUBLIC_KEY=BMx-1234567890abcdefghijklmnopqrstuv...

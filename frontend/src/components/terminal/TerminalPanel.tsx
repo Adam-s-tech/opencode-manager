@@ -28,7 +28,7 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPa
   const isMobile = useMobile()
   const { searchParams, updateParams } = useUrlParams()
   const openPreview = useOpenPreview()
-  const { data, isLoading, isSuccess, refetch } = useTerminals(repoId, directory, {
+  const { data, isLoading, isSuccess, isFetching, refetch } = useTerminals(repoId, directory, {
     enabled: isOpen && !!directory,
     refetchInterval: isOpen ? 5000 : false,
   })
@@ -38,7 +38,7 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPa
   const [ctrlArmed, setCtrlArmed] = useState(false)
   const [pendingClose, setPendingClose] = useState<TerminalInfo | null>(null)
   const viewHandlesRef = useRef(new Map<string, TerminalViewHandle>())
-  const autoCreatedDirectoryRef = useRef<string | null>(null)
+  const autoCreateCheckedDirectoryRef = useRef<string | null>(null)
 
   const terminals = useMemo(() => data ?? [], [data])
 
@@ -49,23 +49,25 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPa
   }, [updateParams])
 
   const requestedTerminalId = searchParams.get('terminal')
-  const activeTerminalId = requestedTerminalId && terminals.some((terminal) => terminal.id === requestedTerminalId)
-    ? requestedTerminalId
-    : terminals[0]?.id
+  const requestedTerminal = terminals.find((terminal) => terminal.id === requestedTerminalId)
+  const runningTerminal = terminals.find((terminal) => terminal.status === 'running')
+  const activeTerminalId = (requestedTerminal ?? runningTerminal ?? terminals[0])?.id
+  const needsShell = !requestedTerminal && !runningTerminal
 
   useEffect(() => {
     if (!isOpen || !directory) {
-      autoCreatedDirectoryRef.current = null
+      autoCreateCheckedDirectoryRef.current = null
       return
     }
-    if (!isSuccess || terminals.length > 0) return
-    if (autoCreatedDirectoryRef.current === directory) return
-    autoCreatedDirectoryRef.current = directory
+    if (!isSuccess || isFetching) return
+    if (autoCreateCheckedDirectoryRef.current === directory) return
+    autoCreateCheckedDirectoryRef.current = directory
+    if (!needsShell) return
     createTerminal(
       { directory },
       { onSuccess: (terminal) => selectTerminal(terminal.id) },
     )
-  }, [isOpen, directory, isSuccess, terminals.length, createTerminal, selectTerminal])
+  }, [isOpen, directory, isSuccess, isFetching, needsShell, createTerminal, selectTerminal])
 
   const handleCreate = useCallback(() => {
     createTerminal(

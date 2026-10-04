@@ -77,7 +77,7 @@ interface DialogContentProps
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, hideCloseButton, fullscreen, mobileFullscreen, mobileSwipeToClose, keyboardAware, canSwipeBack, onSwipeBack, overlayClassName, style, onCloseAutoFocus, ...props }, ref) => {
+>(({ className, children, hideCloseButton, fullscreen, mobileFullscreen, mobileSwipeToClose, keyboardAware, canSwipeBack, onSwipeBack, overlayClassName, style, onCloseAutoFocus, onEscapeKeyDown, ...props }, ref) => {
   const isMobileFullscreenMode = fullscreen || mobileFullscreen
   const isDialogOpen = React.useContext(DialogOpenContext)
   const returnFocus = React.useContext(DialogReturnFocusContext)
@@ -86,6 +86,12 @@ const DialogContent = React.forwardRef<
     if (event.defaultPrevented || !returnFocus || !canRestoreFocus(returnFocus)) return
     event.preventDefault()
     returnFocus.focus()
+  }
+  const handleEscapeKeyDown = (event: KeyboardEvent) => {
+    onEscapeKeyDown?.(event)
+    if (event.target instanceof Element && event.target.matches('[role="combobox"][aria-expanded="true"]')) {
+      event.preventDefault()
+    }
   }
   const [isMobile, setIsMobile] = React.useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   const shouldEnableMobileSwipe = mobileSwipeToClose !== false && isMobile && isDialogOpen
@@ -150,6 +156,7 @@ const DialogContent = React.forwardRef<
         style={Object.keys(mergedStyle).length > 0 ? mergedStyle : undefined}
         {...props}
         onCloseAutoFocus={handleCloseAutoFocus}
+        onEscapeKeyDown={handleEscapeKeyDown}
       >
         {children}
         {shouldEnableMobileSwipe && (

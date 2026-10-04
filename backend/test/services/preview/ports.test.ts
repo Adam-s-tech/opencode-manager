@@ -3,6 +3,7 @@ import { ENV } from '@opencode-manager/shared/config/env'
 import {
   isReservedPreviewPort,
   listListeningPorts,
+  parseLsofCwds,
   parseLsofListen,
   parseProcNetTcp,
   type PortDiscoveryDeps,
@@ -54,6 +55,7 @@ function createDeps(fs: FakeFileSystem, overrides: Partial<PortDiscoveryDeps> = 
       return value
     },
     runLsof: async () => '',
+    runLsofCwd: async () => '',
     ...overrides,
   }
 }
@@ -94,6 +96,26 @@ describe('parseLsofListen', () => {
     expect(parseLsofListen(output)).toEqual([
       { port: 3000, address: '::1', pid: 42, command: 'deno' },
     ])
+  })
+})
+
+describe('parseLsofCwds', () => {
+  it('maps pid to working directory, keeping spaces and ignoring fd lines', () => {
+    const output = [
+      'p777',
+      'fcwd',
+      'n/Users/dev/my project',
+      'p888',
+      'fcwd',
+      'n/Users/dev/api',
+    ].join('\n')
+
+    expect(parseLsofCwds(output)).toEqual(
+      new Map([
+        [777, '/Users/dev/my project'],
+        [888, '/Users/dev/api'],
+      ]),
+    )
   })
 })
 
@@ -207,12 +229,38 @@ describe('listListeningPorts', () => {
     ])
   })
 
-  it('uses lsof on macOS with a null cwd', async () => {
+  it('maps cwd per pid from a second lsof call and passes each pid once', async () => {
+    const cwdCalls: number[][] = []
+    const deps = createDeps(
+      { files: {}, links: {}, dirs: {} },
+      {
+        platform: 'darwin',
+        runLsof: async () =>
+          ['p777', 'cnode', 'n127.0.0.1:5173', 'p888', 'cbun', 'n127.0.0.1:3000', 'n127.0.0.1:5174'].join('\n'),
+        runLsofCwd: async (pids) => {
+          cwdCalls.push(pids)
+          return ['p777', 'fcwd', 'n/Users/dev/app', 'p888', 'fcwd', 'n/Users/dev/api'].join('\n')
+        },
+      },
+    )
+
+    expect(await listListeningPorts(deps)).toEqual([
+      { port: 3000, host: '127.0.0.1', pid: 888, command: 'bun', cwd: '/Users/dev/api' },
+      { port: 5173, host: '127.0.0.1', pid: 777, command: 'node', cwd: '/Users/dev/app' },
+      { port: 5174, host: '127.0.0.1', pid: 888, command: 'bun', cwd: '/Users/dev/api' },
+    ])
+    expect(cwdCalls).toEqual([[777, 888]])
+  })
+
+  it('keeps cwd null when the cwd lsof call rejects but still lists the ports', async () => {
     const deps = createDeps(
       { files: {}, links: {}, dirs: {} },
       {
         platform: 'darwin',
         runLsof: async () => ['p777', 'cnode', 'n127.0.0.1:5173'].join('\n'),
+        runLsofCwd: async () => {
+          throw new Error('lsof failed')
+        },
       },
     )
 

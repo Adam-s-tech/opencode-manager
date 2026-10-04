@@ -6,7 +6,19 @@ import {
   randomId,
   formatShortRelativeTime,
   getOriginOnlyBranchNames,
+  shortenPath,
 } from './utils'
+
+describe('shortenPath', () => {
+  it('keeps short paths and collapses the leading segments of long ones', () => {
+    expect(shortenPath('/')).toBe('/')
+    expect(shortenPath('')).toBe('/')
+    expect(shortenPath('/a/b/c')).toBe('/a/b/c')
+    expect(shortenPath('a/b')).toBe('/a/b')
+    expect(shortenPath('/Users/chris/development/oc-manager/workspace/repos/test')).toBe('/.../workspace/repos/test')
+    expect(shortenPath('/a/b/c/d/e', 4)).toBe('/.../b/c/d/e')
+  })
+})
 
 describe('sanitizeForTTS', () => {
   it('should handle headers', () => {

@@ -18,7 +18,7 @@ import { useRepoActivity } from "@/hooks/useRepoActivity";
 import { useCreateRepoWorkspace, useDeleteRepoWorkspaces, useRepoSiblings } from "@/hooks/useRepoSiblings";
 import { useSSE } from "@/hooks/useSSE";
 import { useDialogParam } from "@/hooks/useDialogParam";
-import { useOpenTerminal } from "@/hooks/useOpenTerminal";
+import { useOpenTerminal, useTerminalDialogParam } from "@/hooks/useOpenTerminal";
 import { useWorktreeTab } from "@/hooks/useWorktreeTab";
 import { WorktreeTabs } from "@/components/repo/WorktreeTabs";
 import { WorkspaceManager } from "@/components/repo/WorkspaceManager";
@@ -40,7 +40,7 @@ export function RepoDetail() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp');
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
-  const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
+  const [terminalOpen, setTerminalOpen] = useTerminalDialogParam();
   const [actionsDialogOpen, setActionsDialogOpen] = useDialogParam('actions');
   const [previewOpen, setPreviewOpen] = useDialogParam('preview');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');

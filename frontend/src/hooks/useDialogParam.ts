@@ -31,7 +31,12 @@ export function openDialogParam(
   }, 'push')
 }
 
-export function useDialogParam(name: string): [boolean, (open: boolean) => void] {
+const NO_OWNED_PARAMS: readonly string[] = []
+
+export function useDialogParam(
+  name: string,
+  ownedParams: readonly string[] = NO_OWNED_PARAMS,
+): [boolean, (open: boolean) => void] {
   const { searchParams, updateParams } = useUrlParams()
 
   const isOpen = searchParams.get('dialog') === name
@@ -43,12 +48,12 @@ export function useDialogParam(name: string): [boolean, (open: boolean) => void]
         return
       }
       updateParams((p) => {
-        if (p.get('dialog') === name) {
-          p.delete('dialog')
-        }
+        if (p.get('dialog') !== name) return
+        p.delete('dialog')
+        for (const param of ownedParams) p.delete(param)
       }, 'replace')
     },
-    [updateParams, name],
+    [updateParams, name, ownedParams],
   )
 
   return [isOpen, setOpen]
