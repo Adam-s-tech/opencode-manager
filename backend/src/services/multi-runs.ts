@@ -13,9 +13,9 @@ import {
 import { getRepoById } from '../db/queries'
 import type { Repo } from '../types/repo'
 import { getErrorMessage } from '../utils/error-utils'
-import type { GitAuthService } from './git-auth'
 import type { OpenCodeClient } from './opencode/client'
-import { removeRepoWorkspace, RepoWorkspaceError } from './repo'
+import { RepoWorkspaceError } from './repo'
+import type { RepoWorkspaceService } from './repo-workspace'
 import { requireReadyRepo, SessionLauncher, SessionLaunchError, type LaunchedSession } from './session-launcher'
 
 const MULTI_RUN_LIST_LIMIT = 20
@@ -59,10 +59,10 @@ export class MultiRunService {
 
   constructor(
     private readonly db: Database,
-    private readonly openCodeClient: OpenCodeClient,
-    private readonly gitAuthService: GitAuthService,
+    openCodeClient: OpenCodeClient,
+    private readonly repoWorkspaces: RepoWorkspaceService,
   ) {
-    this.sessionLauncher = new SessionLauncher(db, openCodeClient)
+    this.sessionLauncher = new SessionLauncher(db, openCodeClient, repoWorkspaces)
   }
 
   async launch(request: LaunchMultiRunRequest): Promise<MultiRun> {
@@ -172,13 +172,7 @@ export class MultiRunService {
         }
 
         try {
-          await removeRepoWorkspace(
-            this.db,
-            this.openCodeClient,
-            this.gitAuthService.getGitEnvironment(),
-            repo,
-            entry.directory,
-          )
+          await this.repoWorkspaces.remove(repo, entry.directory)
         } catch (error) {
           const status = error instanceof RepoWorkspaceError ? error.status : 502
           throw new MultiRunError(getErrorMessage(error) || 'Failed to remove workspace', status)

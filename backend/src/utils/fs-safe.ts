@@ -1,5 +1,5 @@
 import path from 'path'
-import { promises as fs, mkdirSync, accessSync, constants, realpathSync } from 'node:fs'
+import { promises as fs, mkdirSync, accessSync, constants, realpathSync, writeFileSync, renameSync, rmSync } from 'node:fs'
 
 interface MkdirSafeOptions {
   mode?: number
@@ -35,6 +35,19 @@ export async function writeFileAtomic(filePath: string, content: string, options
     await fs.rename(tempPath, filePath)
   } catch (error) {
     await fs.rm(tempPath, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+export function writeFileAtomicSync(filePath: string, content: string, options: { mode?: number } = {}): void {
+  const dir = path.dirname(filePath)
+  mkdirSyncSafe(dir)
+  const tempPath = path.join(dir, `.${path.basename(filePath)}.ocm-tmp-${process.pid}-${Date.now()}`)
+  try {
+    writeFileSync(tempPath, content, { encoding: 'utf-8', mode: options.mode ?? 0o600 })
+    renameSync(tempPath, filePath)
+  } catch (error) {
+    rmSync(tempPath, { force: true })
     throw error
   }
 }

@@ -1,10 +1,12 @@
 import { serve } from '@hono/node-server'
+import { createNodeWebSocket } from '@hono/node-ws'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { readFile } from 'fs/promises'
 import { initializeDatabase } from './db/schema'
 import { createRepoRoutes } from './routes/repos'
+import { createRepoTerminalSocketRoutes } from './routes/repo-terminal-socket'
 import { createIPCServer, type IPCServer } from './ipc/ipcServer'
 import { GitAuthService } from './services/git-auth'
 import { createSettingsRoutes } from './routes/settings'
@@ -40,6 +42,8 @@ import { createSessionPermissionModeRoutes } from './routes/session-permission-m
 import { createSessionGoalRoutes } from './routes/session-goals'
 import { createMultiRunRoutes } from './routes/multi-runs'
 import { createLogRoutes } from './routes/logs'
+import { createPreviewRoutes, createPreviewAvailability } from './routes/preview'
+import { createPreviewGatewayApp, PreviewSessionStore } from './services/preview/gateway'
 import { createInternalRoutes } from './routes/internal'
 import { sweepStaleUploadSessions } from './routes/internal/repo-mirror-helpers'
 import { createOpenCodeProxyRoutes } from './routes/opencode-proxy'
@@ -52,8 +56,14 @@ import { SessionGoalService } from './services/session-goals'
 import { MultiRunService } from './services/multi-runs'
 import { opencodeServerManager } from './services/opencode-single-server'
 import { createOpenCodeClient } from './services/opencode/client'
+import { getOpenCodeUpstreamBaseUrl } from './services/opencode/upstream'
 import { NotificationService } from './services/notification'
 import { ScheduleRunner, ScheduleService } from './services/schedules'
+import { CredentialProvider } from './services/credential-provider'
+import { TerminalService } from './services/terminal'
+import { ProjectConfigService } from './services/project-config'
+import { RepoWorkspaceService } from './services/repo-workspace'
+import { createGitService } from './services/git/GitService'
 import { ScheduleWorktreeManager } from './services/schedule-worktree'
 import { migrateGlobalSkills } from './services/skills'
 import { installAssistantWorkspace } from './services/assistant-mode'
@@ -70,6 +80,7 @@ import {
   getConfigPath,
   getAgentsMdPath,
   getDatabasePath,
+  getTrustedOrigins,
   ENV
 } from '@opencode-manager/shared/config/env'
 
@@ -78,6 +89,7 @@ const { PORT, HOST } = ENV.SERVER
 const DB_PATH = getDatabasePath()
 
 const app = new Hono()
+const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app })
 
 /**
  * Route prefixes reachable from custom WebViews whose origin is not a
@@ -91,7 +103,7 @@ app.use('/*', cors({
     if (origin && REFLECT_ANY_ORIGIN_PREFIXES.some(prefix => c.req.path.startsWith(prefix))) {
       return origin
     }
-    const trustedOrigins = ENV.AUTH.TRUSTED_ORIGINS.split(',').map(o => o.trim())
+    const trustedOrigins = getTrustedOrigins()
     if (!origin) return trustedOrigins[0]
     if (trustedOrigins.includes(origin)) return origin
     return trustedOrigins[0]
@@ -225,6 +237,13 @@ try {
   logger.error('Failed to initialize workspace:', error)
 }
 
+const terminalService = new TerminalService(
+  openCodeClient,
+  new CredentialProvider(db),
+  () => getOpenCodeUpstreamBaseUrl(opencodeServerManager.getEffectiveServerHost()),
+)
+const projectConfigService = new ProjectConfigService(db, createGitService(gitAuthService), gitAuthService)
+const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, gitAuthService, projectConfigService, terminalService)
 const scheduleWorktreeManager = new ScheduleWorktreeManager(gitAuthService, db)
 const scheduleService = new ScheduleService(db, openCodeClient, scheduleWorktreeManager)
 const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
@@ -243,7 +262,7 @@ const sessionGoalService = new SessionGoalService(db, openCodeClient, sessionSet
 })
 sessionGoalService.loadOpenGoals()
 
-const multiRunService = new MultiRunService(db, openCodeClient, gitAuthService)
+const multiRunService = new MultiRunService(db, openCodeClient, repoWorkspaces)
 
 sseAggregator.onEvent((directory, event) => {
   sessionPermissionModeService.handleEvent(directory, event).catch((err) => {
@@ -298,19 +317,22 @@ sseAggregator.setScheduledSessionsResolver(
 void scheduleRunnerInstance.start()
 
 const settingsService = new SettingsService(db)
+const previewSessionStore = new PreviewSessionStore()
+const previewAvailability = createPreviewAvailability(false)
 
 app.route('/api/auth', createAuthRoutes(auth))
 app.route('/api/auth-info', createAuthInfoRoutes(auth, db))
 app.route('/api/health', createHealthRoutes(db, openCodeSupervisor))
 
 app.route('/api/mcp-oauth-proxy', createMcpOauthProxyRoutes(openCodeClient, requireAuth))
-app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient, sessionPermissionModeService))
+app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient, sessionPermissionModeService, repoWorkspaces))
 app.route('/api/opencode-proxy', createOpenCodeProxyRoutes(db, settingsService))
 
 const protectedApi = new Hono()
 protectedApi.use('/*', requireAuth)
 
-protectedApi.route('/repos', createRepoRoutes(db, gitAuthService, scheduleService, openCodeClient))
+protectedApi.route('/repos', createRepoTerminalSocketRoutes(db, gitAuthService, openCodeClient, terminalService, upgradeWebSocket))
+protectedApi.route('/repos', createRepoRoutes(db, gitAuthService, scheduleService, openCodeClient, terminalService, projectConfigService, repoWorkspaces))
 protectedApi.route('/settings', createSettingsRoutes(db, gitAuthService, openCodeClient, openCodeSupervisor))
   protectedApi.route('/files', createFileRoutes())
   protectedApi.route('/filesystem', createFilesystemRoutes())
@@ -328,6 +350,7 @@ protectedApi.route('/session-goals', createSessionGoalRoutes(sessionGoalService)
 protectedApi.route('/multi-runs', createMultiRunRoutes(multiRunService))
 protectedApi.route('/schedules', createScheduleRoutes(scheduleService))
 protectedApi.route('/logs', createLogRoutes())
+protectedApi.route('/preview', createPreviewRoutes({ store: previewSessionStore, isEnabled: previewAvailability.isEnabled }))
 
 app.route('/api', protectedApi)
 
@@ -439,10 +462,31 @@ const shutdown = async (signal: string) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port: PORT,
   hostname: HOST,
 })
+
+injectWebSocket(server)
+
+if (ENV.PREVIEW.PORT > 0) {
+  const previewGateway = createPreviewGatewayApp(previewSessionStore)
+  const previewServer = serve({
+    fetch: previewGateway.app.fetch,
+    port: ENV.PREVIEW.PORT,
+    hostname: HOST,
+  })
+  previewServer.on('listening', () => {
+    previewAvailability.markAvailable()
+    logger.info(`Preview gateway running on http://${HOST}:${ENV.PREVIEW.PORT}`)
+  })
+  previewServer.on('error', (error: Error) => {
+    previewAvailability.markUnavailable()
+    const code = (error as NodeJS.ErrnoException).code
+    logger.warn(`Preview gateway failed to listen on port ${ENV.PREVIEW.PORT}${code ? ` (${code})` : ''}; preview disabled`)
+  })
+  previewGateway.injectWebSocket(previewServer)
+}
 
 logger.info(`🚀 OpenCode WebUI API running on http://${HOST}:${PORT}`)

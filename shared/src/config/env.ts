@@ -74,6 +74,11 @@ export const ENV = {
     LEGACY_PUBLIC_URL: getEnvString('OPENCODE_PUBLIC_URL', ''),
   },
 
+  PREVIEW: {
+    PORT: getEnvNumber('PREVIEW_PORT', DEFAULTS.PREVIEW.PORT),
+    PUBLIC_URL: getEnvString('PREVIEW_PUBLIC_URL', ''),
+  },
+
   DATABASE: {
     PATH: getEnvString('DATABASE_PATH', DEFAULTS.DATABASE.PATH),
   },
@@ -161,6 +166,12 @@ export { OPENCODE_CONFIG_SOURCE_NAMES } from './defaults'
 export const getOpenCodeConfigFilePath = () => path.join(ENV.WORKSPACE.BASE_PATH, ENV.WORKSPACE.CONFIG_DIR, 'opencode.json')
 export const getAgentsMdPath = () => path.join(ENV.WORKSPACE.BASE_PATH, ENV.WORKSPACE.CONFIG_DIR, 'AGENTS.md')
 export const getDatabasePath = () => ENV.DATABASE.PATH
+
+export const getTrustedOrigins = (): string[] =>
+  ENV.AUTH.TRUSTED_ORIGINS
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0)
 
 export const getApiUrl = (port: number = ENV.SERVER.PORT): string => {
   const host = ENV.SERVER.HOST

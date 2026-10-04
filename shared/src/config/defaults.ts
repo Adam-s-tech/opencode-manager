@@ -18,6 +18,10 @@ export const DEFAULTS = {
     HEALTH_FAILURE_THRESHOLD: 2,
   },
 
+  PREVIEW: {
+    PORT: 5004,
+  },
+
   DATABASE: {
     PATH: './data/opencode.db',
   },

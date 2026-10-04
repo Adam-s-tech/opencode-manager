@@ -6,7 +6,7 @@ import type { Repo } from '../types/repo'
 import { getErrorMessage } from '../utils/error-utils'
 import type { OpenCodeClient } from './opencode/client'
 import { resolveOpenCodeModel, type ResolvedOpenCodeModel } from './opencode-models'
-import { createRepoWorkspace } from './repo'
+import type { RepoWorkspaceService } from './repo-workspace'
 
 interface LaunchSessionInput {
   repoId: number
@@ -54,6 +54,7 @@ export class SessionLauncher {
   constructor(
     private readonly db: Database,
     private readonly openCodeClient: OpenCodeClient,
+    private readonly repoWorkspaces: RepoWorkspaceService,
   ) {}
 
   async resolveModel(repo: Repo, requestedModel?: string): Promise<ResolvedOpenCodeModel> {
@@ -85,7 +86,7 @@ export class SessionLauncher {
 
     if (input.workspace) {
       try {
-        const workspace = await createRepoWorkspace(this.openCodeClient, repo, {
+        const workspace = await this.repoWorkspaces.create(repo, {
           name: sanitizeRepoDirectoryName(input.workspace.name ?? '', 'session'),
           ...(input.workspace.ref ? { ref: input.workspace.ref } : {}),
         })

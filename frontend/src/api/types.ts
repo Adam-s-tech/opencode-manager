@@ -1,3 +1,6 @@
+import type { SessionInfo } from '@opencode-manager/shared/opencode'
+import type { WorktreeSetupResult } from '@opencode-manager/shared/types'
+
 export interface Repo {
   id: number
   name?: string
@@ -15,9 +18,8 @@ export interface Repo {
   gitCredentialId?: string
   isWorktree?: boolean
   isLocal?: boolean
+  worktreeSetup?: WorktreeSetupResult
 }
-
-import type { SessionInfo } from '@opencode-manager/shared/opencode'
 
 export type Session = SessionInfo
 export type PermissionResponse = 'once' | 'always' | 'reject'

@@ -1,12 +1,32 @@
 import { useCallback } from 'react'
 import { useUrlParams } from './useUrlParams'
 
+function setDialogParams(
+  params: URLSearchParams,
+  name: string,
+  extraParams?: Record<string, string>,
+): void {
+  params.set('dialog', name)
+  if (extraParams) {
+    for (const [key, value] of Object.entries(extraParams)) {
+      params.set(key, value)
+    }
+  }
+}
+
+export function dialogSearch(name: string, extraParams?: Record<string, string>): string {
+  const params = new URLSearchParams()
+  setDialogParams(params, name, extraParams)
+  return `?${params.toString()}`
+}
+
 export function openDialogParam(
   updateParams: ReturnType<typeof useUrlParams>['updateParams'],
   name: string,
+  extraParams?: Record<string, string>,
 ): void {
   updateParams((p) => {
-    p.set('dialog', name)
+    setDialogParams(p, name, extraParams)
     p.delete('mobileTab')
   }, 'push')
 }

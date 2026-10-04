@@ -16,16 +16,17 @@ import { handleOpenCodeError } from '../utils/route-helpers'
 import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 import { isWorktreeError, openCodeLocation } from '@opencode-manager/shared/opencode'
 import { createRepoGitRoutes } from './repo-git'
-import { createGitService } from '../services/git/GitService'
+import { createRepoTerminalRoutes } from './repo-terminals'
+import { createRepoProjectConfigRoutes } from './repo-project-config'
 import { createScheduleRoutes } from './schedules'
 import type { GitAuthService } from '../services/git-auth'
+import type { TerminalService } from '../services/terminal'
+import type { ProjectConfigService } from '../services/project-config'
+import type { RepoWorkspaceService } from '../services/repo-workspace'
+import { createGitService } from '../services/git/GitService'
 import { ScheduleService } from '../services/schedules'
-import { ensureAssistantMode, getAssistantModeStatus, buildAssistantRepo } from '../services/assistant-mode'
+import { ensureAssistantMode, getAssistantModeStatus } from '../services/assistant-mode'
 import path from 'path'
-
-function resolveRepo(database: Database, id: number): Repo | null {
-  return getRepoById(database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null)
-}
 
 const DeleteWorkspaceRequestSchema = z.object({
   directory: z.string().trim().min(1),
@@ -43,11 +44,16 @@ export function createRepoRoutes(
   gitAuthService: GitAuthService,
   scheduleService: ScheduleService,
   openCodeClient: OpenCodeClient,
+  terminalService: TerminalService,
+  projectConfigService: ProjectConfigService,
+  repoWorkspaces: RepoWorkspaceService,
 ) {
   const app = new Hono()
   const git = createGitService(gitAuthService)
 
   app.route('/', createRepoGitRoutes(database, git, openCodeClient))
+  app.route('/', createRepoTerminalRoutes(database, gitAuthService, openCodeClient, terminalService))
+  app.route('/', createRepoProjectConfigRoutes(database, gitAuthService, openCodeClient, projectConfigService, terminalService))
   app.route('/:id/schedules', createScheduleRoutes(scheduleService))
 
   app.post('/', async (c) => {
@@ -77,7 +83,14 @@ export function createRepoRoutes(
           { branch, directoryName, useWorktree, skipSSHVerification, baseBranch }
         )
       }
-      
+
+      if (repo.isWorktree) {
+        return c.json({
+          ...repo,
+          worktreeSetup: await projectConfigService.runWorktreeSetupForRepo(repo, repo.fullPath, terminalService),
+        })
+      }
+
       return c.json(repo)
     } catch (error: unknown) {
       logger.error('Failed to create repo:', error)
@@ -152,7 +165,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)
@@ -319,7 +332,7 @@ app.get('/', async (c) => {
       if (!parsed.success) return c.json({ error: 'directory is required' }, 400)
 
       try {
-        await repoService.removeRepoWorkspace(database, openCodeClient, gitAuthService.getGitEnvironment(), repo, parsed.data.directory)
+        await repoWorkspaces.remove(repo, parsed.data.directory)
       } catch (error: unknown) {
         if (error instanceof repoService.RepoWorkspaceError) {
           return c.json({ error: error.message }, error.status)
@@ -346,8 +359,7 @@ app.get('/', async (c) => {
       if (!repo || repo.cloneStatus !== 'ready') return c.json({ error: 'Repo not found' }, 404)
 
       try {
-        const worktree = await repoService.createRepoWorkspace(openCodeClient, repo)
-        return c.json(worktree)
+        return c.json(await repoWorkspaces.create(repo))
       } catch (error: unknown) {
         if (isWorktreeError(error)) {
           return c.json({ error: error.data.message }, 409)
@@ -388,6 +400,7 @@ app.get('/', async (c) => {
 
       const removeWorktree = async () => {
         scheduleService.prepareRepoDelete(id)
+        await repoWorkspaces.removeRepoTerminals(repo)
         await repoService.deleteRepoFiles(database, id)
       }
 
@@ -563,7 +576,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)
@@ -581,7 +594,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)

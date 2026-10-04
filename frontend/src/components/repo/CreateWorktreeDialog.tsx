@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertCircle, GitBranch, Loader2 } from 'lucide-react'
 import { createRepo, listBranches, type CreateRepoOptions } from '@/api/repos'
+import { dialogSearch } from '@/hooks/useDialogParam'
 import { showToast } from '@/lib/toast'
+import { notifyWorktreeSetup } from '@/lib/worktreeSetup'
 import { invalidateRepoGitCaches } from '@/lib/queryInvalidation'
 import { getOriginOnlyBranchNames } from '@/lib/utils'
 import { BaseBranchSelect } from './BaseBranchSelect'
@@ -36,6 +39,7 @@ export function CreateWorktreeDialog({
   onCreated,
 }: CreateWorktreeDialogProps) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [mode, setMode] = useState<WorktreeMode>('new')
   const [branchName, setBranchName] = useState('')
   const [baseBranch, setBaseBranch] = useState<string>('')
@@ -97,11 +101,15 @@ export function CreateWorktreeDialog({
       }
       return createRepo(options)
     },
-    onSuccess: () => {
+    onSuccess: (repo) => {
       invalidateRepoGitCaches(queryClient, repoId)
       showToast.success('Worktree created')
       onCreated?.()
       onOpenChange(false)
+      notifyWorktreeSetup(repo.worktreeSetup)
+      if (repo.worktreeSetup?.status === 'started') {
+        navigate(`/repos/${repo.id}${dialogSearch('terminal', { terminal: repo.worktreeSetup.terminal.id })}`)
+      }
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to create worktree')

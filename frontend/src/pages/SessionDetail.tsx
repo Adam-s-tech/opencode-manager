@@ -39,6 +39,8 @@ import { showToast } from "@/lib/toast";
 import { getWorkspaceFilePath } from "@/lib/markdownLinks";
 import { getRepoDisplayName } from "@/lib/utils";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
+import { ProjectActionsMenu } from "@/components/repo/ProjectActionsMenu";
+import { RepoActionsDialog } from "@/components/repo/RepoActionsDialog";
 import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog";
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog";
 import { compactSession, forkSession, listSessionMessages } from "@/api/opencode";
@@ -51,6 +53,8 @@ import { FormPrompt } from "@/components/session/FormPrompt";
 import { MinimizedFormIndicator } from "@/components/session/MinimizedFormIndicator";
 import { PendingActionsGroup } from "@/components/notifications/PendingActionsGroup";
 import { SourceControlPanel } from "@/components/source-control";
+import { TerminalPanel } from "@/components/terminal/TerminalPanel";
+import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { SessionSendErrorBanner } from "@/components/session/SessionSendErrorBanner";
 import { BackgroundWorkBar } from "@/components/session/BackgroundWorkBar";
 import { SessionGoalBar } from "@/components/session/SessionGoalBar";
@@ -119,6 +123,9 @@ export function SessionDetail() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp');
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
+  const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
+  const [actionsDialogOpen, setActionsDialogOpen] = useDialogParam('actions');
+  const [previewOpen, setPreviewOpen] = useDialogParam('preview');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>();
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -679,6 +686,9 @@ export function SessionDetail() {
           </div>
           <Header.Actions className="gap-2 sm:gap-4">
             <div className="flex items-center gap-1">
+              {!isAssistantSession && (
+                <ProjectActionsMenu repoId={repoId} directory={sessionDirectory} />
+              )}
               <PendingActionsGroup />
             </div>
             <ContextUsageIndicator
@@ -869,12 +879,34 @@ export function SessionDetail() {
         directory={repoDirectory}
       />
 
+      {!isAssistantSession && (
+        <RepoActionsDialog
+          repoId={repoId}
+          directory={sessionDirectory}
+          open={actionsDialogOpen}
+          onOpenChange={setActionsDialogOpen}
+        />
+      )}
+
       <SourceControlPanel
         repoId={repoId}
         isOpen={sourceControlOpen}
         onClose={() => setSourceControlOpen(false)}
         currentBranch={repo?.currentBranch || repo?.branch || "main"}
         repoName={workspaceDisplayName}
+      />
+
+      <TerminalPanel
+        repoId={repoId}
+        directory={sessionDirectory}
+        isOpen={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
+      />
+
+      <PreviewPanel
+        isOpen={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        directory={sessionDirectory}
       />
 
       <ResetPermissionsDialog

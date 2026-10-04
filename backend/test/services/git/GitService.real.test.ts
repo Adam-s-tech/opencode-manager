@@ -17,6 +17,9 @@ import { cloneOrigin, createCommittedRepo, createGitAuthService, createOrigin, g
 import { GitOperationError, parseGitError } from '../../../src/utils/git-errors'
 import type { GitAuthService } from '../../../src/services/git-auth'
 import type { Repo } from '../../../src/types/repo'
+import type { TerminalService } from '../../../src/services/terminal'
+import type { ProjectConfigService } from '../../../src/services/project-config'
+import type { RepoWorkspaceService } from '../../../src/services/repo-workspace'
 
 const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'git-service-real-'))
 process.env.WORKSPACE_PATH = workspaceRoot
@@ -1073,7 +1076,12 @@ describe('GitService real git', () => {
     function createDeleteApp(): Hono {
       const app = new Hono()
       const scheduleService = { prepareRepoDelete: () => {} } as unknown as Parameters<typeof createRepoRoutes>[2]
-      app.route('/repos', createRepoRoutes(db, gitAuth, scheduleService, createStubOpenCodeClient()))
+      const repoWorkspaces = {
+        create: async () => ({ directory: '' }),
+        remove: async () => undefined,
+        removeRepoTerminals: async () => undefined,
+      } as unknown as RepoWorkspaceService
+      app.route('/repos', createRepoRoutes(db, gitAuth, scheduleService, createStubOpenCodeClient(), {} as unknown as TerminalService, {} as unknown as ProjectConfigService, repoWorkspaces))
       return app
     }
 

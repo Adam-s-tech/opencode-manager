@@ -6,14 +6,19 @@ import { SessionList } from "@/components/session/SessionList";
 import { FileBrowserSheet } from "@/components/file-browser/FileBrowserSheet";
 import { Header } from "@/components/ui/header";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
+import { ProjectActionsMenu } from "@/components/repo/ProjectActionsMenu";
+import { RepoActionsDialog } from "@/components/repo/RepoActionsDialog";
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog";
 import { MultiRunDialog } from "@/components/repo/MultiRunDialog";
 import { SourceControlPanel } from "@/components/source-control";
+import { TerminalPanel } from "@/components/terminal/TerminalPanel";
+import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { useCreateSession } from "@/hooks/useOpenCode";
 import { useRepoActivity } from "@/hooks/useRepoActivity";
 import { useCreateRepoWorkspace, useDeleteRepoWorkspaces, useRepoSiblings } from "@/hooks/useRepoSiblings";
 import { useSSE } from "@/hooks/useSSE";
 import { useDialogParam } from "@/hooks/useDialogParam";
+import { useOpenTerminal } from "@/hooks/useOpenTerminal";
 import { useWorktreeTab } from "@/hooks/useWorktreeTab";
 import { WorktreeTabs } from "@/components/repo/WorktreeTabs";
 import { WorkspaceManager } from "@/components/repo/WorkspaceManager";
@@ -24,6 +29,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog";
 import { PendingActionsGroup } from "@/components/notifications/PendingActionsGroup";
 import { getRepoDisplayName } from "@/lib/utils";
+import { notifyWorktreeSetup } from "@/lib/worktreeSetup";
 import { isWorktreeSibling } from "@opencode-manager/shared/utils";
 
 export function RepoDetail() {
@@ -34,12 +40,16 @@ export function RepoDetail() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp');
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
+  const [terminalOpen, setTerminalOpen] = useDialogParam('terminal');
+  const [actionsDialogOpen, setActionsDialogOpen] = useDialogParam('actions');
+  const [previewOpen, setPreviewOpen] = useDialogParam('preview');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [multiRunOpen, setMultiRunOpen] = useDialogParam('multiRun');
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
   const [activeWorkspaceDirectory, setActiveWorkspaceDirectory] = useState<string | undefined>();
   const { activeTab, setActiveTab } = useWorktreeTab();
+  const openTerminal = useOpenTerminal();
 
   const { data: repo, isLoading: repoLoading } = useQuery({
     queryKey: ["repo", repoId],
@@ -131,8 +141,14 @@ export function RepoDetail() {
     if (workspace.directory) {
       setActiveWorkspaceDirectory(workspace.directory);
     }
-    setActiveTab('workspaces');
     setCreateWorkspaceOpen(false);
+    notifyWorktreeSetup(workspace.worktreeSetup);
+    if (workspace.worktreeSetup?.status === 'started') {
+      const terminalId = workspace.worktreeSetup.terminal.id;
+      openTerminal(terminalId, { repoTab: 'workspaces' });
+      return;
+    }
+    setActiveTab('workspaces');
   };
 
   const handleOpenWorkspaceSelector = () => {
@@ -202,6 +218,7 @@ export function RepoDetail() {
         </div>
         <Header.Actions>
           <div className="flex items-center gap-1">
+            <ProjectActionsMenu repoId={repoId} directory={composerDirectory} />
             <PendingActionsGroup />
           </div>
           <Button
@@ -289,6 +306,13 @@ export function RepoDetail() {
         directory={composerDirectory}
       />
 
+      <RepoActionsDialog
+        repoId={repoId}
+        directory={composerDirectory}
+        open={actionsDialogOpen}
+        onOpenChange={setActionsDialogOpen}
+      />
+
       <RepoSkillsDialog
         open={skillsDialogOpen}
         onOpenChange={setSkillsDialogOpen}
@@ -301,6 +325,19 @@ export function RepoDetail() {
         onClose={() => setSourceControlOpen(false)}
         currentBranch={currentBranch}
         repoName={repoName}
+      />
+
+      <TerminalPanel
+        repoId={repoId}
+        directory={composerDirectory}
+        isOpen={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
+      />
+
+      <PreviewPanel
+        isOpen={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        directory={composerDirectory}
       />
 
       <ResetPermissionsDialog

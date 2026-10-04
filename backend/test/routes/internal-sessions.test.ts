@@ -7,6 +7,7 @@ import type { NotificationService } from '../../src/services/notification'
 import type { SettingsService } from '../../src/services/settings'
 import type { OpenCodeClient } from '../../src/services/opencode/client'
 import type { SessionPermissionModeService } from '../../src/services/session-permission-modes'
+import type { RepoWorkspaceService } from '../../src/services/repo-workspace'
 import type { Repo } from '../../src/types/repo'
 
 const mockDb = {
@@ -156,7 +157,7 @@ describe('internal-sessions routes', () => {
     app = new Hono()
     app.route(
       '/api/internal',
-      createInternalRoutes(mockDb, scheduleService, notificationService, settingsService, openCodeClient, permissionModes),
+      createInternalRoutes(mockDb, scheduleService, notificationService, settingsService, openCodeClient, permissionModes, {} as unknown as RepoWorkspaceService),
     )
     token = 'test-internal-token'
   })

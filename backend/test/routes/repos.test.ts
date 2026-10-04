@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { createStubOpenCodeClient } from '../helpers/stub-opencode-client'
 
@@ -20,6 +23,8 @@ vi.mock('../../src/db/queries', () => ({
   getRepoGitCredentialId: vi.fn(),
   setRepoGitCredentialId: vi.fn(),
   updateRepoName: vi.fn(),
+  getRepoSetting: vi.fn(),
+  setRepoSetting: vi.fn(),
 }))
 
 vi.mock('../../src/services/repo', () => ({
@@ -32,6 +37,10 @@ vi.mock('../../src/services/repo', () => ({
   createBranch: vi.fn(),
   deleteRepoFiles: vi.fn(),
   getSiblingRepos: vi.fn(),
+  resolveRepoOrAssistant: vi.fn(),
+  findSiblingByDirectory: vi.fn(),
+  resolveRepoWorkingDirectory: vi.fn(),
+  resolveRepoProjectId: vi.fn(),
 }))
 
 vi.mock('../../src/services/assistant-mode', () => ({
@@ -73,12 +82,17 @@ import * as repoService from '../../src/services/repo'
 import * as archiveService from '../../src/services/archive'
 import { createRepoRoutes } from '../../src/routes/repos'
 import { opencodeServerManager } from '../../src/services/opencode-single-server'
+import { ProjectConfigService } from '../../src/services/project-config'
+import { RepoWorkspaceService } from '../../src/services/repo-workspace'
+import { createGitService } from '../../src/services/git/GitService'
 import type { GitAuthService } from '../../src/services/git-auth'
 import type { ScheduleService } from '../../src/services/schedules'
+import type { TerminalService } from '../../src/services/terminal'
 import type { AssistantModeStatus, Repo } from '@opencode-manager/shared/types'
 import type { OpenCodeApi } from '@opencode-manager/shared/opencode'
 import { ClientError } from '@opencode-manager/shared/opencode'
 import { getAssistantModeStatus, ensureAssistantMode, buildAssistantRepo } from '../../src/services/assistant-mode'
+import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 
 const mockGitAuthService = {
   getGitEnvironment: vi.fn().mockReturnValue({})
@@ -88,6 +102,17 @@ const mockPrepareRepoDelete = vi.fn()
 const mockScheduleService = {
   prepareRepoDelete: mockPrepareRepoDelete,
 } as unknown as ScheduleService
+
+const mockTerminalService = {
+  removeAll: vi.fn().mockResolvedValue(undefined),
+  create: vi.fn(),
+} as unknown as TerminalService
+
+function createTestRoutes(openCodeClient: ReturnType<typeof createStubOpenCodeClient> = createStubOpenCodeClient()): ReturnType<typeof createRepoRoutes> {
+  const projectConfigService = new ProjectConfigService(mockDb, createGitService(mockGitAuthService), mockGitAuthService)
+  const repoWorkspaces = new RepoWorkspaceService(mockDb, openCodeClient, mockGitAuthService, projectConfigService, mockTerminalService)
+  return createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, openCodeClient, mockTerminalService, projectConfigService, repoWorkspaces)
+}
 
 function createMockRepo(overrides: Partial<Repo> = {}): Repo {
   return {
@@ -118,13 +143,18 @@ describe('Repo Routes', () => {
       updatedAt: Date.now(),
     })
     vi.mocked(db.getRepoGitCredentialId).mockReturnValue(null)
+    vi.mocked(db.getRepoSetting).mockReturnValue(null)
+    vi.mocked(repoService.resolveRepoProjectId).mockResolvedValue('commit-A')
+    vi.mocked(repoService.resolveRepoOrAssistant).mockImplementation(
+      (_database, id) => vi.mocked(db.getRepoById)(_database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null),
+    )
   })
 
   describe('POST /:id/access', () => {
     it('should return 404 when repo not found', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/access', { method: 'POST' })
 
       expect(res.status).toBe(404)
@@ -147,7 +177,7 @@ describe('Repo Routes', () => {
       }
       vi.mocked(db.getRepoById).mockReturnValue(mockRepo)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/access', { method: 'POST' })
 
       expect(res.status).toBe(200)
@@ -173,7 +203,7 @@ describe('Repo Routes', () => {
         throw new Error('Database error')
       })
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/access', { method: 'POST' })
 
       expect(res.status).toBe(500)
@@ -186,7 +216,7 @@ describe('Repo Routes', () => {
     it('should return 404 when repo not found', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/assistant-mode', { method: 'GET' })
 
       expect(res.status).toBe(404)
@@ -221,7 +251,7 @@ describe('Repo Routes', () => {
 
       vi.mocked(getAssistantModeStatus).mockResolvedValue(mockStatus)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/assistant-mode', { method: 'GET' })
 
       expect(res.status).toBe(200)
@@ -237,7 +267,7 @@ describe('Repo Routes', () => {
     it('should return 404 when repo not found', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/assistant-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -276,7 +306,7 @@ describe('Repo Routes', () => {
 
       vi.mocked(ensureAssistantMode).mockResolvedValue(mockStatus)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/assistant-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -315,7 +345,7 @@ describe('Repo Routes', () => {
 
       vi.mocked(ensureAssistantMode).mockRejectedValue(new Error('Test error'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/assistant-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -330,7 +360,7 @@ describe('Repo Routes', () => {
     it('should return 404 when repo not found', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/reset-permissions', { method: 'POST' })
 
       expect(res.status).toBe(404)
@@ -354,7 +384,7 @@ describe('Repo Routes', () => {
         directory: '/tmp/test-repo',
         project: { id: 'project-A', directory: '/tmp/test-repo', canonical: '/tmp/test-repo' },
       }))
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient({
+      const app = createTestRoutes(createStubOpenCodeClient({
         api: { location: { get: locationGet } } as unknown as OpenCodeApi,
       }))
       const res = await app.request('/1/reset-permissions', { method: 'POST' })
@@ -376,7 +406,7 @@ describe('Repo Routes', () => {
       ])
       const savedRemove = vi.fn(async () => undefined)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient({
+      const app = createTestRoutes(createStubOpenCodeClient({
         api: {
           location: { get: locationGet },
           permission: { saved: { list: savedList, remove: savedRemove } },
@@ -396,7 +426,7 @@ describe('Repo Routes', () => {
 
   describe('POST /', () => {
     it('should return 400 when neither repoUrl nor localPath is provided', async () => {
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -412,7 +442,7 @@ describe('Repo Routes', () => {
       const repo = createMockRepo()
       vi.mocked(repoService.initLocalRepo).mockResolvedValue(repo)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -429,7 +459,7 @@ describe('Repo Routes', () => {
       const repo = createMockRepo({ repoUrl: 'https://github.com/test/remote' })
       vi.mocked(repoService.cloneRepo).mockResolvedValue(repo)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -451,7 +481,7 @@ describe('Repo Routes', () => {
     it('should return 500 when repo creation throws', async () => {
       vi.mocked(repoService.initLocalRepo).mockRejectedValue(new Error('init failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -464,9 +494,109 @@ describe('Repo Routes', () => {
     })
   })
 
-  describe('POST /discover', () => {
-    it('should return 400 for an invalid body', async () => {
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+  describe('POST /:id/workspaces', () => {
+    it('creates the workspace and returns the worktree setup result', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+
+      const app = createTestRoutes()
+      const res = await app.request('/1/workspaces', { method: 'POST' })
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ directory: '/tmp/wrk-test', worktreeSetup: { status: 'none' } })
+    })
+
+    it('returns 200 with a failed worktree setup when the setup terminal cannot start', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+      vi.mocked(db.getRepoSetting).mockImplementation((_database, _repoId, key) =>
+        key === 'worktreeSetupCommands' ? JSON.stringify(['pnpm install']) : null,
+      )
+      vi.mocked(mockTerminalService.create).mockRejectedValueOnce(new Error('spawn failed'))
+
+      const app = createTestRoutes()
+      const res = await app.request('/1/workspaces', { method: 'POST' })
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({
+        directory: '/tmp/wrk-test',
+        worktreeSetup: { status: 'failed', error: 'spawn failed' },
+      })
+    })
+
+    it('runs the main project setup when a linked worktree row creates a workspace', async () => {
+      const worktreeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'ocm-workspace-'))
+      const repoFile = { version: 1 as const, setupWorktree: ['pnpm repo-setup'] }
+      fs.mkdirSync(path.join(worktreeDirectory, '.ocm'), { recursive: true })
+      fs.writeFileSync(path.join(worktreeDirectory, '.ocm', 'project.json'), JSON.stringify(repoFile))
+      const hash = new ProjectConfigService(mockDb, {} as never, mockGitAuthService).hashRepoFile(repoFile)
+
+      vi.mocked(db.getRepoById).mockReturnValue(
+        createMockRepo({ id: 2, fullPath: '/tmp/repos/worktree', isWorktree: true }),
+      )
+      vi.mocked(db.getRepoSetting).mockImplementation((_database, repoId, key) => {
+        if (repoId !== 1) return null
+        if (key === 'worktreeSetupCommands') return JSON.stringify(['pnpm install'])
+        if (key === 'repoConfigTrustHash') return hash
+        return null
+      })
+      const mainRepo = createMockRepo({ id: 1, fullPath: '/tmp/repos/main' })
+      const resolveSpy = vi
+        .spyOn(ProjectConfigService.prototype, 'resolveProjectRepo')
+        .mockResolvedValue(mainRepo)
+      const client = createStubOpenCodeClient()
+      client.api.worktree.create = vi.fn(async () => ({ directory: worktreeDirectory })) as never
+      vi.mocked(mockTerminalService.create).mockResolvedValue({
+        id: 'pty-setup',
+        title: 'Worktree setup',
+        kind: 'setup',
+        cwd: worktreeDirectory,
+        status: 'running',
+      })
+
+      try {
+        const app = createTestRoutes(client)
+        const res = await app.request('/2/workspaces', { method: 'POST' })
+
+        expect(res.status).toBe(200)
+        const body = (await res.json()) as { worktreeSetup: { status: string; repoCommandsSkipped: boolean } }
+        expect(body.worktreeSetup).toMatchObject({ status: 'started', repoCommandsSkipped: false })
+        expect(vi.mocked(mockTerminalService.create)).toHaveBeenCalledWith(worktreeDirectory, {
+          kind: 'setup',
+          name: 'Worktree setup',
+          command: '/bin/sh',
+          args: ['-c', 'set -e\npnpm install\npnpm repo-setup'],
+          env: { ROOT_PROJECT_PATH: '/tmp/repos/main' },
+        })
+      } finally {
+        resolveSpy.mockRestore()
+        fs.rmSync(worktreeDirectory, { recursive: true, force: true })
+      }
+    })
+
+    it('returns 200 with a failed setup when resolving the main project fails', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(
+        createMockRepo({ id: 2, fullPath: '/tmp/repos/worktree', isWorktree: true }),
+      )
+      const resolveSpy = vi
+        .spyOn(ProjectConfigService.prototype, 'resolveProjectRepo')
+        .mockRejectedValue(new Error('git unavailable'))
+
+      try {
+        const app = createTestRoutes()
+        const res = await app.request('/2/workspaces', { method: 'POST' })
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({
+          directory: '/tmp/wrk-test',
+          worktreeSetup: { status: 'failed', error: 'git unavailable' },
+        })
+      } finally {
+        resolveSpy.mockRestore()
+      }
+    })
+  })
+
+  describe('POST /discover', () => {    it('should return 400 for an invalid body', async () => {
+      const app = createTestRoutes()
       const res = await app.request('/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -481,7 +611,7 @@ describe('Repo Routes', () => {
       const discovery = { repos: [createMockRepo()], discoveredCount: 1, existingCount: 0, errors: [] }
       vi.mocked(repoService.discoverLocalRepos).mockResolvedValue(discovery)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -497,7 +627,7 @@ describe('Repo Routes', () => {
     it('should return 500 when discovery throws', async () => {
       vi.mocked(repoService.discoverLocalRepos).mockRejectedValue(new Error('discover failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -518,7 +648,7 @@ describe('Repo Routes', () => {
       vi.mocked(repoService.getCurrentBranch).mockResolvedValue('main')
       vi.mocked(db.getRepoGitCredentialId).mockReturnValue('cred-1')
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/', { method: 'GET' })
 
       expect(res.status).toBe(200)
@@ -536,7 +666,7 @@ describe('Repo Routes', () => {
         throw new Error('list failed')
       })
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/', { method: 'GET' })
 
       expect(res.status).toBe(500)
@@ -547,7 +677,7 @@ describe('Repo Routes', () => {
 
   describe('PUT /order', () => {
     it('should return 400 when order is not an array of numbers', async () => {
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/order', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -559,7 +689,7 @@ describe('Repo Routes', () => {
     })
 
     it('should update the repo order', async () => {
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/order', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -573,7 +703,7 @@ describe('Repo Routes', () => {
     })
 
     it('should return 500 when the body is not valid JSON', async () => {
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/order', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -589,7 +719,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 5 }))
       vi.mocked(repoService.getCurrentBranch).mockResolvedValue('develop')
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/5', { method: 'GET' })
 
       expect(res.status).toBe(200)
@@ -601,7 +731,7 @@ describe('Repo Routes', () => {
     it('should return 404 when the repo does not exist', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/5', { method: 'GET' })
 
       expect(res.status).toBe(404)
@@ -611,7 +741,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 5 }))
       vi.mocked(repoService.getCurrentBranch).mockRejectedValue(new Error('branch failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/5', { method: 'GET' })
 
       expect(res.status).toBe(500)
@@ -624,7 +754,7 @@ describe('Repo Routes', () => {
     it('should return 404 when the repo does not exist', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/git-credential', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -638,7 +768,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       mockGetSettings.mockReturnValue({ preferences: { repoOrder: [], gitCredentials: [] }, updatedAt: Date.now() })
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/git-credential', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -657,7 +787,7 @@ describe('Repo Routes', () => {
       })
       vi.mocked(db.getRepoGitCredentialId).mockReturnValue('cred-1')
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/git-credential', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -674,7 +804,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       vi.mocked(db.getRepoGitCredentialId).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/git-credential', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -690,7 +820,7 @@ describe('Repo Routes', () => {
         throw new Error('repo failed')
       })
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/git-credential', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -703,7 +833,7 @@ describe('Repo Routes', () => {
 
   describe('DELETE /:id', () => {
     it('should return 403 for the assistant repo id', async () => {
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/0', { method: 'DELETE' })
 
       expect(res.status).toBe(403)
@@ -712,7 +842,7 @@ describe('Repo Routes', () => {
     it('should return 404 when the repo does not exist', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1', { method: 'DELETE' })
 
       expect(res.status).toBe(404)
@@ -722,13 +852,57 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1', { method: 'DELETE' })
 
       expect(res.status).toBe(200)
       const body = await res.json() as { success: boolean }
       expect(body.success).toBe(true)
       expect(mockPrepareRepoDelete).toHaveBeenCalledWith(1)
+      expect(mockTerminalService.removeAll).toHaveBeenCalledWith('/tmp/repos/test-repo')
+      expect(repoService.deleteRepoFiles).toHaveBeenCalledWith(mockDb, 1)
+    })
+
+    it('should still delete the repo when terminal cleanup throws', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
+      vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
+      vi.mocked(mockTerminalService.removeAll).mockRejectedValueOnce(new Error('pty cleanup failed'))
+
+      const app = createTestRoutes()
+      const res = await app.request('/1', { method: 'DELETE' })
+
+      expect(res.status).toBe(200)
+      expect(repoService.deleteRepoFiles).toHaveBeenCalledWith(mockDb, 1)
+    })
+
+    it('removes terminals for OpenCode workspace siblings but not manager worktree repos', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+      vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
+      vi.mocked(repoService.getSiblingRepos).mockResolvedValue([
+        { ...createMockRepo({ id: 2, fullPath: '/tmp/repos/manager-worktree', isWorktree: true }), currentBranch: undefined },
+        { ...createMockRepo({ id: -1, fullPath: '/tmp/plugin-workspace' }), currentBranch: undefined, worktreeStrategy: 'git' },
+      ])
+
+      const app = createTestRoutes()
+      const res = await app.request('/1', { method: 'DELETE' })
+
+      expect(res.status).toBe(200)
+      expect(mockTerminalService.removeAll).toHaveBeenCalledWith('/tmp/repos/test-repo')
+      expect(mockTerminalService.removeAll).toHaveBeenCalledWith('/tmp/plugin-workspace')
+      expect(mockTerminalService.removeAll).not.toHaveBeenCalledWith('/tmp/repos/manager-worktree')
+      expect(repoService.getSiblingRepos).toHaveBeenCalledWith(mockDb, 1, {}, expect.anything(), { includeBranch: false })
+      expect(repoService.deleteRepoFiles).toHaveBeenCalledWith(mockDb, 1)
+    })
+
+    it('still deletes the repo when listing workspace siblings throws', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
+      vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
+      vi.mocked(repoService.getSiblingRepos).mockRejectedValue(new Error('siblings failed'))
+
+      const app = createTestRoutes()
+      const res = await app.request('/1', { method: 'DELETE' })
+
+      expect(res.status).toBe(200)
       expect(repoService.deleteRepoFiles).toHaveBeenCalledWith(mockDb, 1)
     })
 
@@ -736,7 +910,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       vi.mocked(repoService.deleteRepoFiles).mockRejectedValue(new Error('delete failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1', { method: 'DELETE' })
 
       expect(res.status).toBe(500)
@@ -751,7 +925,7 @@ describe('Repo Routes', () => {
       vi.mocked(repoService.pullRepo).mockResolvedValue(undefined)
       vi.mocked(db.getRepoById).mockReturnValue(repo)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/3/pull', { method: 'POST' })
 
       expect(res.status).toBe(200)
@@ -763,7 +937,7 @@ describe('Repo Routes', () => {
     it('should return 500 when pulling throws', async () => {
       vi.mocked(repoService.pullRepo).mockRejectedValue(new Error('pull failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/3/pull', { method: 'POST' })
 
       expect(res.status).toBe(500)
@@ -776,7 +950,7 @@ describe('Repo Routes', () => {
     it('should return 404 when the repo does not exist', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -789,7 +963,7 @@ describe('Repo Routes', () => {
     it('should return 400 when the branch is missing', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -805,7 +979,7 @@ describe('Repo Routes', () => {
       vi.mocked(repoService.switchBranch).mockResolvedValue(undefined)
       vi.mocked(repoService.getCurrentBranch).mockResolvedValue('feature')
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -822,7 +996,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       vi.mocked(repoService.switchBranch).mockRejectedValue(new Error('switch failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/switch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -839,7 +1013,7 @@ describe('Repo Routes', () => {
     it('should return 404 when the repo does not exist', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -852,7 +1026,7 @@ describe('Repo Routes', () => {
     it('should return 400 when the branch is missing', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -868,7 +1042,7 @@ describe('Repo Routes', () => {
       vi.mocked(repoService.createBranch).mockResolvedValue(undefined)
       vi.mocked(repoService.getCurrentBranch).mockResolvedValue('feature')
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -885,7 +1059,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       vi.mocked(repoService.createBranch).mockRejectedValue(new Error('create failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/branch/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -902,7 +1076,7 @@ describe('Repo Routes', () => {
     it('should return 404 when the repo does not exist', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(null)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/download', { method: 'GET' })
 
       expect(res.status).toBe(404)
@@ -917,7 +1091,7 @@ describe('Repo Routes', () => {
       )
       vi.mocked(archiveService.deleteArchive).mockResolvedValue(undefined)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/download?includeGit=true&includePaths=src,docs', { method: 'GET' })
 
       expect(res.status).toBe(200)
@@ -940,7 +1114,7 @@ describe('Repo Routes', () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1 }))
       vi.mocked(archiveService.createRepoArchive).mockRejectedValue(new Error('archive failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/1/download', { method: 'GET' })
 
       expect(res.status).toBe(500)
@@ -956,7 +1130,7 @@ describe('Repo Routes', () => {
         throw new ClientError('Transport')
       })
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient({
+      const app = createTestRoutes(createStubOpenCodeClient({
         api: { location: { get: locationGet } } as unknown as OpenCodeApi,
       }))
       const res = await app.request('/1/reset-permissions', { method: 'POST' })
@@ -975,7 +1149,7 @@ describe('Repo Routes', () => {
         throw new Error('list failed')
       })
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient({
+      const app = createTestRoutes(createStubOpenCodeClient({
         api: {
           location: { get: locationGet },
           permission: { saved: { list: savedList, remove: vi.fn() } },
@@ -1006,7 +1180,7 @@ describe('Repo Routes', () => {
       }
       vi.mocked(getAssistantModeStatus).mockResolvedValue(status)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/0/assistant-mode', { method: 'GET' })
 
       expect(res.status).toBe(200)
@@ -1029,7 +1203,7 @@ describe('Repo Routes', () => {
       }
       vi.mocked(ensureAssistantMode).mockResolvedValue(status)
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/0/assistant-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1047,7 +1221,7 @@ describe('Repo Routes', () => {
       vi.mocked(buildAssistantRepo).mockReturnValue(assistantRepo)
       vi.mocked(getAssistantModeStatus).mockRejectedValue(new Error('assistant failed'))
 
-      const app = createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, createStubOpenCodeClient())
+      const app = createTestRoutes()
       const res = await app.request('/0/assistant-mode', { method: 'GET' })
 
       expect(res.status).toBe(500)

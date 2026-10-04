@@ -1,20 +1,59 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { Repo } from '@/api/types'
 import { CreateWorktreeDialog } from './CreateWorktreeDialog'
-import { createRepo, listBranches } from '@/api/repos'
 
-vi.mock('@/api/repos', () => ({
+const mocks = vi.hoisted(() => ({
   createRepo: vi.fn(),
   listBranches: vi.fn(),
+  navigate: vi.fn(),
+  showToastSuccess: vi.fn(),
+  showToastInfo: vi.fn(),
+  showToastWarning: vi.fn(),
+  invalidateRepoGitCaches: vi.fn(),
+}))
+
+vi.mock('@/api/repos', () => ({
+  createRepo: mocks.createRepo,
+  listBranches: mocks.listBranches,
 }))
 
 vi.mock('@/lib/toast', () => ({
-  showToast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+  showToast: {
+    success: mocks.showToastSuccess,
+    info: mocks.showToastInfo,
+    warning: mocks.showToastWarning,
+    error: vi.fn(),
+  },
 }))
 
+vi.mock('@/lib/queryInvalidation', () => ({
+  invalidateRepoGitCaches: mocks.invalidateRepoGitCaches,
+}))
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom')
+  return {
+    ...actual,
+    useNavigate: () => mocks.navigate,
+  }
+})
+
 const repoUrl = 'git@example.com:org/repo.git'
+
+function createWorktreeRepo(overrides: Partial<Repo> = {}): Repo {
+  return {
+    id: 42,
+    localPath: 'repos/feature-x',
+    fullPath: '/tmp/repos/feature-x',
+    defaultBranch: 'main',
+    cloneStatus: 'ready',
+    clonedAt: 1,
+    ...overrides,
+  }
+}
 
 function renderDialog() {
   const queryClient = new QueryClient({
@@ -22,9 +61,21 @@ function renderDialog() {
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <CreateWorktreeDialog open onOpenChange={vi.fn()} repoId={1} repoUrl={repoUrl} />
+      <CreateWorktreeDialog
+        open
+        onOpenChange={vi.fn()}
+        repoId={1}
+        repoUrl={repoUrl}
+        defaultBaseBranch="main"
+      />
     </QueryClientProvider>,
   )
+}
+
+async function submitCreate() {
+  const user = userEvent.setup()
+  await user.type(screen.getByPlaceholderText('feature/my-branch'), 'feature/x')
+  await user.click(screen.getByRole('button', { name: 'Create Worktree' }))
 }
 
 describe('CreateWorktreeDialog', () => {
@@ -37,7 +88,7 @@ describe('CreateWorktreeDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(listBranches).mockResolvedValue({
+    mocks.listBranches.mockResolvedValue({
       branches: [
         { name: 'main', type: 'local', current: true },
         { name: 'feature', type: 'local', current: false },
@@ -47,7 +98,7 @@ describe('CreateWorktreeDialog', () => {
       ],
       status: { ahead: 0, behind: 0 },
     })
-    vi.mocked(createRepo).mockResolvedValue({} as never)
+    mocks.createRepo.mockResolvedValue(createWorktreeRepo())
   })
 
   it('lists only non-current, non-worktree local branches and remote-only branches in existing mode', async () => {
@@ -72,13 +123,13 @@ describe('CreateWorktreeDialog', () => {
     await user.click(screen.getByRole('option', { name: /release/ }))
     await user.click(screen.getByRole('button', { name: 'Create Worktree' }))
 
-    await waitFor(() => expect(createRepo).toHaveBeenCalledTimes(1))
-    expect(createRepo).toHaveBeenCalledWith({ repoUrl, branch: 'release', useWorktree: true })
-    expect(vi.mocked(createRepo).mock.calls[0][0]).not.toHaveProperty('baseBranch')
+    await waitFor(() => expect(mocks.createRepo).toHaveBeenCalledTimes(1))
+    expect(mocks.createRepo).toHaveBeenCalledWith({ repoUrl, branch: 'release', useWorktree: true })
+    expect(mocks.createRepo.mock.calls[0][0]).not.toHaveProperty('baseBranch')
   })
 
   it('does not offer remote-only branches from non-origin remotes', async () => {
-    vi.mocked(listBranches).mockResolvedValue({
+    mocks.listBranches.mockResolvedValue({
       branches: [
         { name: 'main', type: 'local', current: true },
         { name: 'remotes/upstream/release', type: 'remote', current: false },
@@ -95,7 +146,7 @@ describe('CreateWorktreeDialog', () => {
   })
 
   it('deduplicates remote candidates that share a short name across remotes', async () => {
-    vi.mocked(listBranches).mockResolvedValue({
+    mocks.listBranches.mockResolvedValue({
       branches: [
         { name: 'main', type: 'local', current: true },
         { name: 'remotes/origin/release', type: 'remote', current: false },
@@ -121,8 +172,8 @@ describe('CreateWorktreeDialog', () => {
     await user.click(screen.getByRole('option', { name: /main/ }))
     await user.click(screen.getByRole('button', { name: 'Create Worktree' }))
 
-    await waitFor(() => expect(createRepo).toHaveBeenCalledTimes(1))
-    expect(createRepo).toHaveBeenCalledWith({
+    await waitFor(() => expect(mocks.createRepo).toHaveBeenCalledTimes(1))
+    expect(mocks.createRepo).toHaveBeenCalledWith({
       repoUrl,
       branch: 'my-new-branch',
       useWorktree: true,
@@ -139,8 +190,8 @@ describe('CreateWorktreeDialog', () => {
     await user.click(screen.getByRole('option', { name: /release/ }))
     await user.click(screen.getByRole('button', { name: 'Create Worktree' }))
 
-    await waitFor(() => expect(createRepo).toHaveBeenCalledTimes(1))
-    expect(createRepo).toHaveBeenCalledWith({
+    await waitFor(() => expect(mocks.createRepo).toHaveBeenCalledTimes(1))
+    expect(mocks.createRepo).toHaveBeenCalledWith({
       repoUrl,
       branch: 'my-new-branch',
       useWorktree: true,
@@ -156,5 +207,58 @@ describe('CreateWorktreeDialog', () => {
 
     expect(await screen.findByText('Use Existing branch instead')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create Worktree' })).toBeDisabled()
+  })
+
+  it('navigates to the setup terminal when the worktree setup starts', async () => {
+    mocks.createRepo.mockResolvedValue(
+      createWorktreeRepo({
+        worktreeSetup: {
+          status: 'started',
+          terminal: {
+            id: 'pty-1',
+            title: 'Worktree setup',
+            kind: 'setup',
+            cwd: '/tmp/repos/feature-x',
+            status: 'running',
+          },
+          repoCommandsSkipped: false,
+        },
+      }),
+    )
+
+    renderDialog()
+    await submitCreate()
+
+    await waitFor(() =>
+      expect(mocks.navigate).toHaveBeenCalledWith('/repos/42?dialog=terminal&terminal=pty-1'),
+    )
+  })
+
+  it('warns without navigating when the worktree setup fails', async () => {
+    mocks.createRepo.mockResolvedValue(
+      createWorktreeRepo({ worktreeSetup: { status: 'failed', error: 'spawn failed' } }),
+    )
+
+    renderDialog()
+    await submitCreate()
+
+    await waitFor(() => expect(mocks.showToastWarning).toHaveBeenCalled())
+    expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  it('informs about skipped repository commands when the setup is skipped', async () => {
+    mocks.createRepo.mockResolvedValue(
+      createWorktreeRepo({ worktreeSetup: { status: 'skipped', reason: 'untrusted' } }),
+    )
+
+    renderDialog()
+    await submitCreate()
+
+    await waitFor(() =>
+      expect(mocks.showToastInfo).toHaveBeenCalledWith(
+        'Repository setup commands were skipped until trusted in Actions',
+      ),
+    )
+    expect(mocks.navigate).not.toHaveBeenCalled()
   })
 })

@@ -2,7 +2,8 @@ import { betterAuth } from 'better-auth'
 import { APIError } from 'better-auth/api'
 import { passkey } from '@better-auth/passkey'
 import { Database } from 'bun:sqlite'
-import { ENV } from '@opencode-manager/shared/config/env'
+import { ENV, getTrustedOrigins } from '@opencode-manager/shared/config/env'
+import { AUTH_COOKIE_PREFIX } from './cookies'
 
 export type AuthInstance = ReturnType<typeof createAuth>
 
@@ -34,14 +35,15 @@ export function createAuth(db: Database) {
     }
   }
 
-  const baseURL = ENV.AUTH.TRUSTED_ORIGINS.split(',')[0]?.trim() || `http://localhost:${ENV.SERVER.PORT}`
+  const trustedOrigins = getTrustedOrigins()
+  const baseURL = trustedOrigins[0] || `http://localhost:${ENV.SERVER.PORT}`
   
   const auth = betterAuth({
     baseURL,
     basePath: '/api/auth',
     database: db,
     secret: ENV.AUTH.SECRET,
-    trustedOrigins: ENV.AUTH.TRUSTED_ORIGINS.split(',').map((o: string) => o.trim()),
+    trustedOrigins,
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 8,
@@ -90,7 +92,7 @@ export function createAuth(db: Database) {
       },
     },
     advanced: {
-      cookiePrefix: 'opencode',
+      cookiePrefix: AUTH_COOKIE_PREFIX,
       useSecureCookies: ENV.AUTH.SECURE_COOKIES,
     },
   })
