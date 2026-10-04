@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertCircle, GitBranch, Loader2 } from 'lucide-react'
-import { createRepo, listBranches, type CreateRepoOptions } from '@/api/repos'
+import { createRepo, type CreateRepoOptions, type GitBranch as RepoBranch } from '@/api/repos'
 import { dialogSearch } from '@/hooks/useDialogParam'
 import { showToast } from '@/lib/toast'
 import { notifyWorktreeSetup } from '@/lib/worktreeSetup'
 import { invalidateRepoGitCaches } from '@/lib/queryInvalidation'
 import { getOriginOnlyBranchNames } from '@/lib/utils'
-import { BaseBranchSelect } from './BaseBranchSelect'
+import { useRepoBranches } from '@/hooks/useRepoBranches'
+import { BranchCombobox } from './BranchCombobox'
+
+function isCheckoutCandidate(branch: RepoBranch): boolean {
+  return !branch.current && !branch.isWorktree
+}
 
 interface CreateWorktreeDialogProps {
   open: boolean
@@ -48,23 +52,11 @@ export function CreateWorktreeDialog({
 
   const canCreate = Boolean(repoUrl)
 
-  const { data: branchesData, isLoading: branchesLoading } = useQuery({
-    queryKey: ['branches', repoId],
-    queryFn: () => listBranches(repoId),
-    enabled: open && canCreate,
-    staleTime: 30000,
-  })
+  const { data: branchesData } = useRepoBranches(repoId, open && canCreate)
 
   const localBranches = (branchesData?.branches ?? []).filter((b) => b.type === 'local')
 
   const remoteBranchNames = getOriginOnlyBranchNames(branchesData?.branches ?? [])
-
-  const checkoutCandidates = [
-    ...localBranches
-      .filter((b) => !b.current && !b.isWorktree)
-      .map((b) => ({ name: b.name, remote: false })),
-    ...remoteBranchNames.map((name) => ({ name, remote: true })),
-  ]
 
   const existingBranchNames = new Set([
     ...localBranches.map((b) => b.name),
@@ -219,11 +211,13 @@ export function CreateWorktreeDialog({
 
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium">Base branch</label>
-                    <BaseBranchSelect
+                    <BranchCombobox
                       repoId={repoId}
+                      enabled={open && canCreate}
                       value={baseBranch}
                       onValueChange={setBaseBranch}
                       placeholder="Select a base branch"
+                      ariaLabel="Base branch"
                     />
                     <p className="text-xs text-muted-foreground">
                       The new branch will be created from this branch.
@@ -233,36 +227,16 @@ export function CreateWorktreeDialog({
               ) : (
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Branch to check out</label>
-                  <Select
+                  <BranchCombobox
+                    repoId={repoId}
+                    enabled={open && canCreate}
                     value={existingBranch}
                     onValueChange={setExistingBranch}
-                    disabled={branchesLoading}
-                  >
-                    <SelectTrigger
-                      aria-label="Branch to check out"
-                      className="bg-background border-border text-foreground"
-                    >
-                      <SelectValue
-                        placeholder={branchesLoading ? 'Loading branches...' : 'Select a branch to check out'}
-                      />
-                    </SelectTrigger>
-                    <SelectContent className="bg-popover border-border">
-                      {checkoutCandidates.map((branch) => (
-                        <SelectItem
-                          key={`${branch.remote ? 'remote' : 'local'}-${branch.name}`}
-                          value={branch.name}
-                        >
-                          <div className="flex items-center gap-2">
-                            <GitBranch className={`w-3.5 h-3.5${branch.remote ? ' text-info' : ''}`} />
-                            <span>{branch.name}</span>
-                            {branch.remote && (
-                              <span className="text-xs text-muted-foreground">(remote)</span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Select a branch to check out"
+                    include={isCheckoutCandidate}
+                    remotes="bare"
+                    ariaLabel="Branch to check out"
+                  />
                   <p className="text-xs text-muted-foreground">
                     The worktree will check out the selected branch. Remote branches are limited to origin.
                   </p>

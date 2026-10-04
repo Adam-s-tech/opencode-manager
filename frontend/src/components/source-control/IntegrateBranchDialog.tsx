@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RadioOptionGroup, type RadioOption } from '@/components/ui/radio-option-group'
 import { GitMerge, Loader2 } from 'lucide-react'
-import { getRepo, listBranches } from '@/api/repos'
+import { getRepo, type GitBranch } from '@/api/repos'
 import { getApiErrorMessage, useGitStatus } from '@/api/git'
 import { FetchError } from '@/api/fetchWrapper'
 import { showToast } from '@/lib/toast'
 import { useGit } from '@/hooks/useGit'
+import { useRepoBranches } from '@/hooks/useRepoBranches'
+import { BranchCombobox } from '@/components/repo/BranchCombobox'
 import { setRepoGitStatusCaches } from '@/lib/queryInvalidation'
 import { GitOperationBanner } from './GitOperationBanner'
 import type { GitOperationState } from '@opencode-manager/shared'
@@ -46,12 +47,7 @@ export function IntegrateBranchDialog({ repoId, sourceBranch, open, onOpenChange
     staleTime: 30000,
   })
 
-  const { data: branchesData, isLoading: branchesLoading } = useQuery({
-    queryKey: ['branches', repoId],
-    queryFn: () => listBranches(repoId),
-    enabled: open,
-    staleTime: 30000,
-  })
+  const { data: branchesData, isLoading: branchesLoading } = useRepoBranches(repoId, open)
 
   const { data: targetStatus, dataUpdatedAt: targetStatusUpdatedAt } = useGitStatus(
     conflictTargetRepoId ?? undefined,
@@ -61,9 +57,10 @@ export function IntegrateBranchDialog({ repoId, sourceBranch, open, onOpenChange
   const hasFreshTargetStatus = conflictTargetRepoId !== null && targetStatusUpdatedAt >= conflictStartedAt
   const activeOperation = hasFreshTargetStatus ? (targetStatus?.operation ?? null) : conflictSnapshot
 
+  const isTargetCandidate = useCallback((branch: GitBranch) => branch.name !== sourceBranch, [sourceBranch])
   const candidates = useMemo(
-    () => (branchesData?.branches ?? []).filter((branch) => branch.type === 'local' && branch.name !== sourceBranch),
-    [branchesData, sourceBranch]
+    () => (branchesData?.branches ?? []).filter((branch) => branch.type === 'local' && isTargetCandidate(branch)),
+    [branchesData, isTargetCandidate]
   )
 
   useEffect(() => {
@@ -140,22 +137,16 @@ export function IntegrateBranchDialog({ repoId, sourceBranch, open, onOpenChange
               <label className="text-sm font-medium" htmlFor="integrate-target-branch">
                 Target branch
               </label>
-              <Select value={targetBranch} onValueChange={setTargetBranch} disabled={branchesLoading}>
-                <SelectTrigger
-                  id="integrate-target-branch"
-                  aria-label="Target branch"
-                  className="bg-background border-border text-foreground"
-                >
-                  <SelectValue placeholder={branchesLoading ? 'Loading branches...' : 'Select a target branch'} />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  {candidates.map((branch) => (
-                    <SelectItem key={branch.name} value={branch.name}>
-                      {branch.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <BranchCombobox
+                id="integrate-target-branch"
+                repoId={repoId}
+                enabled={open}
+                value={targetBranch}
+                onValueChange={setTargetBranch}
+                placeholder="Select a target branch"
+                include={isTargetCandidate}
+                remotes="none"
+              />
               {!branchesLoading && candidates.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   No other local branches are available to integrate into.

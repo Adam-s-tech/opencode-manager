@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { ConfirmDestructiveDialog } from '@/components/ui/confirm-destructive-dialog'
 import { SessionStatusIndicator } from '@/components/ui/session-status-indicator'
-import { BaseBranchSelect } from '@/components/repo/BaseBranchSelect'
+import { BranchCombobox } from '@/components/repo/BranchCombobox'
 import { useProvidersWithModels } from '@/hooks/useProvidersWithModels'
 import { useOpenCodeModelState } from '@/hooks/useModelSelection'
 import { useDiscardMultiRunEntry, useLaunchMultiRun, useMultiRuns } from '@/hooks/useMultiRuns'
@@ -279,12 +279,13 @@ export function MultiRunDialog({
               {isolate && (
                 <div className="space-y-1.5">
                   <Label htmlFor="multi-run-base-ref">Start from</Label>
-                  <BaseBranchSelect
+                  <BranchCombobox
                     id="multi-run-base-ref"
                     repoId={repoId}
                     value={baseRef}
                     onValueChange={setBaseRef}
                     placeholder="Current HEAD"
+                    clearable
                   />
                   <p className="text-xs text-muted-foreground">Each isolated workspace starts from this branch.</p>
                 </div>

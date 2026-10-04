@@ -8,7 +8,7 @@ import { useAgents } from '@/hooks/useOpenCode'
 import { useScheduleTarget } from '@/hooks/useScheduleTarget'
 import { settingsApi } from '@/api/settings'
 import { mcpApi } from '@/api/mcp'
-import { listRepos, listBranches } from '@/api/repos'
+import { listRepos } from '@/api/repos'
 import type { Repo } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import type { ComboboxOption } from '@/components/ui/combobox'
@@ -112,28 +112,6 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
     enabled: open && !!showRepoSelector,
     staleTime: 5 * 60 * 1000,
   })
-
-  const branchesEnabled = open && effectiveRepoId !== undefined && effectiveRepoId !== ASSISTANT_REPO_ID
-
-  const { data: branchData, isLoading: branchesLoading } = useQuery({
-    queryKey: ['branches', effectiveRepoId],
-    queryFn: () => listBranches(effectiveRepoId!),
-    enabled: branchesEnabled,
-    staleTime: 60 * 1000,
-  })
-
-  const branchOptions = useMemo<ComboboxOption[]>(() => {
-    const names = new Set<string>()
-    for (const gitBranch of branchData?.branches ?? []) {
-      const name = gitBranch.name.replace(/^remotes\/[^/]+\//, '')
-      if (name && name !== 'HEAD') {
-        names.add(name)
-      }
-    }
-    return Array.from(names)
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => ({ value: name, label: name }))
-  }, [branchData])
 
   const repoOptions = useMemo<ComboboxOption[]>(() => {
     const assistantOption: ComboboxOption = {
@@ -352,8 +330,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
             onEnabledChange={setEnabled}
             branch={branch}
             onBranchChange={setBranch}
-            branchOptions={branchOptions}
-            branchesLoading={branchesEnabled && branchesLoading}
+            branchRepoId={open && effectiveRepoId !== ASSISTANT_REPO_ID ? effectiveRepoId : undefined}
             showRepoSelector={showRepoSelector}
             isEditing={!!job}
             repoId={selectedRepoId}

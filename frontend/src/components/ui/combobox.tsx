@@ -20,6 +20,7 @@ interface ComboboxProps {
   showClear?: boolean
   ariaLabel?: string
   onOpen?: () => void
+  id?: string
 }
 
 function getOptionLabel(options: ComboboxOption[], value: string): string {
@@ -37,6 +38,7 @@ export function Combobox({
   showClear = false,
   ariaLabel,
   onOpen,
+  id,
 }: ComboboxProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [inputValue, setInputValue] = useState(() => getOptionLabel(options, value))
@@ -185,6 +187,7 @@ export function Combobox({
       <div className="relative">
         <input
           ref={inputRef}
+          id={id}
           type="text"
           value={inputValue}
           onChange={handleInputChange}
@@ -244,6 +247,7 @@ export function Combobox({
       {isOpen && flatFilteredOptions.length > 0 && (
         <div
           ref={listRef}
+          role="listbox"
           className="absolute z-[150] mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-y-auto"
         >
           {Object.entries(groupedOptions).map(([group, groupOptions]) => (
@@ -263,6 +267,8 @@ export function Combobox({
                     key={option.value}
                     data-option
                     type="button"
+                    role="option"
+                    aria-selected={option.value === value}
                     onClick={() => handleSelect(option.value)}
                     className={cn(
                       'w-full scroll-mt-7 px-3 py-2 text-left text-sm transition-colors',

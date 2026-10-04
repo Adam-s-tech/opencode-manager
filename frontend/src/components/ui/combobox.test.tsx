@@ -41,6 +41,17 @@ describe('Combobox', () => {
     expect(input).toHaveValue('Built-in Browser')
   })
 
+  it('filters options as the user types', async () => {
+    const user = userEvent.setup()
+    const input = renderCombobox()
+
+    await user.clear(input)
+    await user.type(input, 'ext')
+
+    expect(screen.getByRole('option', { name: 'External API' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Built-in Browser' })).not.toBeInTheDocument()
+  })
+
   it('calls onOpen each time the options open', async () => {
     const user = userEvent.setup()
     const onOpen = vi.fn()

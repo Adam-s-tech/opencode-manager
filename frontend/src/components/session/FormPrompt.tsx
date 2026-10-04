@@ -303,7 +303,7 @@ export function FormPrompt({ form, onReply, onCancel, onMinimize }: FormPromptPr
   }
 
   return (
-    <div className="w-full bg-gradient-to-br from-primary/10 to-primary/20 border-2 border-primary/40 rounded-xl shadow-lg shadow-primary/20 mb-1 overflow-hidden">
+    <div className="w-full bg-background bg-gradient-to-br from-primary/10 to-primary/20 border-2 border-primary/40 rounded-xl shadow-lg shadow-primary/20 mb-1 overflow-hidden">
       <div className="flex items-center px-3 py-2 sm:px-4 sm:py-2.5 border-b border-primary/20 bg-primary/5">
         <button
           onClick={() => (isMinimized ? setIsMinimized(false) : handleMinimize())}
