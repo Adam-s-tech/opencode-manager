@@ -292,18 +292,19 @@ describe('DesktopSessionTree', () => {
     expect(screen.getByTestId('location').textContent).toBe('/repos/4')
   })
 
-  it('commits the search on Enter across ready repos and clears with Escape', async () => {
+  it('searches as you type across ready repos and clears with Escape', async () => {
     const user = userEvent.setup()
     listReposMock.mockResolvedValue([repoA, repoB, createRepo({ id: 4, fullPath: '/repos/d', name: 'Delta', cloneStatus: 'cloning' })])
     render(<DesktopSessionTree />, { wrapper: createWrapper(['/']) })
 
     const input = await screen.findByLabelText('Search sessions')
     await screen.findByText('Alpha')
-    await user.type(input, 'Session{Enter}')
+    await user.type(input, 'Session')
 
+    expect(await screen.findByRole('button', { name: /^Session a1/ })).toBeTruthy()
     const searchCall = sessionsHookCalls.find((call) => call.options?.search === 'Session')
     expect(searchCall?.directories).toEqual(['/repos/a', '/repos/b'])
-    expect(await screen.findByRole('button', { name: /^Session a1/ })).toBeTruthy()
+    expect(sessionsHookCalls.some((call) => call.options?.search === 'Sess')).toBe(false)
     expect(screen.getByRole('button', { name: /^Session b1/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Show sessions in / })).toBeNull()
 
@@ -314,12 +315,12 @@ describe('DesktopSessionTree', () => {
     expect(toggleFor('Alpha')).toBeTruthy()
   })
 
-  it('clears a committed search with the clear button', async () => {
+  it('clears an active search with the clear button', async () => {
     const user = userEvent.setup()
     render(<DesktopSessionTree />, { wrapper: createWrapper(['/']) })
 
     const input = await screen.findByLabelText('Search sessions')
-    await user.type(input, 'Session{Enter}')
+    await user.type(input, 'Session')
     await screen.findByRole('button', { name: /^Session a1/ })
 
     await user.click(screen.getByLabelText('Clear search'))
@@ -329,13 +330,41 @@ describe('DesktopSessionTree', () => {
     expect(toggleFor('Alpha')).toBeTruthy()
   })
 
-  it('shows the empty search state when a committed search returns nothing', async () => {
+  it('matches repo names and shows their recent sessions', async () => {
     const user = userEvent.setup()
     emptyOnSearch.current = true
     render(<DesktopSessionTree />, { wrapper: createWrapper(['/']) })
 
     const input = await screen.findByLabelText('Search sessions')
-    await user.type(input, 'nothing{Enter}')
+    await user.type(input, 'bet')
+
+    expect(await screen.findByRole('button', { name: /^Session b1/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Session a1/ })).toBeNull()
+    const searchCall = sessionsHookCalls.find((call) => call.options?.search === 'bet')
+    expect(searchCall?.directories).toEqual(['/repos/c', '/repos/a'])
+  })
+
+  it('restores the full list when the input is emptied', async () => {
+    const user = userEvent.setup()
+    render(<DesktopSessionTree />, { wrapper: createWrapper(['/']) })
+
+    const input = await screen.findByLabelText('Search sessions')
+    await user.type(input, 'Session')
+    await screen.findByRole('button', { name: /^Session a1/ })
+
+    await user.clear(input)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Session / })).toBeNull())
+    expect(toggleFor('Alpha')).toBeTruthy()
+  })
+
+  it('shows the empty search state when a search returns nothing', async () => {
+    const user = userEvent.setup()
+    emptyOnSearch.current = true
+    render(<DesktopSessionTree />, { wrapper: createWrapper(['/']) })
+
+    const input = await screen.findByLabelText('Search sessions')
+    await user.type(input, 'nothing')
 
     expect(await screen.findByText('No sessions found')).toBeTruthy()
   })
