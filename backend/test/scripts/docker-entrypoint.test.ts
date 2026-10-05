@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { spawnSync } from 'child_process'
-import { mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync } from 'fs'
+import { mkdirSync, writeFileSync, rmSync, chmodSync, existsSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { repoRoot } from '../helpers/repo-root'
+import { extractShellFunction as extractEntrypointFunction } from '../helpers/shell-function'
 
 const entrypointPath = join(repoRoot, 'scripts/docker-entrypoint.sh')
 
@@ -16,12 +17,7 @@ const writeStub = (name: string, body: string) => {
   chmodSync(file, 0o755)
 }
 
-const extractShellFunction = (name: string) => {
-  const entrypoint = readFileSync(entrypointPath, 'utf-8')
-  const match = entrypoint.match(new RegExp(`^${name}\\(\\) \\{\\n[\\s\\S]*?\\n\\}`, 'm'))
-  if (!match) throw new Error(`${name}() not found in docker-entrypoint.sh`)
-  return match[0]
-}
+const extractShellFunction = (name: string) => extractEntrypointFunction(entrypointPath, name)
 
 const extractSupportedFloor = () => {
   const match = readFileSync(entrypointPath, 'utf-8').match(/^OPENCODE_SUPPORTED_FLOOR="[^"]+"$/m)
@@ -166,6 +162,56 @@ describe('grant_kvm_access', () => {
     expect(res.status).toBe(0)
     expect(res.stdout).toContain('failed')
     expect(res.stderr).toMatch(/node cannot access/)
+  })
+})
+
+describe('ensure_auth_secret', () => {
+  const runEnsureAuthSecret = (secretFile: string, env: Record<string, string> = {}) => {
+    const scriptPath = join(stubDir, 'test.sh')
+    writeFileSync(
+      scriptPath,
+      `set -e\n${extractShellFunction('ensure_auth_secret')}\nensure_auth_secret ${JSON.stringify(secretFile)}\nprintf 'SECRET=%s\\n' "$AUTH_SECRET"\n`,
+    )
+    const baseEnv = { ...process.env }
+    delete baseEnv.AUTH_SECRET
+    return spawnSync('bash', [scriptPath], { encoding: 'utf-8', env: { ...baseEnv, ...env } })
+  }
+  const exportedSecret = (stdout: string) => stdout.match(/^SECRET=(.*)$/m)?.[1] ?? ''
+
+  it('generates, persists, and exports a private secret when AUTH_SECRET is unset', () => {
+    const secretFile = join(stubDir, 'data', '.auth-secret')
+    const res = runEnsureAuthSecret(secretFile)
+    expect(res.status).toBe(0)
+    expect(res.stdout).toContain(`Generated AUTH_SECRET and saved it to ${secretFile}`)
+    const secret = exportedSecret(res.stdout)
+    expect(Buffer.from(secret, 'base64')).toHaveLength(32)
+    expect(readFileSync(secretFile, 'utf-8').trim()).toBe(secret)
+    expect(statSync(secretFile).mode & 0o777).toBe(0o600)
+  })
+
+  it('reuses the persisted secret on later starts', () => {
+    const secretFile = join(stubDir, 'data', '.auth-secret')
+    const first = exportedSecret(runEnsureAuthSecret(secretFile).stdout)
+    const second = runEnsureAuthSecret(secretFile)
+    expect(second.status).toBe(0)
+    expect(second.stdout).not.toContain('Generated AUTH_SECRET')
+    expect(exportedSecret(second.stdout)).toBe(first)
+  })
+
+  it('keeps an explicit AUTH_SECRET and writes nothing', () => {
+    const secretFile = join(stubDir, 'data', '.auth-secret')
+    const res = runEnsureAuthSecret(secretFile, { AUTH_SECRET: 'explicit-secret' })
+    expect(res.status).toBe(0)
+    expect(exportedSecret(res.stdout)).toBe('explicit-secret')
+    expect(existsSync(secretFile)).toBe(false)
+  })
+
+  it('fails when the secret file cannot be written', () => {
+    const blocker = join(stubDir, 'not-a-dir')
+    writeFileSync(blocker, '')
+    const res = runEnsureAuthSecret(join(blocker, '.auth-secret'))
+    expect(res.status).not.toBe(0)
+    expect(res.stdout).not.toContain('SECRET=')
   })
 })
 

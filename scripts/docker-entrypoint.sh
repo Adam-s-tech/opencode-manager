@@ -43,6 +43,23 @@ grant_kvm_access() {
   echo "Granted node access to $dev (group '$group_name', gid $dev_gid)"
 }
 
+ensure_auth_secret() {
+  local secret_file="$1"
+  [ -n "${AUTH_SECRET:-}" ] && return 0
+
+  if [ ! -s "$secret_file" ]; then
+    mkdir -p "$(dirname "$secret_file")" || return 1
+    (umask 077 && head -c 32 /dev/urandom | base64 > "$secret_file") || {
+      echo "ERROR: could not write a generated AUTH_SECRET to $secret_file" >&2
+      return 1
+    }
+    echo "Generated AUTH_SECRET and saved it to $secret_file"
+  fi
+
+  AUTH_SECRET="$(cat "$secret_file")" || return 1
+  export AUTH_SECRET
+}
+
 OPENCODE_SUPPORTED_FLOOR="${OPENCODE_BUNDLED_VERSION:-}"
 
 read_opencode_version() {
@@ -135,19 +152,7 @@ fi
 
 echo "Starting OpenCode Manager Backend..."
 
-if [ -z "$AUTH_SECRET" ]; then
-  echo "AUTH_SECRET is required but not set"
-  echo ""
-  echo "Please set AUTH_SECRET environment variable with a secure random string."
-  echo "Generate one with: openssl rand -base64 32"
-  echo ""
-  echo "Example in docker-compose.yml:"
-  echo "  environment:"
-  echo "    - AUTH_SECRET=your-secure-random-secret-here"
-  echo ""
-  echo "Example with Docker run:"
-  echo "  docker run -e AUTH_SECRET=\$(openssl rand -base64 32) ..."
-  echo ""
+if ! ensure_auth_secret /app/data/.auth-secret; then
   exit 1
 fi
 
