@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-    <strong>Mobile-first web interface for <a href="https://opencode.ai">OpenCode</a> AI agents. Manage, control, and code from any device.</strong>
+    <strong>A self-hosted command center for <a href="https://opencode.ai">OpenCode</a>. Sessions, git, terminal, and schedules in one web app.</strong>
 </p>
 
 <p align="center">
