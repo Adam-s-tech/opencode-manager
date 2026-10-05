@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { SessionPermissionModeService } from '../../src/services/session-permission-modes'
 import type { RepoWorkspaceService } from '../../src/services/repo-workspace'
+import type { GitAuthService } from '../../src/services/git-auth'
 import { Hono } from 'hono'
 import { Database } from 'bun:sqlite'
 import { createInternalRoutes } from '../../src/routes/internal'
@@ -32,7 +33,7 @@ describe('internal-repos routes', () => {
     notificationService = new NotificationService(db)
     settingsService = new SettingsService(db)
     app = new Hono()
-    app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient, {} as SessionPermissionModeService, {} as unknown as RepoWorkspaceService))
+    app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient, {} as SessionPermissionModeService, {} as unknown as RepoWorkspaceService, {} as unknown as GitAuthService))
     token = getOrCreateInternalToken(db)
   })
 
@@ -107,6 +108,46 @@ describe('internal-repos routes', () => {
     expect(body.repos.length).toBe(2)
     expect(body.repos[0]?.id).toBe(repo2.id)
     expect(body.repos[1]?.id).toBe(repo1.id)
+  })
+
+  it('POST /api/internal/repos returns 401 without bearer token', async () => {
+    const res = await app.request('/api/internal/repos', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ repoUrl: 'https://github.com/owner/name' }),
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('POST /api/internal/repos rejects a missing repoUrl, unknown keys, and invalid JSON', async () => {
+    const bodies = [JSON.stringify({}), JSON.stringify({ repoUrl: 'https://github.com/owner/name', localPath: '/etc' }), 'not json']
+    for (const body of bodies) {
+      const res = await app.request('/api/internal/repos', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body,
+      })
+      expect(res.status).toBe(400)
+    }
+  })
+
+  it('POST /api/internal/repos returns the already registered repo for the same URL', async () => {
+    const existing = createRepo(db, {
+      repoUrl: 'https://github.com/owner/name',
+      localPath: 'name',
+      defaultBranch: 'main',
+      cloneStatus: 'ready',
+      clonedAt: Date.now(),
+    })
+
+    const res = await app.request('/api/internal/repos', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ repoUrl: 'https://github.com/owner/name.git' }),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { id: number }
+    expect(body.id).toBe(existing.id)
   })
 
   it('GET /api/internal/repos/:id/schedules still works after adding repos route', async () => {

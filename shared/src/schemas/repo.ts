@@ -24,6 +24,12 @@ export const InternalRepoListResponseSchema = z.object({
   repos: z.array(RepoSchema),
 })
 
+export const InternalCloneRepoRequestSchema = z.object({
+  repoUrl: z.string().trim().min(1),
+  branch: z.string().trim().min(1).optional(),
+  directoryName: z.string().trim().min(1).optional(),
+}).strict()
+
 export const CreateRepoRequestSchema = z.object({
   repoUrl: z.string().url().optional(),
   localPath: z.string().optional(),

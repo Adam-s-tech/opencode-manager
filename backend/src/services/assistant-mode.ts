@@ -831,12 +831,12 @@ Only changes to how the OpenCode process is launched need a user restart from Se
 export function buildReposSkill(): string {
   return `---
 name: repo-management
-description: List repos available to OpenCode Manager with the ${MANAGER_TOOL_NAME} tool
+description: List and clone repos in OpenCode Manager with the ${MANAGER_TOOL_NAME} tool
 ---
 
 ## When to Load
 
-Load this skill when you need to discover repos, look up repo IDs, or need to reference repo information before managing schedules. Load it before the schedule-management skill if you don't know the repo ID.
+Load this skill when you need to discover repos, look up repo IDs, add a repo by cloning a git URL, or need to reference repo information before managing schedules. Load it before the schedule-management skill if you don't know the repo ID.
 
 ## Tool
 
@@ -892,11 +892,40 @@ List all repos available to OpenCode Manager. The repos are returned in the orde
 }
 \`\`\`
 
+### POST /repos
+
+Clone a git repository into the repos root and register it with OpenCode Manager. Accepts HTTPS and SSH URLs. If the same URL and branch is already registered, the existing repo is returned instead of cloning again.
+
+**Body:**
+\`\`\`ts
+{
+  repoUrl: string        // e.g. https://github.com/owner/name
+  branch?: string        // branch to check out; created locally if the remote has none
+  directoryName?: string // directory under the repos root; defaults to the repo name
+}
+\`\`\`
+
+**Example:**
+\`\`\`json
+{
+  "action": "request",
+  "params": {
+    "method": "POST",
+    "path": "/repos",
+    "body": { "repoUrl": "https://github.com/owner/name" }
+  }
+}
+\`\`\`
+
+**Response:** the repo object (same shape as an entry in \`GET /repos\`) with \`cloneStatus: 'ready'\`.
+
 ## Notes
 
 - Use \`id\` as \`:repoId\` in other API endpoints (e.g., \`/repos/:repoId/schedules\`)
 - \`fullPath\` is the absolute local path - use it for file operations
-- This endpoint is read-only - there are no POST/PUT/DELETE operations for repos
+- Only clone a repo the user asked for; there is no delete or update operation for repos through this tool
+- Large clones can outlast the tool request timeout while the clone keeps running; if the request times out, poll \`GET /repos\` until the repo shows \`cloneStatus: 'ready'\`
+- A \`409\` means the target directory already holds a different repository; retry with a different \`directoryName\`
 - \`currentBranch\` is not included in the response - it requires git operations to determine
 - Repo order is controlled by the \`repoOrder\` preference in settings
 `

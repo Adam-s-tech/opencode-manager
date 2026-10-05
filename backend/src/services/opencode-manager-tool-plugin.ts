@@ -14,6 +14,7 @@ export const MANAGER_TOOL_ALLOWED_ROUTES = [
   'PATCH /opencode-config',
   'POST /assistant/reload',
   'GET /repos',
+  'POST /repos',
   'GET /repos/*/git-info',
   'GET /opencode-workspaces',
   'GET /sessions',
@@ -111,7 +112,7 @@ function buildManagerToolDescription(): string {
     'The action runs inside OpenCode Manager itself, so it needs no token and no network access from the agent shell, and it works in sandboxed sessions and scheduled runs.',
     'Actions:',
     '- send_notification: send a push notification to every device the user has registered.',
-    '- request: call an allow-listed internal API route to read and manage settings, the OpenCode configuration file, repos, OpenCode workspaces, sessions (list, create, follow up, read the latest reply, fork), and schedules.',
+    '- request: call an allow-listed internal API route to read and manage settings, the OpenCode configuration file, repos (list, inspect, clone from a git URL with POST /repos and body { repoUrl, branch?, directoryName? }), OpenCode workspaces, sessions (list, create, follow up, read the latest reply, fork), and schedules.',
     'Allowed request routes:',
   ]
     .concat(MANAGER_TOOL_ALLOWED_ROUTES.map((route) => `- ${route}`))

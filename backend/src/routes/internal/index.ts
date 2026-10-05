@@ -19,6 +19,7 @@ import { createInternalGitCredentialsRoutes } from './git-credentials'
 import { createInternalSandboxRoutes } from './sandbox'
 import type { SessionPermissionModeService } from '../../services/session-permission-modes'
 import type { RepoWorkspaceService } from '../../services/repo-workspace'
+import type { GitAuthService } from '../../services/git-auth'
 
 export function createInternalRoutes(
   db: Database,
@@ -28,6 +29,7 @@ export function createInternalRoutes(
   openCodeClient: OpenCodeClient,
   permissionModes: SessionPermissionModeService,
   repoWorkspaces: RepoWorkspaceService,
+  gitAuthService: GitAuthService,
 ) {
   const app = new Hono()
   app.use('/*', createInternalTokenMiddleware(db))
@@ -36,7 +38,7 @@ export function createInternalRoutes(
   app.route('/settings', createInternalSettingsRoutes(settingsService))
   app.route('/opencode-config', createOpenCodeConfigRoutes(settingsService, openCodeClient, { redactSecrets: true }))
   const repos = new Hono()
-  repos.route('/', createInternalRepoRoutes(db, settingsService))
+  repos.route('/', createInternalRepoRoutes(db, settingsService, gitAuthService))
   repos.route('/:id/schedules', createScheduleRoutes(scheduleService))
   repos.route('/', createInternalRepoSyncRoutes(db))
   repos.route('/', mirrorRoutes(db))
