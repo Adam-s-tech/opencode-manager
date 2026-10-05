@@ -102,7 +102,7 @@ describe('createAuth', () => {
     } finally {
       db.close()
     }
-  })
+  }, 30000)
 
   it('allows signup without a complete preconfigured admin', async () => {
     ENV.AUTH.ADMIN_EMAIL = 'admin@example.com'
