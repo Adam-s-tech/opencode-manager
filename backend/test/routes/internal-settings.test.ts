@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
+import type { SessionPermissionModeService } from '../../src/services/session-permission-modes'
+import type { RepoWorkspaceService } from '../../src/services/repo-workspace'
+import type { GitAuthService } from '../../src/services/git-auth'
 import { Hono } from 'hono'
 import { Database } from 'bun:sqlite'
 import { createInternalRoutes } from '../../src/routes/internal'
@@ -29,7 +32,7 @@ describe('internal/settings routes', () => {
     notificationService = new NotificationService(db)
     settingsService = new SettingsService(db)
     app = new Hono()
-    app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient))
+    app.route('/api/internal', createInternalRoutes(db, scheduleService, notificationService, settingsService, openCodeClient, {} as SessionPermissionModeService, {} as unknown as RepoWorkspaceService, {} as unknown as GitAuthService))
     token = getOrCreateInternalToken(db)
   })
 
@@ -145,6 +148,18 @@ describe('internal/settings routes', () => {
     const res = await app.request('/api/internal/settings', {
       method: 'PATCH',
       body: JSON.stringify({ tts: { apiKey: 'secret' } }),
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('PATCH /api/internal/settings with { sessionDefaults: { permissionMode: "auto" } } returns 400 (strict reject)', async () => {
+    const res = await app.request('/api/internal/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ sessionDefaults: { permissionMode: 'auto' } }),
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${token}`,

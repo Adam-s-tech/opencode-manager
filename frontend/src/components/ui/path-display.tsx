@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { shortenPath } from '@/lib/utils'
 
 interface PathDisplayProps {
   path: string
@@ -7,19 +8,7 @@ interface PathDisplayProps {
 }
 
 export function PathDisplay({ path, maxSegments = 3, className = '' }: PathDisplayProps) {
-  const displayPath = useMemo(() => {
-    if (!path || path === '/') return '/'
-    
-    const normalizedPath = path.startsWith('/') ? path : '/' + path
-    const segments = normalizedPath.split('/').filter(Boolean)
-    
-    if (segments.length <= maxSegments) {
-      return '/' + segments.join('/')
-    }
-    
-    const visibleSegments = segments.slice(-maxSegments)
-    return '/.../' + visibleSegments.join('/')
-  }, [path, maxSegments])
+  const displayPath = useMemo(() => shortenPath(path, maxSegments), [path, maxSegments])
 
   return (
     <span 

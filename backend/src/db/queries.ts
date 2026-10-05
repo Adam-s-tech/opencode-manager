@@ -3,6 +3,7 @@ import type { Repo, CreateRepoInput } from '../types/repo'
 import { getReposPath } from '@opencode-manager/shared/config/env'
 import { ASSISTANT_REPO_ID, ASSISTANT_REPO_PATH, getRepoDisplayName } from '@opencode-manager/shared/utils'
 import { getErrorMessage } from '../utils/error-utils'
+import { canonicalPathSync } from '../utils/fs-safe'
 import path from 'path'
 
 interface RepoRow {
@@ -93,12 +94,12 @@ export function setRepoSandboxGitCredentials(db: Database, repoId: number, allow
 }
 
 export function getRepoByDirectory(db: Database, directory: string): Repo | null {
-  const resolvedDirectory = path.resolve(directory)
+  const resolvedDirectory = canonicalPathSync(path.resolve(directory))
   const repos = listRepos(db)
 
   return repos
     .filter((repo) => {
-      const resolvedRepoPath = path.resolve(repo.fullPath)
+      const resolvedRepoPath = canonicalPathSync(path.resolve(repo.fullPath))
       const relativePath = path.relative(resolvedRepoPath, resolvedDirectory)
       return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath))
     })
@@ -346,9 +347,13 @@ export function deleteRepo(db: Database, id: number): void {
     return
   }
 
-  for (const table of TABLES_WITH_REPO_ID) {
-    db.prepare(`DELETE FROM ${table} WHERE repo_id = ?`).run(id)
-  }
-  const stmt = db.prepare('DELETE FROM repos WHERE id = ?')
-  stmt.run(id)
+  const remove = db.transaction(() => {
+    db.prepare('DELETE FROM multi_run_entries WHERE multi_run_id IN (SELECT id FROM multi_runs WHERE repo_id = ?)').run(id)
+    db.prepare('DELETE FROM multi_runs WHERE repo_id = ?').run(id)
+    for (const table of TABLES_WITH_REPO_ID) {
+      db.prepare(`DELETE FROM ${table} WHERE repo_id = ?`).run(id)
+    }
+    db.prepare('DELETE FROM repos WHERE id = ?').run(id)
+  })
+  remove()
 }

@@ -44,7 +44,7 @@ function HeaderTitle({ children, logo, className }: HeaderTitleProps) {
       {logo && typeof children === "string" && children === "OpenCode" ? (
         <img 
           src={theme === 'light' ? "/opencode-wordmark-light.svg" : "/opencode-wordmark-dark.svg"} 
-          alt="OpenCode" 
+          alt="OpenCode Manager"
           className="ml-2 h-6 w-auto sm:ml-0 sm:h-8"
         />
       ) : (

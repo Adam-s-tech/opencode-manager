@@ -1,5 +1,5 @@
 import { memo, useCallback, useMemo, useState } from 'react'
-import { Pencil, Loader2, Volume2, VolumeX } from 'lucide-react'
+import { Pencil, Loader2 } from 'lucide-react'
 import { assistantText } from '@opencode-manager/shared/opencode'
 import type {
   PromptAgentAttachment,
@@ -20,8 +20,8 @@ import { StepFileChanges } from './StepFileChanges'
 import { UserMessageActionButtons } from './UserMessageActionButtons'
 import { EditableUserMessage, ClickableUserMessage } from './EditableUserMessage'
 import { useSettings } from '@/hooks/useSettings'
-import { useTTS } from '@/hooks/useTTS'
 import { CopyButton } from '@/components/ui/copy-button'
+import { TTSButton } from '@/components/ui/tts-button'
 import { backgroundShellID, collectBackgroundParts, type ShellNoticeOutcome } from '@/lib/backgroundWork'
 
 function getMessageText(message: SessionMessageInfo): string {
@@ -144,46 +144,6 @@ function UserAttachments({ files: attachedFiles, agents: attachedAgents, skills:
         </span>
       ))}
     </div>
-  )
-}
-
-interface TTSButtonProps {
-  messageId: string
-  content: string
-}
-
-function TTSButton({ messageId, content }: TTSButtonProps) {
-  const { speakMessage, stop, isEnabled, isPlaying, isLoading, activeMessageId } = useTTS()
-
-  if (!isEnabled || !content.trim()) {
-    return null
-  }
-
-  const isThisPlaying = (isPlaying || isLoading) && activeMessageId === messageId
-
-  const handleClick = () => {
-    if (isThisPlaying) {
-      stop()
-    } else {
-      speakMessage(messageId, content)
-    }
-  }
-
-  return (
-    <button
-      onClick={handleClick}
-      className={`p-1.5 rounded ${isThisPlaying ? 'bg-destructive/20 text-destructive hover:bg-destructive/30' : 'bg-card hover:bg-card-hover text-muted-foreground hover:text-foreground'}`}
-      title={isThisPlaying ? 'Stop playback' : 'Read aloud'}
-      disabled={isLoading && !isThisPlaying}
-    >
-      {isLoading && isThisPlaying ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
-      ) : isThisPlaying ? (
-        <VolumeX className="w-4 h-4" />
-      ) : (
-        <Volume2 className="w-4 h-4" />
-      )}
-    </button>
   )
 }
 

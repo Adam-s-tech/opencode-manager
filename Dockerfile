@@ -150,7 +150,7 @@ RUN chmod +x /docker-entrypoint.sh
 RUN mkdir -p /workspace /app/data /home/node/.cache /home/node/.opencode /home/node/.microsandbox && \
     chown -R node:node /workspace /app/data /home/node
 
-EXPOSE 5003 5100 5101 5102 5103
+EXPOSE 5003 5004 5100 5101 5102 5103
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:5003/api/health || exit 1

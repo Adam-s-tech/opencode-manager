@@ -5,7 +5,20 @@ import {
   sanitizeForTTS,
   randomId,
   formatShortRelativeTime,
+  getOriginOnlyBranchNames,
+  shortenPath,
 } from './utils'
+
+describe('shortenPath', () => {
+  it('keeps short paths and collapses the leading segments of long ones', () => {
+    expect(shortenPath('/')).toBe('/')
+    expect(shortenPath('')).toBe('/')
+    expect(shortenPath('/a/b/c')).toBe('/a/b/c')
+    expect(shortenPath('a/b')).toBe('/a/b')
+    expect(shortenPath('/Users/chris/development/oc-manager/workspace/repos/test')).toBe('/.../workspace/repos/test')
+    expect(shortenPath('/a/b/c/d/e', 4)).toBe('/.../b/c/d/e')
+  })
+})
 
 describe('sanitizeForTTS', () => {
   it('should handle headers', () => {
@@ -86,6 +99,59 @@ describe('sanitizeForTTS', () => {
 
   it('should handle HTML tags', () => {
     expect(sanitizeForTTS('Text with <tag>content</tag> here')).toBe('Text with content here')
+  })
+})
+
+describe('getOriginOnlyBranchNames', () => {
+  it('returns short names for origin remote branches without a local branch', () => {
+    expect(
+      getOriginOnlyBranchNames([
+        { name: 'main', type: 'local' },
+        { name: 'remotes/origin/release', type: 'remote' },
+      ]),
+    ).toEqual(['release'])
+  })
+
+  it('excludes remote branches shadowed by a local branch', () => {
+    expect(
+      getOriginOnlyBranchNames([
+        { name: 'release', type: 'local' },
+        { name: 'remotes/origin/release', type: 'remote' },
+      ]),
+    ).toEqual([])
+  })
+
+  it('excludes non-origin remotes', () => {
+    expect(
+      getOriginOnlyBranchNames([
+        { name: 'remotes/upstream/release', type: 'remote' },
+        { name: 'remotes/origin/release', type: 'remote' },
+      ]),
+    ).toEqual(['release'])
+  })
+
+  it('excludes HEAD', () => {
+    expect(
+      getOriginOnlyBranchNames([
+        { name: 'remotes/origin/HEAD', type: 'remote' },
+        { name: 'remotes/origin/main', type: 'remote' },
+      ]),
+    ).toEqual(['main'])
+  })
+
+  it('excludes empty short names', () => {
+    expect(getOriginOnlyBranchNames([{ name: 'remotes/origin/', type: 'remote' }])).toEqual([])
+  })
+
+  it('dedupes while preserving input order', () => {
+    expect(
+      getOriginOnlyBranchNames([
+        { name: 'remotes/origin/zeta', type: 'remote' },
+        { name: 'remotes/origin/alpha', type: 'remote' },
+        { name: 'remotes/origin/zeta', type: 'remote' },
+        { name: 'remotes/origin/beta', type: 'remote' },
+      ]),
+    ).toEqual(['zeta', 'alpha', 'beta'])
   })
 })
 

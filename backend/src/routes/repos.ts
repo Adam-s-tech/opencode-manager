@@ -2,29 +2,31 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { Database } from 'bun:sqlite'
-import type { Repo } from '@opencode-manager/shared/types'
-import { DiscoverReposRequestSchema, AssistantModeInitRequestSchema, UpdateRepoRequestSchema } from '@opencode-manager/shared/schemas'
+import type { DeleteRepoResult, Repo } from '@opencode-manager/shared/types'
+import { DiscoverReposRequestSchema, AssistantModeInitRequestSchema, UpdateRepoRequestSchema, DeleteRepoRequestSchema } from '@opencode-manager/shared/schemas'
 import { listRepos, getRepoById, updateLastAccessed, getRepoGitCredentialId, setRepoGitCredentialId, updateRepoName } from '../db/queries'
 import * as repoService from '../services/repo'
 import * as archiveService from '../services/archive'
 import { SettingsService } from '../services/settings'
+import { getEffectiveGitIdentity, setRepoGitIdentity } from '../services/git-identity'
 import type { OpenCodeClient } from '../services/opencode/client'
 import { logger } from '../utils/logger'
 import { getErrorMessage, getStatusCode } from '../utils/error-utils'
 import { handleOpenCodeError } from '../utils/route-helpers'
-import { ASSISTANT_REPO_ID, isWorktreeSibling } from '@opencode-manager/shared/utils'
+import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 import { isWorktreeError, openCodeLocation } from '@opencode-manager/shared/opencode'
 import { createRepoGitRoutes } from './repo-git'
+import { createRepoTerminalRoutes } from './repo-terminals'
+import { createRepoProjectConfigRoutes } from './repo-project-config'
 import { createScheduleRoutes } from './schedules'
 import type { GitAuthService } from '../services/git-auth'
+import type { TerminalService } from '../services/terminal'
+import type { ProjectConfigService } from '../services/project-config'
+import type { RepoWorkspaceService } from '../services/repo-workspace'
+import { createGitService } from '../services/git/GitService'
 import { ScheduleService } from '../services/schedules'
-import { ensureAssistantMode, getAssistantModeStatus, buildAssistantRepo } from '../services/assistant-mode'
-import { canonicalPathSync } from '../utils/fs-safe'
+import { ensureAssistantMode, getAssistantModeStatus } from '../services/assistant-mode'
 import path from 'path'
-
-function resolveRepo(database: Database, id: number): Repo | null {
-  return getRepoById(database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null)
-}
 
 const DeleteWorkspaceRequestSchema = z.object({
   directory: z.string().trim().min(1),
@@ -42,10 +44,16 @@ export function createRepoRoutes(
   gitAuthService: GitAuthService,
   scheduleService: ScheduleService,
   openCodeClient: OpenCodeClient,
+  terminalService: TerminalService,
+  projectConfigService: ProjectConfigService,
+  repoWorkspaces: RepoWorkspaceService,
 ) {
   const app = new Hono()
+  const git = createGitService(gitAuthService)
 
-  app.route('/', createRepoGitRoutes(database, gitAuthService))
+  app.route('/', createRepoGitRoutes(database, git, openCodeClient))
+  app.route('/', createRepoTerminalRoutes(database, gitAuthService, openCodeClient, terminalService))
+  app.route('/', createRepoProjectConfigRoutes(database, gitAuthService, openCodeClient, projectConfigService, terminalService))
   app.route('/:id/schedules', createScheduleRoutes(scheduleService))
 
   app.post('/', async (c) => {
@@ -75,7 +83,14 @@ export function createRepoRoutes(
           { branch, directoryName, useWorktree, skipSSHVerification, baseBranch }
         )
       }
-      
+
+      if (repo.isWorktree) {
+        return c.json({
+          ...repo,
+          worktreeSetup: await projectConfigService.runWorktreeSetupForRepo(repo, repo.fullPath, terminalService),
+        })
+      }
+
       return c.json(repo)
     } catch (error: unknown) {
       logger.error('Failed to create repo:', error)
@@ -150,7 +165,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)
@@ -230,6 +245,54 @@ app.get('/', async (c) => {
     }
   })
 
+  app.get('/:id/git-identity', async (c) => {
+    try {
+      const id = parseInt(c.req.param('id'))
+      const repo = getRepoById(database, id)
+
+      if (!repo) {
+        return c.json({ error: 'Repo not found' }, 404)
+      }
+
+      return c.json(await getEffectiveGitIdentity(repo.fullPath, database))
+    } catch (error: unknown) {
+      logger.error('Failed to read repo git identity:', error)
+      return c.json({ error: getErrorMessage(error) }, 500)
+    }
+  })
+
+  app.patch('/:id/git-identity', async (c) => {
+    try {
+      const id = parseInt(c.req.param('id'))
+      const repo = getRepoById(database, id)
+
+      if (!repo) {
+        return c.json({ error: 'Repo not found' }, 404)
+      }
+
+      const body = await c.req.json()
+      const identityId = typeof body.identityId === 'string' && body.identityId.trim() !== ''
+        ? body.identityId.trim()
+        : null
+
+      let preset: { name: string; email: string } | null = null
+      if (identityId) {
+        const settingsService = new SettingsService(database)
+        const settings = settingsService.getSettings()
+        preset = (settings.preferences.gitIdentities || []).find((identity) => identity.id === identityId) ?? null
+        if (!preset) {
+          return c.json({ error: 'Identity not found' }, 400)
+        }
+      }
+
+      await setRepoGitIdentity(repo.fullPath, preset ? { name: preset.name, email: preset.email } : null)
+      return c.json(await getEffectiveGitIdentity(repo.fullPath, database))
+    } catch (error: unknown) {
+      logger.error('Failed to update repo git identity:', error)
+      return c.json({ error: getErrorMessage(error) }, 500)
+    }
+  })
+
   app.patch('/:id', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
@@ -267,19 +330,13 @@ app.get('/', async (c) => {
       const body = await c.req.json().catch(() => null)
       const parsed = DeleteWorkspaceRequestSchema.safeParse(body)
       if (!parsed.success) return c.json({ error: 'directory is required' }, 400)
-      const directory = parsed.data.directory
-
-      const siblings = await repoService.getSiblingRepos(database, id, gitAuthService.getGitEnvironment(), openCodeClient)
-      const requestedDirectory = canonicalPathSync(path.resolve(directory))
-      const worktree = siblings.find(
-        (sibling) => isWorktreeSibling(sibling) && canonicalPathSync(path.resolve(sibling.fullPath)) === requestedDirectory,
-      )
-      if (!worktree) return c.json({ error: 'Not a deletable worktree of this repo' }, 400)
 
       try {
-        const projectID = await repoService.resolveRepoProjectId(openCodeClient, repo.fullPath)
-        await openCodeClient.api.worktree.remove({ projectID, directory: worktree.fullPath, force: true })
+        await repoWorkspaces.remove(repo, parsed.data.directory)
       } catch (error: unknown) {
+        if (error instanceof repoService.RepoWorkspaceError) {
+          return c.json({ error: error.message }, error.status)
+        }
         if (isWorktreeError(error)) {
           return c.json({ error: error.data.message }, 409)
         }
@@ -302,9 +359,7 @@ app.get('/', async (c) => {
       if (!repo || repo.cloneStatus !== 'ready') return c.json({ error: 'Repo not found' }, 404)
 
       try {
-        const projectID = await repoService.resolveRepoProjectId(openCodeClient, repo.fullPath)
-        const worktree = await openCodeClient.api.worktree.create({ projectID })
-        return c.json(worktree)
+        return c.json(await repoWorkspaces.create(repo))
       } catch (error: unknown) {
         if (isWorktreeError(error)) {
           return c.json({ error: error.data.message }, 409)
@@ -327,16 +382,46 @@ app.get('/', async (c) => {
       }
 
       const repo = getRepoById(database, id)
-      
+
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)
       }
-      
-      scheduleService.prepareRepoDelete(id)
-      
-      await repoService.deleteRepoFiles(database, id)
-      
-      return c.json({ success: true })
+
+      const body = await c.req.json().catch(() => null)
+      const parsed = DeleteRepoRequestSchema.safeParse(body ?? {})
+      if (!parsed.success) {
+        return c.json({ error: 'Invalid request' }, 400)
+      }
+      const { deleteBranch } = parsed.data
+
+      if (deleteBranch !== 'none' && !repo.isWorktree) {
+        return c.json({ error: 'Only worktrees can delete their branch' }, 400)
+      }
+
+      const removeWorktree = async () => {
+        scheduleService.prepareRepoDelete(id)
+        await repoWorkspaces.removeRepoTerminals(repo)
+        await repoService.deleteRepoFiles(database, id)
+      }
+
+      const result: DeleteRepoResult = { success: true }
+
+      if (deleteBranch === 'none') {
+        await removeWorktree()
+      } else {
+        result.branch = await git.deleteWorktreeBranch(
+          repo,
+          { deleteRemote: deleteBranch === 'local-and-remote' },
+          removeWorktree,
+          database,
+        )
+
+        if (result.branch.error) {
+          logger.warn(`Deleted worktree repo ${id} but failed to delete branch '${result.branch.name}': ${result.branch.error}`)
+        }
+      }
+
+      return c.json(result)
     } catch (error: unknown) {
       logger.error('Failed to delete repo:', error)
       return c.json({ error: getErrorMessage(error) }, 500)
@@ -491,7 +576,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)
@@ -509,7 +594,7 @@ app.get('/', async (c) => {
     try {
       const id = parseInt(c.req.param('id'))
 
-      const repo: Repo | null = resolveRepo(database, id)
+      const repo: Repo | null = repoService.resolveRepoOrAssistant(database, id)
 
       if (!repo) {
         return c.json({ error: 'Repo not found' }, 404)

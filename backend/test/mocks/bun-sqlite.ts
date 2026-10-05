@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 // Adapter to make node:sqlite compatible with bun:sqlite API
 export class Database {
   private db: DatabaseSync
+  private transactionDepth = 0
 
   constructor(path: string) {
     this.db = new DatabaseSync(path)
@@ -37,14 +38,32 @@ export class Database {
 
   transaction<T extends (...args: unknown[]) => void>(fn: T) {
     return (...args: unknown[]) => {
-      this.db.exec('BEGIN')
+      const nested = this.transactionDepth > 0
+      const savepoint = `ocm_sp_${this.transactionDepth}`
+      if (nested) {
+        this.db.exec(`SAVEPOINT ${savepoint}`)
+      } else {
+        this.db.exec('BEGIN')
+      }
+      this.transactionDepth += 1
       try {
         const result = fn(...args)
-        this.db.exec('COMMIT')
+        if (nested) {
+          this.db.exec(`RELEASE ${savepoint}`)
+        } else {
+          this.db.exec('COMMIT')
+        }
         return result
       } catch (e) {
-        this.db.exec('ROLLBACK')
+        if (nested) {
+          this.db.exec(`ROLLBACK TO ${savepoint}`)
+          this.db.exec(`RELEASE ${savepoint}`)
+        } else {
+          this.db.exec('ROLLBACK')
+        }
         throw e
+      } finally {
+        this.transactionDepth -= 1
       }
     }
   }

@@ -576,7 +576,7 @@ export function ModelQuickSelect({
   return (
     <>
       {children && (
-        <span onClick={() => !disabled && handleOpenChange(true)}>
+        <span className="contents" onClick={() => !disabled && handleOpenChange(true)}>
           {children}
         </span>
       )}

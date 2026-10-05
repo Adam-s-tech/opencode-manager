@@ -4,13 +4,19 @@ import { Database } from 'bun:sqlite'
 import { migrate } from '../db/migration-runner'
 import { allMigrations } from '../db/migrations'
 import { createRepoRoutes } from './repos'
-import { createRepo, getRepoById } from '../db/queries'
+import { createRepo, getRepoById, setRepoSetting } from '../db/queries'
 import { createStubOpenCodeClient } from '../../test/helpers/stub-opencode-client'
+import { createGitService } from '../services/git/GitService'
+import { ProjectConfigService } from '../services/project-config'
+import { RepoWorkspaceService } from '../services/repo-workspace'
 import type { GitAuthService } from '../services/git-auth'
+import type { TerminalService } from '../services/terminal'
 import type { OpenCodeClient } from '../services/opencode/client'
 import type { Repo } from '@opencode-manager/shared/types'
 import { getReposPath } from '@opencode-manager/shared/config/env'
 import path from 'path'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 beforeEach(() => {
   mock.module('../services/project-id-resolver', () => ({
@@ -28,7 +34,15 @@ const stubGitAuthService = {
   getGitCredentials: async () => [],
 } as unknown as GitAuthService
 
-function createTestApp(db: Database, openCodeClient: OpenCodeClient = createStubOpenCodeClient()): Hono {
+const stubTerminalService = {
+  removeAll: mock(async () => undefined),
+} as unknown as TerminalService
+
+function createTestApp(
+  db: Database,
+  openCodeClient: OpenCodeClient = createStubOpenCodeClient(),
+  terminalService: TerminalService = stubTerminalService,
+): Hono {
   const app = new Hono()
   const scheduleService = {
     createSchedule: () => {},
@@ -38,7 +52,9 @@ function createTestApp(db: Database, openCodeClient: OpenCodeClient = createStub
     deleteSchedule: () => {},
     prepareRepoDelete: () => {},
   } as any
-  app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient))
+  const projectConfigService = new ProjectConfigService(db, createGitService(stubGitAuthService), stubGitAuthService)
+  const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, stubGitAuthService, projectConfigService, terminalService)
+  app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient, terminalService, projectConfigService, repoWorkspaces))
   return app
 }
 
@@ -435,8 +451,30 @@ describe('POST /api/repos/:id/workspaces', () => {
     const res = await app.request('/repos/1/workspaces', { method: 'POST' })
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ directory: '/tmp/wrk-test' })
+    expect(await res.json()).toEqual({ directory: '/tmp/wrk-test', worktreeSetup: { status: 'none' } })
     expect(create).toHaveBeenCalledWith({ projectID: 'commit-A' })
+  })
+
+  it('still returns 200 with a failed worktree setup when the setup terminal cannot start', async () => {
+    createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+    setRepoSetting(db, 1, 'worktreeSetupCommands', JSON.stringify(['pnpm install']))
+    const client = createStubOpenCodeClient()
+    client.api.worktree.create = mock(async () => ({ directory: '/tmp/wrk-test' })) as any
+    const failingTerminalService = {
+      removeAll: mock(async () => undefined),
+      create: mock(async () => {
+        throw new Error('spawn failed')
+      }),
+    } as unknown as TerminalService
+    const app = createTestApp(db, client, failingTerminalService)
+
+    const res = await app.request('/repos/1/workspaces', { method: 'POST' })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      directory: '/tmp/wrk-test',
+      worktreeSetup: { status: 'failed', error: 'spawn failed' },
+    })
   })
 
   it('returns 400 for a non-numeric repo id', async () => {
@@ -572,5 +610,95 @@ describe('PATCH /api/repos/:id', () => {
   it('returns 500 when reading the repo throws', async () => {
     const res = await createTestApp(createThrowingDb()).request('/repos/1', { method: 'PATCH', body: JSON.stringify({ name: 'new-name' }), headers: { 'Content-Type': 'application/json' } })
     expect(res.status).toBe(500)
+  })
+})
+
+describe('DELETE /api/repos/:id', () => {
+  let db: Database
+  let app: Hono
+  let workspacePath: string
+  const originalWorkspacePath = process.env.WORKSPACE_PATH
+
+  beforeEach(() => {
+    workspacePath = mkdtempSync(path.join(tmpdir(), 'repos-delete-'))
+    process.env.WORKSPACE_PATH = workspacePath
+    mkdirSync(path.join(workspacePath, 'repos'), { recursive: true })
+    db = createTestDb()
+    app = createTestApp(db)
+  })
+
+  afterEach(() => {
+    db.close()
+    rmSync(workspacePath, { recursive: true, force: true })
+    if (originalWorkspacePath === undefined) {
+      delete process.env.WORKSPACE_PATH
+    } else {
+      process.env.WORKSPACE_PATH = originalWorkspacePath
+    }
+  })
+
+  it('rejects deleteBranch for a non-worktree repo', async () => {
+    createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+
+    const res = await app.request('/repos/1', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deleteBranch: 'local' }),
+    })
+
+    expect(res.status).toBe(400)
+    const data = await res.json() as { error: string }
+    expect(data.error).toBe('Only worktrees can delete their branch')
+    expect(getRepoById(db, 1)).not.toBeNull()
+  })
+
+  it('deletes a repo with no body and keeps the previous response shape', async () => {
+    createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+
+    const res = await app.request('/repos/1', { method: 'DELETE' })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ success: true })
+    expect(getRepoById(db, 1)).toBeNull()
+  })
+
+  it('returns 200 with branch.error when branch cleanup fails after the worktree removal', async () => {
+    createRepo(db, {
+      localPath: 'wt-missing',
+      branch: 'feature',
+      defaultBranch: 'main',
+      cloneStatus: 'ready',
+      clonedAt: Date.now(),
+      isLocal: true,
+      isWorktree: true,
+    })
+
+    const res = await app.request('/repos/1', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deleteBranch: 'local' }),
+    })
+
+    expect(res.status).toBe(200)
+    const data = await res.json() as { success: boolean; branch?: { name: string; deleted: boolean; remoteDeleted: boolean; error?: string } }
+    expect(data.success).toBe(true)
+    expect(data.branch?.name).toBe('feature')
+    expect(data.branch?.deleted).toBe(false)
+    expect(data.branch?.remoteDeleted).toBe(false)
+    expect(data.branch?.error).toBeTruthy()
+    expect(getRepoById(db, 1)).toBeNull()
+  })
+
+  it('returns 400 for an invalid deleteBranch value', async () => {
+    createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+
+    const res = await app.request('/repos/1', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deleteBranch: 'remote-only' }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(getRepoById(db, 1)).not.toBeNull()
   })
 })

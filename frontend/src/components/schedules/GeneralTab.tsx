@@ -1,4 +1,5 @@
 import { Combobox, type ComboboxOption } from '@/components/ui/combobox'
+import { BranchCombobox } from '@/components/repo/BranchCombobox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -21,8 +22,7 @@ type GeneralTabProps = {
   onEnabledChange: (value: boolean) => void
   branch: string
   onBranchChange: (value: string) => void
-  branchOptions: ComboboxOption[]
-  branchesLoading: boolean
+  branchRepoId: number | undefined
   showRepoSelector?: boolean
   isEditing: boolean
   repoId?: number
@@ -63,8 +63,7 @@ export function GeneralTab({
   onEnabledChange,
   branch,
   onBranchChange,
-  branchOptions,
-  branchesLoading,
+  branchRepoId,
   showRepoSelector,
   isEditing,
   repoId,
@@ -159,14 +158,14 @@ export function GeneralTab({
               <Label htmlFor="schedule-branch">Base branch</Label>
               <InfoHint text="Scheduled runs execute in an isolated worktree branched off this base branch. Leave empty to use the repository's default branch." />
             </div>
-            <Combobox
+            <BranchCombobox
+              id="schedule-branch"
+              repoId={branchRepoId}
               value={branch}
-              onChange={onBranchChange}
-              options={branchOptions}
-              placeholder={branchesLoading ? 'Loading branches…' : 'Defaults to default branch'}
-              disabled={branchesLoading}
-              allowCustomValue={false}
-              showClear
+              onValueChange={onBranchChange}
+              placeholder="Defaults to default branch"
+              remotes="bare"
+              clearable
             />
           </div>
         </div>

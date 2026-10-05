@@ -45,7 +45,7 @@ export function CommitsTab({ repoId, branch, onSelectCommit }: CommitsTabProps) 
         {data.commits.map((commit) => (
           <button
             key={commit.hash}
-            className="flex items-start gap-3 px-3 py-2 text-left hover:bg-accent/50 transition-colors border-b border-border last:border-0"
+            className="flex w-full items-start gap-3 px-3 py-2 text-left hover:bg-accent/50 transition-colors border-b border-border last:border-0"
             onClick={() => onSelectCommit?.(commit.hash)}
           >
             <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent flex items-center justify-center mt-0.5">

@@ -58,7 +58,7 @@ export function Register() {
         <div className="flex flex-col items-center space-y-2">
           <img 
             src={theme === 'light' ? "/opencode-wordmark-light.svg" : "/opencode-wordmark-dark.svg"} 
-            alt="OpenCode" 
+            alt="OpenCode Manager"
             className="h-8 w-auto"
           />
           <p className="text-sm text-muted-foreground">

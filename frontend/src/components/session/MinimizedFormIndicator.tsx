@@ -10,7 +10,7 @@ interface MinimizedFormIndicatorProps {
 
 export function MinimizedFormIndicator({ form, onRestore, onDismiss }: MinimizedFormIndicatorProps) {
   return (
-    <div className="w-full bg-gradient-to-br from-highlight/10 to-highlight/20 border-2 border-highlight/40 rounded-lg shadow-lg mb-2 overflow-hidden">
+    <div className="w-full bg-background bg-gradient-to-br from-highlight/10 to-highlight/20 border-2 border-highlight/40 rounded-lg shadow-lg mb-2 overflow-hidden">
       <div className="flex items-center px-3 py-2 sm:px-4 sm:py-2.5 border-b border-highlight/20 bg-highlight/5">
         <button
           onClick={onRestore}

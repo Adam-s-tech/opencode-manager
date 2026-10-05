@@ -7,7 +7,7 @@ import type { Database } from 'bun:sqlite'
 import type { Repo, CreateRepoInput } from '../types/repo'
 import { logger } from '../utils/logger'
 import { getReposPath, getScheduleWorktreesPath } from '@opencode-manager/shared/config/env'
-import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, SCP_STYLE_URL_PATTERN } from '@opencode-manager/shared/utils'
+import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, SCP_STYLE_URL_PATTERN, ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 import type { GitAuthService } from './git-auth'
 import { isGitHubHttpsUrl } from '../utils/git-auth'
 import path from 'path'
@@ -18,6 +18,7 @@ import { resolveProjectId, isGitMainCheckout } from './project-id-resolver'
 import { listRepos } from '../db/queries'
 import { listActiveScheduleRunWorktreePaths } from '../db/schedules'
 import { SettingsService } from './settings'
+import { buildAssistantRepo } from './assistant-mode'
 import type { OpenCodeClient } from './opencode/client'
 import { openCodeLocation } from '@opencode-manager/shared/opencode'
 import { canonicalPathSync, mkdirSafe } from '../utils/fs-safe'
@@ -121,7 +122,7 @@ function buildWorkspaceAliasCandidates(sourcePath: string, rootPath?: string): s
     if (relativePath && !relativePath.startsWith('..')) {
       const relativeAlias = relativePath
         .split(path.sep)
-        .map(sanitizeRepoDirectoryName)
+        .map((segment) => sanitizeRepoDirectoryName(segment))
         .filter(Boolean)
         .join('--')
 
@@ -930,6 +931,19 @@ export async function pullRepo(
   }
 }
 
+export async function resolveMainCheckoutPath(worktreePath: string): Promise<string | null> {
+  try {
+    const commonDir = await executeCommand(
+      ['git', '-C', path.resolve(worktreePath), 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      { silent: true }
+    )
+    const trimmed = commonDir.trim()
+    return trimmed ? path.dirname(trimmed) : null
+  } catch {
+    return null
+  }
+}
+
 export async function deleteRepoFiles(database: Database, repoId: number): Promise<void> {
   const repo = getRepoById(database, repoId)
   if (!repo) {
@@ -938,11 +952,13 @@ export async function deleteRepoFiles(database: Database, repoId: number): Promi
 
   const fullPath = path.resolve(getReposPath(), repo.localPath)
 
-  if (repo.isWorktree && repo.repoUrl) {
-    const { name: repoName } = normalizeRepoUrl(repo.repoUrl)
-    const baseRepoPath = path.resolve(getReposPath(), repoName)
+  if (repo.isWorktree) {
+    const baseRepoPath = await resolveMainCheckoutPath(fullPath)
+      ?? (repo.repoUrl ? path.resolve(getReposPath(), normalizeRepoUrl(repo.repoUrl).name) : null)
 
-    await removeWorktree(baseRepoPath, fullPath)
+    if (baseRepoPath) {
+      await removeWorktree(baseRepoPath, fullPath)
+    }
   }
 
   await executeCommand(['rm', '-rf', repo.localPath], getReposPath())
@@ -1168,11 +1184,56 @@ export async function resolveRepoProjectId(openCodeClient: OpenCodeClient, direc
   return project.id
 }
 
+export async function resolveRepoForDirectory(
+  database: Database,
+  directory: string,
+): Promise<Repo | null> {
+  const repo =
+    getRepoBySourcePath(database, path.resolve(directory)) ??
+    getRepoByLocalPath(database, path.relative(getReposPath(), directory))
+  if (repo) return repo
+
+  const projectId = await resolveProjectId(directory)
+  if (!projectId) return null
+
+  const readyRepos = listRepos(database).filter(
+    (candidate) => candidate.cloneStatus === 'ready',
+  )
+  for (const candidate of readyRepos) {
+    const candidateProjectId = await resolveProjectId(candidate.fullPath).catch(
+      () => null,
+    )
+    if (candidateProjectId === projectId) return candidate
+  }
+  return null
+}
+
+export function resolveRepoOrAssistant(database: Database, id: number): Repo | null {
+  return getRepoById(database, id) ?? (id === ASSISTANT_REPO_ID ? buildAssistantRepo() : null)
+}
+
+export function findSiblingByDirectory<T extends { fullPath: string }>(siblings: T[], directory: string): T | undefined {
+  const requestedDirectory = canonicalPathSync(path.resolve(directory))
+  return siblings.find((sibling) => canonicalPathSync(path.resolve(sibling.fullPath)) === requestedDirectory)
+}
+
+export async function resolveRepoWorkingDirectory(
+  repo: Repo,
+  directory: string | undefined,
+  loadSiblings: () => Promise<Array<{ fullPath: string }>>,
+): Promise<string | null> {
+  if (directory === undefined) return repo.fullPath
+  if (canonicalPathSync(path.resolve(directory)) === canonicalPathSync(path.resolve(repo.fullPath))) return repo.fullPath
+
+  return findSiblingByDirectory(await loadSiblings(), directory)?.fullPath ?? null
+}
+
 export async function getSiblingRepos(
   database: Database,
   repoId: number,
   gitEnv: Record<string, string>,
   openCodeClient?: OpenCodeClient,
+  options: { includeBranch?: boolean } = {},
 ): Promise<Array<Repo & { currentBranch: string | undefined; worktreeStrategy?: string }>> {
   const settingsService = new SettingsService(database)
   const settings = settingsService.getSettings()
@@ -1196,10 +1257,11 @@ export async function getSiblingRepos(
     .filter((entry) => entry.projectId === targetProjectId)
     .map((entry) => entry.repo)
 
+  const includeBranch = options.includeBranch ?? true
   const repoSiblings = await Promise.all(
     matching.map(async (repo) => ({
       ...repo,
-      currentBranch: (await getCurrentBranch(repo, gitEnv)) ?? undefined,
+      currentBranch: includeBranch ? (await getCurrentBranch(repo, gitEnv)) ?? undefined : undefined,
     })),
   )
 
@@ -1261,5 +1323,15 @@ export async function getSiblingRepos(
   } catch (error) {
     logger.warn('Failed to list OpenCode worktrees:', error)
     return repoSiblings
+  }
+}
+
+export class RepoWorkspaceError extends Error {
+  readonly status: 400
+
+  constructor(message: string, status: 400) {
+    super(message)
+    this.name = 'RepoWorkspaceError'
+    this.status = status
   }
 }

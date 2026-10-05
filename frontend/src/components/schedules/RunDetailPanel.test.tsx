@@ -9,6 +9,20 @@ import type { ScheduleRun } from '@opencode-manager/shared/types'
 const mocks = vi.hoisted(() => ({
   getRepo: vi.fn(),
   useMarkScheduleRunViewed: vi.fn(),
+  useTTS: vi.fn(),
+}))
+
+const tts = {
+  speakMessage: vi.fn(),
+  stop: vi.fn(),
+  isEnabled: true,
+  isPlaying: false,
+  isLoading: false,
+  activeMessageId: null as string | null,
+}
+
+vi.mock('@/hooks/useTTS', () => ({
+  useTTS: mocks.useTTS,
 }))
 
 const apiMocks = vi.hoisted(() => ({
@@ -108,6 +122,47 @@ function clickLink(name: string) {
   fireEvent(link, event)
   return event
 }
+
+beforeEach(() => {
+  mocks.useTTS.mockReturnValue(tts)
+})
+
+describe('RunDetailPanel read aloud', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.useMarkScheduleRunViewed.mockReturnValue({ mutate: vi.fn(), isPending: false })
+    mocks.getRepo.mockResolvedValue(repo)
+  })
+
+  it('reads the run output aloud', () => {
+    mocks.useTTS.mockReturnValue(tts)
+    renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Read aloud' }))
+
+    expect(tts.speakMessage).toHaveBeenCalledWith('schedule-run-1', run.responseText)
+  })
+
+  it('stops playback when this run is playing', () => {
+    mocks.useTTS.mockReturnValue({ ...tts, isPlaying: true, activeMessageId: 'schedule-run-1' })
+    renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop playback' }))
+
+    expect(tts.stop).toHaveBeenCalled()
+  })
+
+  it('hides the button without output or when TTS is disabled', () => {
+    mocks.useTTS.mockReturnValue(tts)
+    const empty = renderPanel({ ...run, responseText: null })
+    expect(screen.queryByRole('button', { name: 'Read aloud' })).not.toBeInTheDocument()
+    empty.unmount()
+
+    mocks.useTTS.mockReturnValue({ ...tts, isEnabled: false })
+    renderPanel()
+    expect(screen.queryByRole('button', { name: 'Read aloud' })).not.toBeInTheDocument()
+  })
+})
 
 describe('RunDetailPanel local link handling', () => {
   beforeEach(() => {

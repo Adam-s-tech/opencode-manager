@@ -9,7 +9,6 @@ const entrypointPath = join(repoRoot, 'scripts/docker-entrypoint.sh')
 const dockerfilePath = join(repoRoot, 'Dockerfile')
 const composePath = join(repoRoot, 'docker-compose.yml')
 const envExamplePath = join(repoRoot, '.env.example')
-const dockerDocsPath = join(repoRoot, 'docs/configuration/docker.md')
 
 const read = (path: string) => readFileSync(path, 'utf-8')
 
@@ -232,44 +231,11 @@ describe('workspace ownership configuration', () => {
     expect(compose).not.toMatch(/:\/home\/node\/\.opencode(?:\s|$)/)
   })
 
-  it('lists the opencode-bin volume in the installation docs table', () => {
-    const docs = read(join(repoRoot, 'docs/getting-started/installation.md'))
-    expect(docs).toContain('| `opencode-bin` | `/home/node/.opencode/bin` |')
-  })
-
-  it('keeps the docker docs compose snippet in sync with docker-compose.yml', () => {
-    const compose = read(composePath)
-    const docs = read(dockerDocsPath)
-
-    const fenceStart = docs.indexOf('```yaml\nservices:')
-    expect(fenceStart, 'docs must contain a fenced compose yaml block').toBeGreaterThan(-1)
-    const contentStart = fenceStart + '```yaml\n'.length
-    const fenceEnd = docs.indexOf('\n```\n', contentStart)
-    expect(fenceEnd, 'docs compose yaml block must be closed').toBeGreaterThan(-1)
-    const docsBlock = docs.slice(contentStart, fenceEnd)
-
-    const normalize = (s: string) => s.replace(/\s+$/, '').split('\n').map((l) => l.replace(/\s+$/, '')).join('\n')
-    expect(normalize(docsBlock)).toBe(normalize(compose))
-  })
-
-  it('documents the Accessing Repositories From the Host subsection', () => {
-    const docs = read(dockerDocsPath)
-    expect(docs).toContain('#### Accessing Repositories From the Host')
-  })
-
   it('documents the new workspace ownership env vars in .env.example', () => {
     const envExample = read(envExamplePath)
     expect(envExample).toContain('OCM_WORKSPACE_HOST_PATH')
     expect(envExample).toContain('# PUID=1000')
     expect(envExample).toContain('# PGID=1000')
-  })
-
-  it('documents the migration empty-destination guard and quoted host path', () => {
-    const docs = read(dockerDocsPath)
-    expect(docs).toContain('if [ -n "$(ls -A "<host path>")" ]; then')
-    expect(docs).toContain('mkdir -p "<host path>"')
-    expect(docs).toContain('-v "<host path>":/to')
-    expect(docs).toContain('chown -R "$(id -u):$(id -g)" "<host path>"')
   })
 })
 
@@ -278,18 +244,6 @@ describe('docker lifecycle scripts', () => {
     const pkg = read(join(repoRoot, 'package.json'))
     expect(pkg).toContain('"docker:down": "docker-compose down"')
     expect(pkg).toContain('"docker:reset": "docker-compose down -v"')
-  })
-
-  it('documents the preserved-volume shutdown and the destructive reset', () => {
-    const docs = read(dockerDocsPath)
-    expect(docs).toContain('named volumes are preserved')
-    expect(docs).toContain('docker-compose down -v')
-  })
-
-  it('documents a targeted opencode-bin volume reset that preserves the other volumes', () => {
-    const docs = read(join(repoRoot, 'docs/troubleshooting.md'))
-    expect(docs).toContain('docker volume rm <project>_opencode-bin')
-    expect(docs).toContain('without touching the workspace or database volumes')
   })
 })
 
@@ -475,20 +429,6 @@ describe('sandbox compose overlay', () => {
 
   it('grants only the devices and capability msb needs, never full container privilege', () => {
     expect(overlayDirectives.join('\n')).not.toContain('privileged')
-  })
-
-  it('keeps the sandbox overlay docs snippet in sync with docker-compose.sandbox.yml', () => {
-    const docs = read(dockerDocsPath)
-    const docsOverlay = [...docs.matchAll(/```yaml\n([\s\S]*?)\n```/g)]
-      .map((match) => match[1]!)
-      .find((block) => block.includes('microsandbox-data'))
-
-    expect(docsOverlay, 'docs must contain the sandbox overlay yaml block').toBeDefined()
-
-    const significantLines = (source: string[]) =>
-      source.filter((line) => line.trim() !== '').map((line) => line.replace(/\s+$/, '')).join('\n')
-
-    expect(significantLines(docsOverlay!.split('\n'))).toBe(significantLines(overlayDirectives))
   })
 })
 

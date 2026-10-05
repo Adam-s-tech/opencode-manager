@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getRepo } from "@/api/repos"
 import { useCreateSession } from "@/hooks/useOpenCode"
 import { useDialogParam } from "@/hooks/useDialogParam"
+import { useTerminalDialogParam } from "@/hooks/useOpenTerminal"
 import { useSSE } from "@/hooks/useSSE"
 import { getSessionPath } from "@/lib/navigation"
 import { Button } from "@/components/ui/button"
@@ -12,6 +13,8 @@ import { FileBrowserSheet } from "@/components/file-browser/FileBrowserSheet"
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog"
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog"
 import { SourceControlPanel } from "@/components/source-control"
+import { TerminalPanel } from "@/components/terminal/TerminalPanel"
+import { PreviewPanel } from "@/components/preview/PreviewPanel"
 import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog"
 import { PendingActionsGroup } from "@/components/notifications/PendingActionsGroup"
 import { Plus } from "lucide-react"
@@ -23,6 +26,8 @@ export function AssistantRedirect() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp')
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills')
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl')
+  const [terminalOpen, setTerminalOpen] = useTerminalDialogParam()
+  const [previewOpen, setPreviewOpen] = useDialogParam('preview')
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions')
 
   const { data: repo, isLoading: repoLoading, error: repoError } = useQuery({
@@ -92,6 +97,8 @@ export function AssistantRedirect() {
             />
           )}
           <SourceControlPanel repoId={repoId} isOpen={sourceControlOpen} onClose={() => setSourceControlOpen(false)} currentBranch={repo?.currentBranch || repo?.branch || "main"} repoName="Assistant" />
+          <TerminalPanel repoId={0} directory={assistantDirectory} isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
+          <PreviewPanel isOpen={previewOpen} onClose={() => setPreviewOpen(false)} directory={assistantDirectory} />
           <ResetPermissionsDialog open={resetPermissionsOpen} onOpenChange={setResetPermissionsOpen} repoId={repoId} />
         </>
       )}

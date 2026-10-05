@@ -1,13 +1,22 @@
 import { useState, useEffect } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { AlertCircle, GitBranch, Loader2 } from 'lucide-react'
-import { createRepo, listBranches } from '@/api/repos'
+import { createRepo, type CreateRepoOptions, type GitBranch as RepoBranch } from '@/api/repos'
+import { dialogSearch } from '@/hooks/useDialogParam'
 import { showToast } from '@/lib/toast'
+import { notifyWorktreeSetup } from '@/lib/worktreeSetup'
 import { invalidateRepoGitCaches } from '@/lib/queryInvalidation'
+import { getOriginOnlyBranchNames } from '@/lib/utils'
+import { useRepoBranches } from '@/hooks/useRepoBranches'
+import { BranchCombobox } from './BranchCombobox'
+
+function isCheckoutCandidate(branch: RepoBranch): boolean {
+  return !branch.current && !branch.isWorktree
+}
 
 interface CreateWorktreeDialogProps {
   open: boolean
@@ -16,6 +25,13 @@ interface CreateWorktreeDialogProps {
   repoUrl?: string | null
   defaultBaseBranch?: string
   onCreated?: () => void
+}
+
+type WorktreeMode = 'new' | 'existing'
+
+interface WorktreePayload {
+  branch: string
+  base?: string
 }
 
 export function CreateWorktreeDialog({
@@ -27,29 +43,36 @@ export function CreateWorktreeDialog({
   onCreated,
 }: CreateWorktreeDialogProps) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const [mode, setMode] = useState<WorktreeMode>('new')
   const [branchName, setBranchName] = useState('')
   const [baseBranch, setBaseBranch] = useState<string>('')
+  const [existingBranch, setExistingBranch] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
   const canCreate = Boolean(repoUrl)
 
-  const { data: branchesData, isLoading: branchesLoading } = useQuery({
-    queryKey: ['branches', repoId],
-    queryFn: () => listBranches(repoId),
-    enabled: open && canCreate,
-    staleTime: 30000,
-  })
+  const { data: branchesData } = useRepoBranches(repoId, open && canCreate)
 
   const localBranches = (branchesData?.branches ?? []).filter((b) => b.type === 'local')
-  const remoteBranches = (branchesData?.branches ?? [])
-    .filter((b) => b.type === 'remote')
-    .map((b) => ({ ...b, shortName: b.name.replace(/^remotes\/[^/]+\//, '') }))
-    .filter((b) => !localBranches.some((lb) => lb.name === b.shortName))
+
+  const remoteBranchNames = getOriginOnlyBranchNames(branchesData?.branches ?? [])
+
+  const existingBranchNames = new Set([
+    ...localBranches.map((b) => b.name),
+    ...remoteBranchNames,
+  ])
+
+  const trimmedBranchName = branchName.trim()
+  const newBranchConflict =
+    mode === 'new' && trimmedBranchName.length > 0 && existingBranchNames.has(trimmedBranchName)
 
   useEffect(() => {
     if (!open) {
+      setMode('new')
       setBranchName('')
       setBaseBranch('')
+      setExistingBranch('')
       setError(null)
       return
     }
@@ -59,18 +82,26 @@ export function CreateWorktreeDialog({
   }, [open, defaultBaseBranch])
 
   const worktreeMutation = useMutation({
-    mutationFn: (payload: { branch: string; base: string }) =>
-      createRepo({
+    mutationFn: (payload: WorktreePayload) => {
+      const options: CreateRepoOptions = {
         repoUrl: repoUrl || undefined,
         branch: payload.branch,
         useWorktree: true,
-        baseBranch: payload.base,
-      }),
-    onSuccess: () => {
+      }
+      if (payload.base) {
+        options.baseBranch = payload.base
+      }
+      return createRepo(options)
+    },
+    onSuccess: (repo) => {
       invalidateRepoGitCaches(queryClient, repoId)
       showToast.success('Worktree created')
       onCreated?.()
       onOpenChange(false)
+      notifyWorktreeSetup(repo.worktreeSetup)
+      if (repo.worktreeSetup?.status === 'started') {
+        navigate(`/repos/${repo.id}${dialogSearch('terminal', { terminal: repo.worktreeSetup.terminal.id })}`)
+      }
     },
     onError: (err) => {
       setError(err instanceof Error ? err.message : 'Failed to create worktree')
@@ -78,9 +109,22 @@ export function CreateWorktreeDialog({
   })
 
   const handleCreate = () => {
-    const trimmed = branchName.trim()
-    if (!trimmed) {
+    if (mode === 'existing') {
+      if (!existingBranch) {
+        setError('Select a branch to check out')
+        return
+      }
+      setError(null)
+      worktreeMutation.mutate({ branch: existingBranch })
+      return
+    }
+
+    if (!trimmedBranchName) {
       setError('Branch name is required')
+      return
+    }
+    if (newBranchConflict) {
+      setError('Use Existing branch instead')
       return
     }
     if (!baseBranch) {
@@ -88,8 +132,20 @@ export function CreateWorktreeDialog({
       return
     }
     setError(null)
-    worktreeMutation.mutate({ branch: trimmed, base: baseBranch })
+    worktreeMutation.mutate({ branch: trimmedBranchName, base: baseBranch })
   }
+
+  const selectMode = (nextMode: WorktreeMode) => {
+    setMode(nextMode)
+    setError(null)
+  }
+
+  const canSubmit =
+    canCreate &&
+    !worktreeMutation.isPending &&
+    (mode === 'new'
+      ? Boolean(trimmedBranchName) && Boolean(baseBranch) && !newBranchConflict
+      : Boolean(existingBranch))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -100,7 +156,7 @@ export function CreateWorktreeDialog({
             Create Worktree
           </DialogTitle>
           <DialogDescription>
-            Create a separate workspace for a new branch. The worktree is managed as its own repo entry.
+            Create a separate workspace for a new or existing branch. The worktree is managed as its own repo entry.
           </DialogDescription>
         </DialogHeader>
 
@@ -114,56 +170,78 @@ export function CreateWorktreeDialog({
             </div>
           ) : (
             <>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">New branch name</label>
-                <Input
-                  placeholder="feature/my-branch"
-                  value={branchName}
-                  onChange={(e) => setBranchName(e.target.value)}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !worktreeMutation.isPending) handleCreate()
-                  }}
-                />
+              <div className="grid grid-cols-2 gap-1 rounded-md border border-border p-1">
+                <Button
+                  type="button"
+                  variant={mode === 'new' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  aria-pressed={mode === 'new'}
+                  onClick={() => selectMode('new')}
+                >
+                  New branch
+                </Button>
+                <Button
+                  type="button"
+                  variant={mode === 'existing' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  aria-pressed={mode === 'existing'}
+                  onClick={() => selectMode('existing')}
+                >
+                  Existing branch
+                </Button>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">Base branch</label>
-                <Select value={baseBranch} onValueChange={setBaseBranch} disabled={branchesLoading}>
-                  <SelectTrigger className="bg-background border-border text-foreground">
-                    <SelectValue placeholder={branchesLoading ? 'Loading branches...' : 'Select a base branch'} />
-                  </SelectTrigger>
-                  <SelectContent className="bg-popover border-border">
-                    {localBranches.length > 0 && (
-                      <>
-                        {localBranches.map((branch) => (
-                          <SelectItem key={`local-${branch.name}`} value={branch.name}>
-                            <div className="flex items-center gap-2">
-                              <GitBranch className="w-3.5 h-3.5" />
-                              <span>{branch.name}</span>
-                              {branch.current && (
-                                <span className="text-xs text-muted-foreground">(current)</span>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </>
+              {mode === 'new' ? (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">New branch name</label>
+                    <Input
+                      placeholder="feature/my-branch"
+                      value={branchName}
+                      onChange={(e) => setBranchName(e.target.value)}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !worktreeMutation.isPending) handleCreate()
+                      }}
+                    />
+                    {newBranchConflict && (
+                      <p className="text-xs text-destructive">Use Existing branch instead</p>
                     )}
-                    {remoteBranches.map((branch) => (
-                      <SelectItem key={`remote-${branch.name}`} value={branch.shortName}>
-                        <div className="flex items-center gap-2">
-                          <GitBranch className="w-3.5 h-3.5 text-info" />
-                          <span>{branch.shortName}</span>
-                          <span className="text-xs text-muted-foreground">(remote)</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  The new branch will be created from this branch. Ignored if the branch name already exists locally or on the remote.
-                </p>
-              </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Base branch</label>
+                    <BranchCombobox
+                      repoId={repoId}
+                      enabled={open && canCreate}
+                      value={baseBranch}
+                      onValueChange={setBaseBranch}
+                      placeholder="Select a base branch"
+                      ariaLabel="Base branch"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      The new branch will be created from this branch.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Branch to check out</label>
+                  <BranchCombobox
+                    repoId={repoId}
+                    enabled={open && canCreate}
+                    value={existingBranch}
+                    onValueChange={setExistingBranch}
+                    placeholder="Select a branch to check out"
+                    include={isCheckoutCandidate}
+                    remotes="bare"
+                    ariaLabel="Branch to check out"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The worktree will check out the selected branch. Remote branches are limited to origin.
+                  </p>
+                </div>
+              )}
             </>
           )}
 
@@ -184,7 +262,7 @@ export function CreateWorktreeDialog({
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={!canCreate || !branchName.trim() || !baseBranch || worktreeMutation.isPending}
+              disabled={!canSubmit}
               className="bg-primary hover:bg-primary-hover disabled:opacity-50"
             >
               {worktreeMutation.isPending ? (

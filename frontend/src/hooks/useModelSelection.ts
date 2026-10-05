@@ -23,6 +23,16 @@ const isSameModel = (left: ModelSelection, right: ModelSelection) => (
   left.providerID === right.providerID && left.modelID === right.modelID
 )
 
+export function useOpenCodeModelState(directory?: string, enabled = true) {
+  return useQuery({
+    queryKey: [...modelStateQueryKey, directory],
+    queryFn: () => getOpenCodeModelState(),
+    staleTime: 30000,
+    placeholderData: keepPreviousData,
+    enabled,
+  })
+}
+
 export function useModelSelection(directory?: string): UseModelSelectionResult {
   const queryClient = useQueryClient()
   
@@ -37,12 +47,7 @@ export function useModelSelection(directory?: string): UseModelSelectionResult {
     getModelString 
   } = useModelStore()
 
-  const { data: modelState, isLoading: isModelStateLoading } = useQuery({
-    queryKey: [...modelStateQueryKey, directory],
-    queryFn: () => getOpenCodeModelState(),
-    staleTime: 30000,
-    placeholderData: keepPreviousData,
-  })
+  const { data: modelState, isLoading: isModelStateLoading } = useOpenCodeModelState(directory)
 
   const { data: configModelString, isLoading: isConfigModelLoading } = useQuery({
     queryKey: ['opencode', 'config', 'model', directory],

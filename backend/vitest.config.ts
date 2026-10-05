@@ -29,6 +29,7 @@ export default defineConfig({
       DATABASE_PATH: ':memory:',
       AUTH_SECRET: 'test-secret-for-encryption',
       WORKSPACE_PATH: '/tmp/test-workspace',
+      MSB_PATH: 'msb',
     },
   },
   resolve: {

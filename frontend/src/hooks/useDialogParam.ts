@@ -1,17 +1,42 @@
 import { useCallback } from 'react'
 import { useUrlParams } from './useUrlParams'
 
+function setDialogParams(
+  params: URLSearchParams,
+  name: string,
+  extraParams?: Record<string, string>,
+): void {
+  params.set('dialog', name)
+  if (extraParams) {
+    for (const [key, value] of Object.entries(extraParams)) {
+      params.set(key, value)
+    }
+  }
+}
+
+export function dialogSearch(name: string, extraParams?: Record<string, string>): string {
+  const params = new URLSearchParams()
+  setDialogParams(params, name, extraParams)
+  return `?${params.toString()}`
+}
+
 export function openDialogParam(
   updateParams: ReturnType<typeof useUrlParams>['updateParams'],
   name: string,
+  extraParams?: Record<string, string>,
 ): void {
   updateParams((p) => {
-    p.set('dialog', name)
+    setDialogParams(p, name, extraParams)
     p.delete('mobileTab')
   }, 'push')
 }
 
-export function useDialogParam(name: string): [boolean, (open: boolean) => void] {
+const NO_OWNED_PARAMS: readonly string[] = []
+
+export function useDialogParam(
+  name: string,
+  ownedParams: readonly string[] = NO_OWNED_PARAMS,
+): [boolean, (open: boolean) => void] {
   const { searchParams, updateParams } = useUrlParams()
 
   const isOpen = searchParams.get('dialog') === name
@@ -23,12 +48,12 @@ export function useDialogParam(name: string): [boolean, (open: boolean) => void]
         return
       }
       updateParams((p) => {
-        if (p.get('dialog') === name) {
-          p.delete('dialog')
-        }
+        if (p.get('dialog') !== name) return
+        p.delete('dialog')
+        for (const param of ownedParams) p.delete(param)
       }, 'replace')
     },
-    [updateParams, name],
+    [updateParams, name, ownedParams],
   )
 
   return [isOpen, setOpen]

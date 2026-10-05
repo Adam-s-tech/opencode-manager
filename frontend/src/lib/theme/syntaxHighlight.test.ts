@@ -1,16 +1,7 @@
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import indexCss from '../../index.css?raw'
+import textPart from '../../components/message/TextPart.tsx?raw'
 import { describe, expect, it } from 'vitest'
 import { resolveColorThemeTokens } from './colorTheme'
-
-const themeDir = path.dirname(fileURLToPath(import.meta.url))
-
-const indexCss = readFileSync(path.resolve(themeDir, '../../index.css'), 'utf8')
-const textPart = readFileSync(
-  path.resolve(themeDir, '../../components/message/TextPart.tsx'),
-  'utf8',
-)
 
 function countOccurrences(source: string, needle: string): number {
   return source.split(needle).length - 1

@@ -1,8 +1,10 @@
 import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import type { ZodType } from 'zod'
 import { ClientError, openCodeErrorStatus } from '@opencode-manager/shared/opencode'
 import { isOAuthErrorCode } from '@opencode-manager/shared/schemas'
 import { getErrorMessage } from './error-utils'
+import { parseGitError } from './git-errors'
 import { logger } from './logger'
 
 export function parseId(value: string | undefined, label?: string, ErrorClass?: new (message: string, status: number) => Error): number {
@@ -25,6 +27,8 @@ interface ServiceError {
   message: string
   statusCode?: number
   status?: number
+  code?: string
+  details?: unknown
 }
 
 type ServiceErrorConstructor = new (message: string, statusOrStatusCode: number) => ServiceError
@@ -36,14 +40,41 @@ export function handleServiceError(
   ErrorClass: ServiceErrorConstructor,
 ) {
   if (error instanceof ErrorClass) {
-    const status = (error as ServiceError).statusCode ?? (error as ServiceError).status ?? 500
-    return c.json({ error: error.message }, status as ContentfulStatusCode)
+    const serviceError = error as ServiceError
+    const status = serviceError.statusCode ?? serviceError.status ?? 500
+    return c.json(
+      {
+        error: error.message,
+        ...(serviceError.code !== undefined ? { code: serviceError.code } : {}),
+        ...(serviceError.details !== undefined ? { details: serviceError.details } : {}),
+      },
+      status as ContentfulStatusCode,
+    )
   }
   logger.error(fallback, error)
   return c.json({ error: getErrorMessage(error) }, 500)
 }
 
-export function handleOpenCodeError(c: Context, error: unknown, fallback: string) {
+export function respondWithGitError(c: Context, error: unknown, logMessage: string) {
+  logger.error(logMessage, error)
+  const gitError = parseGitError(error)
+  return c.json(
+    {
+      error: gitError.summary,
+      detail: gitError.detail,
+      code: gitError.code,
+      ...(gitError.details ? { details: gitError.details } : {}),
+    },
+    gitError.statusCode as ContentfulStatusCode
+  )
+}
+
+export function handleOpenCodeError(
+  c: Context,
+  error: unknown,
+  fallback: string,
+  options?: { unknownStatus?: 500 | 502 },
+) {
   if (error instanceof Error) {
     const tag = (error as { _tag?: unknown })._tag
     if (typeof tag === 'string') {
@@ -59,5 +90,43 @@ export function handleOpenCodeError(c: Context, error: unknown, fallback: string
   }
 
   logger.error(fallback, error)
+  const status = options?.unknownStatus ?? 500
+  if (status === 502) {
+    return c.json({ error: getErrorMessage(error) || fallback }, 502)
+  }
   return c.json({ error: fallback }, 500)
+}
+
+export type JsonBodyResult<T> = { ok: true; data: T } | { ok: false; response: Response }
+
+export async function parseJsonBody<T>(
+  c: Context,
+  schema: ZodType<T>,
+  options?: { allowEmpty?: boolean },
+): Promise<JsonBodyResult<T>> {
+  const text = await c.req.text()
+
+  let value: unknown
+  if (!text.trim()) {
+    if (!options?.allowEmpty) {
+      return { ok: false, response: c.json({ error: 'Invalid JSON' }, 400) }
+    }
+    value = {}
+  } else {
+    try {
+      value = JSON.parse(text)
+    } catch {
+      return { ok: false, response: c.json({ error: 'Invalid JSON' }, 400) }
+    }
+  }
+
+  const parsed = schema.safeParse(value)
+  if (!parsed.success) {
+    return {
+      ok: false,
+      response: c.json({ error: parsed.error.issues[0]?.message || 'Invalid request body', details: parsed.error.issues }, 400),
+    }
+  }
+
+  return { ok: true, data: parsed.data }
 }

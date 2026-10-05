@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
+import { TTSButton } from '@/components/ui/tts-button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScheduleRunMarkdown } from '@/components/schedules/ScheduleRunMarkdown'
 import { FileBrowserSheet } from '@/components/file-browser/FileBrowserSheet'
@@ -102,6 +103,7 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
             <TabsTrigger value="error" disabled={!activeRun.errorText} className="rounded-none border-b-2 border-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">{activeRun.status === 'cancelled' ? 'Details' : 'Error'}</TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-2 py-1">
+            {activeRun.responseText && <TTSButton messageId={`schedule-run-${activeRun.id}`} content={activeRun.responseText} />}
             {(sessionId || opensNewRepoSession) && (
               <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { void handleOpenSession() }} disabled={openingSession || (opensNewRepoSession && !repo)}>
                 {openingSession ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}

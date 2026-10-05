@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { CreateScheduleJobRequest, PromptTemplate, ScheduleJob, ScheduleMcpServer } from '@opencode-manager/shared/types'
 import { useScheduleModels } from '@/hooks/useScheduleModels'
+import { providerModelRef } from '@/api/providers'
 import { resolveScheduleModel } from '@/lib/schedules/schedule-model'
 import { useAgents } from '@/hooks/useOpenCode'
 import { useScheduleTarget } from '@/hooks/useScheduleTarget'
 import { settingsApi } from '@/api/settings'
 import { mcpApi } from '@/api/mcp'
-import { listRepos, listBranches } from '@/api/repos'
+import { listRepos } from '@/api/repos'
 import type { Repo } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import type { ComboboxOption } from '@/components/ui/combobox'
@@ -112,28 +113,6 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
     staleTime: 5 * 60 * 1000,
   })
 
-  const branchesEnabled = open && effectiveRepoId !== undefined && effectiveRepoId !== ASSISTANT_REPO_ID
-
-  const { data: branchData, isLoading: branchesLoading } = useQuery({
-    queryKey: ['branches', effectiveRepoId],
-    queryFn: () => listBranches(effectiveRepoId!),
-    enabled: branchesEnabled,
-    staleTime: 60 * 1000,
-  })
-
-  const branchOptions = useMemo<ComboboxOption[]>(() => {
-    const names = new Set<string>()
-    for (const gitBranch of branchData?.branches ?? []) {
-      const name = gitBranch.name.replace(/^remotes\/[^/]+\//, '')
-      if (name && name !== 'HEAD') {
-        names.add(name)
-      }
-    }
-    return Array.from(names)
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => ({ value: name, label: name }))
-  }, [branchData])
-
   const repoOptions = useMemo<ComboboxOption[]>(() => {
     const assistantOption: ComboboxOption = {
       value: ASSISTANT_REPO_ID.toString(),
@@ -161,7 +140,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
       const providerModel = provider?.models.find((m) => m.key === modelId || m.id === modelId)
       configuredValues.add(configDefaultModel)
       if (providerModel) {
-        configuredValues.add(`${providerId}/${providerModel.key ?? providerModel.id}`)
+        configuredValues.add(providerModelRef({ id: providerId }, providerModel))
         configuredValues.add(`${providerId}/${providerModel.id}`)
       }
       configuredModels.push({
@@ -174,11 +153,11 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
 
     const allModels = providerModels.flatMap((provider) =>
       provider.models
-        .filter((providerModel) => !configuredValues.has(`${provider.id}/${providerModel.key ?? providerModel.id}`))
+        .filter((providerModel) => !configuredValues.has(providerModelRef(provider, providerModel)))
         .map((providerModel) => ({
-          value: `${provider.id}/${providerModel.key ?? providerModel.id}`,
+          value: providerModelRef(provider, providerModel),
           label: providerModel.name || providerModel.key || providerModel.id,
-          description: `${provider.id}/${providerModel.key ?? providerModel.id}`,
+          description: providerModelRef(provider, providerModel),
           group: provider.name,
         })),
     )
@@ -351,8 +330,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
             onEnabledChange={setEnabled}
             branch={branch}
             onBranchChange={setBranch}
-            branchOptions={branchOptions}
-            branchesLoading={branchesEnabled && branchesLoading}
+            branchRepoId={open && effectiveRepoId !== ASSISTANT_REPO_ID ? effectiveRepoId : undefined}
             showRepoSelector={showRepoSelector}
             isEditing={!!job}
             repoId={selectedRepoId}

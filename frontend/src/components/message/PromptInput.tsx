@@ -17,9 +17,10 @@ import { useMobile } from '@/hooks/useMobile'
 import { FINE_POINTER_MEDIA_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 
 import { usePermissions } from '@/contexts/EventContext'
-import { ArrowDown, Upload, X, Mic, MicOff } from 'lucide-react'
+import { ArrowDown, Upload, X, Mic, MicOff, Target } from 'lucide-react'
 
 import { SquareFill } from '@/components/ui/square-fill'
+import { IconToggleButton } from '@/components/ui/icon-toggle-button'
 
 import { CommandSuggestions } from '@/components/command/CommandSuggestions'
 import { MentionSuggestions, type MentionItem } from './MentionSuggestions'
@@ -27,6 +28,10 @@ import { SessionStatusIndicator } from '@/components/ui/session-status-indicator
 import { ModelQuickSelect } from '@/components/model/ModelQuickSelect'
 import { AgentQuickSelect } from '@/components/agent/AgentQuickSelect'
 import { VoiceStatusOverlay, type VoiceStatusOverlayState } from './VoiceStatusOverlay'
+import { PermissionModeToggle } from '@/components/session/PermissionModeToggle'
+import { ComposerToolsMenu } from './ComposerToolsMenu'
+import { useSessionGoal, useStartSessionGoal } from '@/hooks/useSessionGoals'
+import { useSessionPermissionMode } from '@/hooks/useSessionPermissionMode'
 import { detectMentionTrigger, parsePromptToInput, getFilename, filterAgentsByQuery } from '@/lib/promptParser'
 import { getNextPrimaryAgentId } from '@/lib/primaryAgents'
 import { randomId } from '@/lib/utils'
@@ -92,6 +97,7 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
 }, ref) {
   const [prompt, setPrompt] = useState('')
   const [isBashMode, setIsBashMode] = useState(false)
+  const [isGoalArmed, setIsGoalArmed] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [suggestionQuery, setSuggestionQuery] = useState('')
   const [attachedFiles, setAttachedFiles] = useState(new Map<string, FileAttachmentInfo>())
@@ -196,6 +202,10 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     clearSubmittedPrompt(pending.prompt, pending.files, pending.images)
   }, [isStreamingResponse, clearSubmittedPrompt])
 
+  const openFilePicker = useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
   useImperativeHandle(ref, () => ({
     setPromptValue: (value: string) => {
       setPrompt(value)
@@ -214,20 +224,21 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
       }
       textareaRef.current?.focus()
     },
-    triggerFileUpload: () => {
-      fileInputRef.current?.click()
-    },
+    triggerFileUpload: openFilePicker,
     openModelPicker: () => {
       setIsModelPickerOpen(true)
     }
-  }), [imageAttachments, clearSTT, isRecording, abortRecording, resetVoiceGestureState])
+  }), [imageAttachments, clearSTT, isRecording, abortRecording, resetVoiceGestureState, openFilePicker])
   const sessionAgent = useSessionAgent(sessionID, directory)
   const currentMode = localMode ?? sessionAgent.agent
   const setStoredAgent = useSessionAgentStore((s) => s.setAgent)
   const sendPrompt = useSendPrompt(directory)
   const sendShell = useSendShell(directory)
-  const isPromptSubmitPending = sendPrompt.isPending || sendShell.isPending
+  const startGoal = useStartSessionGoal()
+  const isPromptSubmitPending = sendPrompt.isPending || sendShell.isPending || startGoal.isPending
   const interruptSession = useInterruptSession()
+  const { data: sessionGoal } = useSessionGoal(sessionID)
+  const { data: permissionMode } = useSessionPermissionMode(sessionID)
   const { filterCommands } = useCommands({ directory })
   const isExactCommandPrompt = (value: string) => {
     const commandPrompt = parseCommandPrompt(value)
@@ -290,8 +301,20 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
 
   const addUserBashCommand = useUserBash((s) => s.addUserBashCommand)
 
-  const handleSubmit = () => {
+  const startArmedGoal = async (objective: string): Promise<boolean> => {
+    if (!directory || !objective.trim()) return true
+    try {
+      await startGoal.mutateAsync({ sessionId: sessionID, directory, objective })
+    } catch {
+      return false
+    }
+    setIsGoalArmed(false)
+    return true
+  }
+
+  const handleSubmit = async () => {
     if (!prompt.trim() && imageAttachments.length === 0) return
+    if (startGoal.isPending) return
 
     pendingVoiceAutoSubmitRef.current = false
     setIsVoiceAutoSendPending(false)
@@ -302,6 +325,10 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
       const submittedPrompt = prompt
       const submittedAttachedFiles = attachedFiles
       const submittedImageAttachments = imageAttachments
+      if (isGoalArmed && !isBashMode && !isExactCommandPrompt(prompt)) {
+        const goalStarted = await startArmedGoal(parsed.text)
+        if (!goalStarted) return
+      }
       sendPrompt.mutate(
         {
           sessionID,
@@ -383,6 +410,11 @@ export const PromptInput = memo(forwardRef<PromptInputHandle, PromptInputProps>(
     const submittedPrompt = prompt
     const submittedAttachedFiles = attachedFiles
     const submittedImageAttachments = imageAttachments
+
+    if (isGoalArmed) {
+      const goalStarted = await startArmedGoal(parsed.text)
+      if (!goalStarted) return
+    }
 
     pendingConfirmClearRef.current = {
       prompt: submittedPrompt,
@@ -1147,6 +1179,19 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
   const showStopButton = isSessionActive
   const hideSecondaryButtons = isMobile && isSessionActive
   const showMobileScrollButton = isMobile && showScrollButton
+  const hasOpenGoal = sessionGoal?.status === 'active' || sessionGoal?.status === 'paused'
+  const lockedReason = permissionMode?.lockedReason ?? null
+  const goalButtonLabel = lockedReason === 'schedule'
+    ? 'Scheduled runs cannot run goals'
+    : lockedReason === 'child'
+      ? 'Goals can only be started on top-level sessions'
+      : hasOpenGoal
+        ? 'A goal is already active for this session'
+        : isGoalArmed
+          ? 'Goal mode armed: the next message becomes the objective'
+          : 'Goal mode: the next message becomes the objective'
+  const isGoalModeDisabled = lockedReason !== null || hasOpenGoal || isBashMode || startGoal.isPending
+  const toggleGoalArmed = () => setIsGoalArmed((value) => !value)
   const voiceFeedbackState: VoiceStatusOverlayState | null = isTogglingRecording
     ? 'starting'
     : isProcessing
@@ -1260,6 +1305,7 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
     lastAddedTranscriptRef.current = ''
     setIsTogglingRecording(false)
     setLocalMode(null)
+    setIsGoalArmed(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally only run on sessionID change to avoid clearing transcript when recording state changes
   }, [sessionID])
 
@@ -1269,16 +1315,6 @@ if (isIOS && isSecureContext && navigator.clipboard && navigator.clipboard.read)
 
 return (
     <div className={`relative backdrop-blur-md bg-background opacity-95 border border-border dark:border-border/30 rounded-xl p-2 md:p-3 mb-4 md:mb-1 w-full transition-all ${hasPendingPermissionForSession ? 'border-highlight/50 ring-1 ring-highlight/30' : ''}`}>
-      {showStopButton && (
-        <button
-          onClick={handleStop}
-          className="absolute bottom-full right-0 mb-2 md:hidden z-50 p-3 rounded-xl transition-all duration-200 active:scale-95 hover:scale-105 bg-destructive hover:bg-destructive/90 text-destructive-foreground border border-destructive/60 shadow-lg shadow-destructive/30"
-          title="Stop"
-        >
-          <SquareFill className="w-5 h-5" />
-        </button>
-      )}
-
       <textarea
         ref={textareaRef}
         value={prompt}
@@ -1354,6 +1390,19 @@ return (
                 onAgentChange={handleAgentChange}
                 isBashMode={isBashMode}
               />
+              {directory && !isMobile && (
+                <>
+                  <PermissionModeToggle sessionID={sessionID} directory={directory} />
+                  <IconToggleButton
+                    active={isGoalArmed}
+                    label={goalButtonLabel}
+                    disabled={isGoalModeDisabled}
+                    onClick={toggleGoalArmed}
+                  >
+                    <Target className="w-5 h-5" />
+                  </IconToggleButton>
+                </>
+              )}
               {isSessionActive && (
                 <div className="px-2.5 py-1.5 md:px-3 md:py-2 rounded-lg text-xs md:text-sm font-medium text-muted-foreground max-w-[120px] md:max-w-[180px]">
                   <SessionStatusIndicator sessionID={sessionID} showLabel />
@@ -1366,11 +1415,11 @@ return (
               >
                 {!isSessionActive && !hideSecondaryButtons && (
                   <button
-                    className="px-2.5 py-0.5 md:px-3 min-h-[36px] min-w-0 rounded-lg text-xs md:text-sm font-medium border bg-muted border-border text-muted-foreground hover:bg-muted-foreground/10 hover:border-foreground/30 transition-colors cursor-pointer flex-1 md:flex-initial md:w-auto max-w-[110px] md:max-w-[220px] dark:border-border/30 flex flex-col items-start justify-center overflow-hidden"
+                    className="px-2.5 py-0.5 md:px-3 min-h-[36px] min-w-0 rounded-lg text-xs md:text-sm font-medium border bg-muted border-border text-muted-foreground hover:bg-muted-foreground/10 hover:border-foreground/30 transition-colors cursor-pointer flex-1 md:flex-initial md:w-auto md:max-w-[220px] dark:border-border/30 flex flex-col items-start justify-center overflow-hidden"
                   >
                     <span className="truncate w-full text-left">{displayModelName || 'Select model'}</span>
                     {hasVariants && currentVariant && (
-                      <span className="text-[10px] text-highlight truncate w-full text-center capitalize">{currentVariant}</span>
+                      <span className="text-[10px] text-highlight truncate w-full text-left capitalize">{currentVariant}</span>
                     )}
                   </button>
                 )}
@@ -1406,12 +1455,23 @@ return (
           />
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={openFilePicker}
             className="hidden md:block p-2 rounded-lg bg-muted hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-all duration-200 active:scale-95 hover:scale-105 shadow-md border border-border"
             title="Upload image or PDF"
           >
             <Upload className="w-5 h-5" />
           </button>
+          {isMobile && directory && (
+            <ComposerToolsMenu
+              sessionID={sessionID}
+              directory={directory}
+              goalArmed={isGoalArmed}
+              goalDisabled={isGoalModeDisabled}
+              goalLabel={goalButtonLabel}
+              onToggleGoal={toggleGoalArmed}
+              onAttachFile={openFilePicker}
+            />
+          )}
           {sttEnabled && sttSupported && (
             renderVoiceButton('desktop')
           )}

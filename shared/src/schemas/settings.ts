@@ -2,6 +2,8 @@ import { z } from "zod";
 import { NotificationPreferencesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from "./notifications";
 import { OPENCODE_CONFIG_SOURCE_NAMES } from "../config/defaults";
 import { ColorThemeIdSchema, MANAGER_COLOR_THEME_ID } from "../themes";
+import { SessionPermissionModeSchema } from "./session-permissions";
+import { GOAL_MAX_CONTINUATIONS_MIN, GOAL_MAX_CONTINUATIONS_MAX } from "./limits";
 
 export const CustomCommandSchema = z.object({
   name: z.string(),
@@ -106,6 +108,12 @@ export const GitIdentitySchema = z.object({
 
 export type GitIdentity = z.infer<typeof GitIdentitySchema>;
 
+export const GitIdentityProfileSchema = GitIdentitySchema.extend({
+  id: z.string().min(1),
+});
+
+export type GitIdentityProfile = z.infer<typeof GitIdentityProfileSchema>;
+
 export const ServerEnvVarSchema = z.object({
   key: z.string().min(1),
   value: z.string(),
@@ -142,6 +150,20 @@ export const DEFAULT_SANDBOX_PREFERENCES: SandboxPreferences = {
   gitCredentials: false,
 };
 
+export const SessionDefaultsSchema = z.object({
+  permissionMode: SessionPermissionModeSchema,
+  goalMaxContinuations: z.number().int().min(GOAL_MAX_CONTINUATIONS_MIN).max(GOAL_MAX_CONTINUATIONS_MAX).optional(),
+  goalTokenBudget: z.number().int().positive().optional(),
+  goalAuditorModel: z.string().optional(),
+});
+
+export type SessionDefaults = z.infer<typeof SessionDefaultsSchema>;
+
+export const DEFAULT_SESSION_DEFAULTS = {
+  permissionMode: 'ask',
+  goalMaxContinuations: 20,
+} satisfies SessionDefaults;
+
 export const UserPreferencesSchema = z.object({
   theme: z.enum(["dark", "light", "system"]),
   colorTheme: ColorThemeIdSchema.optional(),
@@ -160,6 +182,7 @@ export const UserPreferencesSchema = z.object({
   gitCredentials: z.array(GitCredentialSchema).optional(),
   defaultGitCredentialId: z.string().optional(),
   gitIdentity: GitIdentitySchema.optional(),
+  gitIdentities: z.array(GitIdentityProfileSchema).optional(),
   tts: TTSConfigSchema.optional(),
   stt: STTConfigSchema.optional(),
   notifications: NotificationPreferencesSchema.optional(),
@@ -168,6 +191,7 @@ export const UserPreferencesSchema = z.object({
   repoSortMode: z.enum(['recent', 'manual', 'name']).optional(),
   serverEnvVars: z.array(ServerEnvVarSchema).optional(),
   sandbox: SandboxPreferencesSchema.optional(),
+  sessionDefaults: SessionDefaultsSchema.optional(),
   disabledDefaultServerEnvVars: z.array(z.string()).optional(),
 });
 
@@ -220,6 +244,7 @@ export const DEFAULT_USER_PREFERENCES = {
   repoSortMode: 'recent' as const,
   serverEnvVars: [] as ServerEnvVar[],
   sandbox: DEFAULT_SANDBOX_PREFERENCES,
+  sessionDefaults: DEFAULT_SESSION_DEFAULTS,
 };
 
 export const SettingsResponseSchema = z.object({

@@ -94,6 +94,38 @@ export function SettingsList({
   )
 }
 
+interface SettingsListRowActionsMenuProps {
+  actions: SettingsListRowAction[]
+  label?: string
+}
+
+export function SettingsListRowActionsMenu({ actions, label }: SettingsListRowActionsMenuProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 [[data-opencode-settings]_&]:max-sm:h-11 [[data-opencode-settings]_&]:max-sm:w-11" aria-label={label}>
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {actions.map((action, i) => (
+          <Fragment key={action.label}>
+            {action.separatorBefore && i > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuItem
+              disabled={action.disabled}
+              onSelect={() => setTimeout(action.onClick, 0)}
+              className={action.destructive ? 'text-destructive focus:text-destructive' : undefined}
+            >
+              {action.icon}
+              {action.label}
+            </DropdownMenuItem>
+          </Fragment>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export function SettingsListRow({
   title,
   titleClassName,
@@ -136,7 +168,7 @@ export function SettingsListRow({
         {belowDescription}
       </div>
       <div
-        className="flex w-full shrink-0 items-center justify-end gap-1 sm:w-auto sm:justify-start [[data-opencode-settings]_&]:w-auto"
+        className="flex shrink-0 items-center justify-end gap-1 sm:justify-start"
         onClick={(e) => e.stopPropagation()}
       >
         {trailing}
@@ -151,28 +183,7 @@ export function SettingsListRow({
           </Button>
         )}
         {overflowActions && overflowActions.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 [[data-opencode-settings]_&]:max-sm:h-11 [[data-opencode-settings]_&]:max-sm:w-11" aria-label={actionsLabel}>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {overflowActions.map((action, i) => (
-                <Fragment key={action.label}>
-                  {action.separatorBefore && i > 0 && <DropdownMenuSeparator />}
-                  <DropdownMenuItem
-                    disabled={action.disabled}
-                    onSelect={() => setTimeout(action.onClick, 0)}
-                    className={action.destructive ? 'text-destructive focus:text-destructive' : undefined}
-                  >
-                    {action.icon}
-                    {action.label}
-                  </DropdownMenuItem>
-                </Fragment>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <SettingsListRowActionsMenu actions={overflowActions} label={actionsLabel} />
         )}
       </div>
     </div>

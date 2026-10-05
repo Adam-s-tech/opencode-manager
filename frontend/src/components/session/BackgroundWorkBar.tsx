@@ -257,7 +257,7 @@ export function BackgroundWorkBar({ sessionID, directory, messages, isSessionAct
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="ml-auto flex items-center gap-1 rounded-md border border-border bg-card/60 px-2 py-1 text-muted-foreground hover:text-foreground"
+            className="ml-auto flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-muted-foreground hover:text-foreground"
             aria-expanded={expanded}
           >
             {hasRunningTask
@@ -270,7 +270,7 @@ export function BackgroundWorkBar({ sessionID, directory, messages, isSessionAct
       </div>
 
       {expanded && tasks.length > 0 && (
-        <ul className="rounded-md border border-border bg-card/60">
+        <ul className="rounded-md border border-border bg-card">
           {tasks.map((task) => (
             <BackgroundTaskRow
               key={`${task.kind}:${task.id}`}

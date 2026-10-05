@@ -13,9 +13,13 @@ import { createInternalRepoRoutes } from './repos'
 import { createInternalRepoSyncRoutes } from './repo-sync'
 import { createInternalRepoMirrorRoutes as mirrorRoutes } from './repo-mirror'
 import { createInternalOpenCodeWorkspacesRoutes } from './opencode-workspaces'
+import { createInternalSessionRoutes } from './sessions'
 import { createInternalAssistantRoutes } from './assistant'
 import { createInternalGitCredentialsRoutes } from './git-credentials'
 import { createInternalSandboxRoutes } from './sandbox'
+import type { SessionPermissionModeService } from '../../services/session-permission-modes'
+import type { RepoWorkspaceService } from '../../services/repo-workspace'
+import type { GitAuthService } from '../../services/git-auth'
 
 export function createInternalRoutes(
   db: Database,
@@ -23,6 +27,9 @@ export function createInternalRoutes(
   notificationService: NotificationService,
   settingsService: SettingsService,
   openCodeClient: OpenCodeClient,
+  permissionModes: SessionPermissionModeService,
+  repoWorkspaces: RepoWorkspaceService,
+  gitAuthService: GitAuthService,
 ) {
   const app = new Hono()
   app.use('/*', createInternalTokenMiddleware(db))
@@ -31,12 +38,13 @@ export function createInternalRoutes(
   app.route('/settings', createInternalSettingsRoutes(settingsService))
   app.route('/opencode-config', createOpenCodeConfigRoutes(settingsService, openCodeClient, { redactSecrets: true }))
   const repos = new Hono()
-  repos.route('/', createInternalRepoRoutes(db, settingsService))
+  repos.route('/', createInternalRepoRoutes(db, settingsService, gitAuthService))
   repos.route('/:id/schedules', createScheduleRoutes(scheduleService))
   repos.route('/', createInternalRepoSyncRoutes(db))
   repos.route('/', mirrorRoutes(db))
   app.route('/repos', repos)
   app.route('/opencode-workspaces', createInternalOpenCodeWorkspacesRoutes(db))
+  app.route('/sessions', createInternalSessionRoutes(db, openCodeClient, permissionModes, repoWorkspaces))
   app.route('/assistant', createInternalAssistantRoutes(openCodeClient))
   app.route('/git-credentials', createInternalGitCredentialsRoutes(db))
   app.route('/sandbox', createInternalSandboxRoutes(db))

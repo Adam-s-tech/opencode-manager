@@ -8,8 +8,10 @@ import { useGit } from '@/hooks/useGit'
 import { ChangesTab } from './ChangesTab'
 import { CommitsTab } from './CommitsTab'
 import { BranchesTab } from './BranchesTab'
+import { StashTab } from './StashTab'
 import { CommitDetailView } from './CommitDetailView'
 import { GitErrorBanner } from './GitErrorBanner'
+import { GitOperationBanner } from './GitOperationBanner'
 import { FileDiffView } from '@/components/file-browser/FileDiffView'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -24,6 +26,7 @@ import {
   ArrowDown,
   RefreshCw,
   ArrowDownFromLine,
+  Archive,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -39,7 +42,7 @@ interface SourceControlPanelProps {
   repoName?: string
 }
 
-type Tab = 'changes' | 'commits' | 'branches'
+type Tab = 'changes' | 'commits' | 'branches' | 'stash'
 type View = 'default' | 'commit-detail'
 
 export function SourceControlPanel({
@@ -102,6 +105,7 @@ export function SourceControlPanel({
     { id: 'changes', label: 'Changes', icon: FileCode },
     { id: 'commits', label: 'Commits', icon: History },
     { id: 'branches', label: 'Branches', icon: GitBranch },
+    { id: 'stash', label: 'Stash', icon: Archive },
   ]
 
   const changesCount = status?.files.length || 0
@@ -176,6 +180,10 @@ export function SourceControlPanel({
         </div>
       </div>
 
+      {status?.operation && (
+        <GitOperationBanner repoId={repoId} operation={status.operation} />
+      )}
+
       {gitError && (
         <GitErrorBanner error={gitError} onDismiss={() => setGitError(null)} />
       )}
@@ -188,14 +196,15 @@ export function SourceControlPanel({
               <button
                 key={tab.id}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-2 text-sm transition-colors border-b-2 -mb-px',
+                  'flex items-center gap-1.5 py-2 text-sm whitespace-nowrap transition-colors border-b-2 -mb-px',
+                  isMobile ? 'flex-1 justify-center px-2' : 'px-3',
                   activeTab === tab.id
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent'
                 )}
                 onClick={() => setActiveTab(tab.id)}
               >
-                <Icon className="w-4 h-4" />
+                {!isMobile && <Icon className="w-4 h-4" />}
                 <span>{tab.label}</span>
                 {tab.id === 'changes' && changesCount > 0 && (
                   <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent">
@@ -234,6 +243,9 @@ export function SourceControlPanel({
           )}
           {activeTab === 'branches' && currentView === 'default' && (
             <BranchesTab repoId={repoId} currentBranch={displayBranch} />
+          )}
+          {activeTab === 'stash' && currentView === 'default' && (
+            <StashTab repoId={repoId} />
           )}
 
           {currentView === 'commit-detail' && selectedCommit && (

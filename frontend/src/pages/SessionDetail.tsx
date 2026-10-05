@@ -6,6 +6,7 @@ import { MessageThread } from "@/components/message/MessageThread";
 import { PromptInput, type PromptInputHandle } from "@/components/message/PromptInput";
 import { FloatingTTSButton } from '@/components/message/FloatingTTSButton'
 import { X, CornerUpLeft } from "lucide-react";
+import { SquareFill } from "@/components/ui/square-fill";
 import { Header } from "@/components/ui/header";
 import { SessionList } from "@/components/session/SessionList";
 import { getSessionListPath } from '@/lib/navigation'
@@ -38,6 +39,8 @@ import { showToast } from "@/lib/toast";
 import { getWorkspaceFilePath } from "@/lib/markdownLinks";
 import { getRepoDisplayName } from "@/lib/utils";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
+import { ProjectActionsMenu } from "@/components/repo/ProjectActionsMenu";
+import { RepoActionsDialog } from "@/components/repo/RepoActionsDialog";
 import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog";
 import { RepoSkillsDialog } from "@/components/repo/RepoSkillsDialog";
 import { compactSession, forkSession, listSessionMessages } from "@/api/opencode";
@@ -50,9 +53,13 @@ import { FormPrompt } from "@/components/session/FormPrompt";
 import { MinimizedFormIndicator } from "@/components/session/MinimizedFormIndicator";
 import { PendingActionsGroup } from "@/components/notifications/PendingActionsGroup";
 import { SourceControlPanel } from "@/components/source-control";
+import { TerminalPanel } from "@/components/terminal/TerminalPanel";
+import { PreviewPanel } from "@/components/preview/PreviewPanel";
 import { SessionSendErrorBanner } from "@/components/session/SessionSendErrorBanner";
 import { BackgroundWorkBar } from "@/components/session/BackgroundWorkBar";
+import { SessionGoalBar } from "@/components/session/SessionGoalBar";
 import { useDialogParam } from "@/hooks/useDialogParam";
+import { useTerminalDialogParam } from "@/hooks/useOpenTerminal";
 import { SessionMoreButton } from "@/components/navigation/SessionMoreButton";
 import { SideQuestionDialog } from "@/components/session/SideQuestionDialog";
 import { SessionMessagePickerDialog } from "@/components/session/SessionMessagePickerDialog";
@@ -117,6 +124,9 @@ export function SessionDetail() {
   const [mcpDialogOpen, setMcpDialogOpen] = useDialogParam('mcp');
   const [skillsDialogOpen, setSkillsDialogOpen] = useDialogParam('skills');
   const [sourceControlOpen, setSourceControlOpen] = useDialogParam('sourceControl');
+  const [terminalOpen, setTerminalOpen] = useTerminalDialogParam();
+  const [actionsDialogOpen, setActionsDialogOpen] = useDialogParam('actions');
+  const [previewOpen, setPreviewOpen] = useDialogParam('preview');
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>();
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -434,6 +444,12 @@ export function SessionDetail() {
     promptInputRef.current?.openModelPicker();
   }, [])
 
+  const handleInterruptSession = () => {
+    if (sessionId) {
+      interruptSession.mutate(sessionId);
+    }
+  };
+
   const { leaderActive } = useKeyboardShortcuts({
     openModelDialog: handleOpenModelDialog,
     openSessions: handleShowSessionsDialog,
@@ -457,11 +473,7 @@ export function SessionDetail() {
       ) as HTMLButtonElement;
       submitButton?.click();
     },
-    interruptSession: () => {
-      if (sessionId) {
-        interruptSession.mutate(sessionId);
-      }
-    },
+    interruptSession: handleInterruptSession,
   });
 
   
@@ -675,6 +687,9 @@ export function SessionDetail() {
           </div>
           <Header.Actions className="gap-2 sm:gap-4">
             <div className="flex items-center gap-1">
+              {!isAssistantSession && (
+                <ProjectActionsMenu repoId={repoId} directory={sessionDirectory} />
+              )}
               <PendingActionsGroup />
             </div>
             <ContextUsageIndicator
@@ -714,7 +729,7 @@ export function SessionDetail() {
             style={{ bottom: inputBottomOffset }}
           >
             <div className="relative w-[94%] md:max-w-4xl">
-              <div className="absolute -top-9 right-0 z-50 flex flex-col items-end gap-2">
+              <div className="absolute bottom-full right-0 mb-2 z-50 flex flex-col items-end gap-2">
                 {ttsEnabled && !hasPromptContent && !isSessionActive && latestPlayableAssistant && (
                   <FloatingTTSButton
                     messageId={latestPlayableAssistant.messageId}
@@ -734,6 +749,17 @@ export function SessionDetail() {
                   >
                     <X className="w-5 h-5" />
                     <span className="text-sm font-medium hidden sm:inline">Clear</span>
+                  </button>
+                )}
+                {isSessionActive && (
+                  <button
+                    type="button"
+                    onClick={handleInterruptSession}
+                    title="Stop"
+                    aria-label="Stop"
+                    className="md:hidden p-3 rounded-xl transition-all duration-200 active:scale-95 hover:scale-105 bg-destructive hover:bg-destructive/90 text-destructive-foreground border border-destructive/60 shadow-lg shadow-destructive/30"
+                  >
+                    <SquareFill className="w-5 h-5" />
                   </button>
                 )}
               </div>
@@ -759,6 +785,7 @@ export function SessionDetail() {
                 />
               )}
               <SessionSendErrorBanner sessionId={sessionId} isConnected={isConnected} isReconnecting={isReconnecting} />
+              <SessionGoalBar sessionID={sessionId} />
               <BackgroundWorkBar
                 sessionID={sessionId}
                 directory={sessionDirectory}
@@ -853,12 +880,34 @@ export function SessionDetail() {
         directory={repoDirectory}
       />
 
+      {!isAssistantSession && (
+        <RepoActionsDialog
+          repoId={repoId}
+          directory={sessionDirectory}
+          open={actionsDialogOpen}
+          onOpenChange={setActionsDialogOpen}
+        />
+      )}
+
       <SourceControlPanel
         repoId={repoId}
         isOpen={sourceControlOpen}
         onClose={() => setSourceControlOpen(false)}
         currentBranch={repo?.currentBranch || repo?.branch || "main"}
         repoName={workspaceDisplayName}
+      />
+
+      <TerminalPanel
+        repoId={repoId}
+        directory={sessionDirectory}
+        isOpen={terminalOpen}
+        onClose={() => setTerminalOpen(false)}
+      />
+
+      <PreviewPanel
+        isOpen={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        directory={sessionDirectory}
       />
 
       <ResetPermissionsDialog
