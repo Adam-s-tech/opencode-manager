@@ -1,6 +1,4 @@
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import indexHtml from '../../../index.html?raw'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   APPEARANCE_STORAGE_KEY,
@@ -8,11 +6,6 @@ import {
   readableTextColor,
   resolveColorThemeTokens,
 } from './colorTheme'
-
-const indexHtml = readFileSync(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../index.html'),
-  'utf8',
-)
 
 function themeColorMeta(): string | null {
   return document.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? null

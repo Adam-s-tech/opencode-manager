@@ -16,6 +16,9 @@ export default defineConfig({
       NODE_ENV: "test",
     },
     setupFiles: ["./src/test/setup.ts"],
+    css: {
+      include: [/[?&]raw(?:&|$)/],
+    },
     include: ["src/**/*.test.{ts,tsx}"],
   },
   resolve: {
