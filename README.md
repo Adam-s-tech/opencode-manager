@@ -44,16 +44,25 @@ OpenCode Manager requires **OpenCode 2.x at 2.0.15 or newer** (bundled 2.0.15); 
 
 ## Quick Start
 
+Requires Docker with Compose v2.
+
 ```bash
-git clone https://github.com/chriswritescode-dev/opencode-manager.git
-cd opencode-manager
-cp .env.example .env
-echo "AUTH_SECRET=$(openssl rand -base64 32)" >> .env
-docker-compose up -d
-# Open http://localhost:5003
+curl -fsSL https://opencodemanager.app/install | sh
 ```
 
-On first launch, you'll be prompted to create an admin account. That's it!
+The installer pulls the published image into `~/opencode-manager`, starts it, and opens on http://localhost:5003. It asks before sharing anything from your machine: importing an existing OpenCode config and chat history, sharing a folder of repositories, and allowing sign-in from your phone on the same network. Re-run it to update.
+
+Prefer to run Compose yourself with the published image:
+
+```bash
+mkdir opencode-manager && cd opencode-manager
+curl -fsSL https://raw.githubusercontent.com/chriswritescode-dev/opencode-manager/main/docker-compose.release.yml -o docker-compose.yml
+docker compose up -d
+```
+
+Or build from source: in a clone of this repository, `docker-compose.yml` builds the image from the checkout, so `docker compose up -d --build` and `./scripts/docker-upgrade.sh` work as before.
+
+On first launch, you'll be prompted to create an admin account. `AUTH_SECRET` is generated on first start and kept in the data volume when you don't set one.
 
 For local development setup, see the [Development Guide](https://opencodemanager.app/docs/development/setup).
 
@@ -101,7 +110,7 @@ See the [Development Guide](https://opencodemanager.app/docs/development/setup) 
 ## Configuration
 
 ```bash
-# Required for production
+# Generated automatically in Docker; required for production outside Docker
 AUTH_SECRET=your-secure-random-secret  # Generate with: openssl rand -base64 32
 
 # Pre-configured admin (optional)

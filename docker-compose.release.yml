@@ -1,10 +1,12 @@
+# Runs the published release image instead of building from source.
+# The installer saves this file as docker-compose.yml.
+# Keep it identical to docker-compose.yml apart from name and image/build.
+
+name: ocm
+
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        TOOLS_CACHEBUST: ${TOOLS_CACHEBUST:-0}
+    image: ghcr.io/chriswritescode-dev/opencode-manager:latest
     container_name: opencode-manager
     ports:
       - "5003:5003"

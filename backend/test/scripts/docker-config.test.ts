@@ -239,6 +239,32 @@ describe('workspace ownership configuration', () => {
   })
 })
 
+describe('compose image source', () => {
+  const RELEASE_IMAGE_LINE = '    image: ghcr.io/chriswritescode-dev/opencode-manager:latest\n'
+  const BUILD_BLOCK_RE = /^ {4}build:\n(?: {6}.*\n)+/m
+  const withoutComments = (source: string) => source.replace(/^#.*\n/gm, '').replace(/^\n+/, '')
+
+  it('builds docker-compose.yml from the checkout so git pull and rebuild keep working', () => {
+    const compose = read(composePath)
+    expect(compose).toMatch(/^ {4}build:\n {6}context: \.\n {6}dockerfile: Dockerfile\n/m)
+    expect(compose).not.toMatch(/^ {4}image:/m)
+  })
+
+  it('keeps docker-compose.release.yml identical to docker-compose.yml apart from its project name and pulling the published image', () => {
+    const compose = read(composePath)
+    const release = withoutComments(read(join(repoRoot, 'docker-compose.release.yml')))
+    const workflow = read(join(repoRoot, '.github/workflows/docker-build.yml'))
+    expect(workflow).toContain('images: ghcr.io/${{ github.repository }}')
+    expect(release).not.toMatch(/^ {4}build:/m)
+    expect(release).toBe(`name: ocm\n\n${compose.replace(BUILD_BLOCK_RE, RELEASE_IMAGE_LINE)}`)
+  })
+
+  it('lets the entrypoint generate AUTH_SECRET when .env does not set one', () => {
+    expect(read(composePath)).toContain('- AUTH_SECRET=${AUTH_SECRET:-}')
+    expect(read(envExamplePath)).not.toMatch(/^AUTH_SECRET=/m)
+  })
+})
+
 describe('docker lifecycle scripts', () => {
   it('keeps docker:down non-destructive and docker:reset destructive', () => {
     const pkg = read(join(repoRoot, 'package.json'))
