@@ -164,7 +164,7 @@ describe('PreviewPanel', () => {
 
     await user.type(screen.getByRole('combobox', { name: 'Preview port' }), 'python')
     expect(screen.queryByText('This repo')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /:9000 python3\.12/ }))
+    await user.click(screen.getByRole('option', { name: /:9000 python3\.12/ }))
 
     expect(await screen.findByTitle('Preview')).toBeInTheDocument()
     expect(createPreviewSession).toHaveBeenCalledWith(9000)

@@ -432,7 +432,7 @@ describe('OpenCodeModelDialog — model discovery', () => {
     const providerModelInput = screen.getByPlaceholderText('e.g., MiniMax-M2.7')
     fireEvent.focus(providerModelInput)
 
-    const option = await screen.findByRole('button', { name: 'gpt-4o' })
+    const option = await screen.findByRole('option', { name: 'gpt-4o' })
     fireEvent.click(option)
 
     const modelIdInput = document.querySelector('input[name="modelId"]') as HTMLInputElement
