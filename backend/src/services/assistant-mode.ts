@@ -917,7 +917,7 @@ Clone a git repository into the repos root and register it with OpenCode Manager
 }
 \`\`\`
 
-**Response:** the repo object (same shape as an entry in \`GET /repos\`) with \`cloneStatus: 'ready'\`.
+**Response:** the repo object (same shape as an entry in \`GET /repos\`) with \`cloneStatus: 'ready'\` when the clone has finished, or \`'cloning'\` when an identical clone is still running. When it is \`'cloning'\`, poll \`GET /repos\` until it becomes \`'ready'\` before using the repo.
 
 ## Notes
 
