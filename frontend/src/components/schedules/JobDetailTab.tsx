@@ -97,7 +97,7 @@ export function JobDetailTab({
         </div>
 
         <div className="p-3 sm:p-6">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
               <section className="rounded-lg border border-border/60 bg-background/40 p-3 sm:p-4">
                 <div className="mb-3">
@@ -127,6 +127,7 @@ export function JobDetailTab({
                     <Button
                       variant="outline"
                       size="sm"
+                      aria-label="Remove all worktrees"
                       onClick={() => removeWorktrees.mutate({ repoId: selectedJob.repoId, jobId: selectedJob.id })}
                       disabled={removeWorktrees.isPending || idleWorktreeCount === 0}
                     >

@@ -387,7 +387,7 @@ export function Schedules() {
         onOpenChange={(open) => !open && setClearRunsOpen(false)}
         title="Clear run history"
         description={
-          <p>This permanently deletes all <strong>{clearableRuns.length}</strong> finished run{clearableRuns.length === 1 ? '' : 's'} for this schedule. A run in progress is kept. This cannot be undone.</p>
+          <>This permanently deletes all <strong>{clearableRuns.length}</strong> finished run{clearableRuns.length === 1 ? '' : 's'} for this schedule. A run in progress is kept. This cannot be undone.</>
         }
         affectedWorktreeCount={affectedClearWorktreeCount}
         isPending={clearRunsMutation.isPending}

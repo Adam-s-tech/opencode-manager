@@ -110,7 +110,7 @@ export const SessionList = ({
     }
   }, [isLoading, filteredSessions, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
 
-  if (isLoading) {
+  if (isLoading && !renderSessions) {
     return <div className="p-4 text-sm text-muted-foreground">Loading sessions...</div>;
   }
 
@@ -125,7 +125,7 @@ export const SessionList = ({
         </div>
       );
     }
-    if (hasNextPage || isFetchingNextPage) {
+    if ((hasNextPage || isFetchingNextPage) && !renderSessions) {
       return <div className="p-4 text-sm text-muted-foreground">Loading sessions...</div>;
     }
     if (!searchQuery.trim() && !renderSessions) {

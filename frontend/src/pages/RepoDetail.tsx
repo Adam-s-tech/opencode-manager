@@ -270,11 +270,7 @@ export function RepoDetail() {
       />
 
       <div className="flex-1 flex flex-col min-h-0">
-        {showWorktrees && workspaceSiblings.length === 0 ? (
-          <div className="px-4 pt-4">
-            {renderWorktreeGroups({ sessions: [], searchQuery: "", renderSessionCard: () => null })}
-          </div>
-        ) : sessionListDirectories.length > 0 && (
+        {(showWorktrees || sessionListDirectories.length > 0) && (
           <SessionList
             key={showWorktrees ? "worktrees" : "repo"}
             directories={sessionListDirectories}
