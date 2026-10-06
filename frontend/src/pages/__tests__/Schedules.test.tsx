@@ -77,6 +77,7 @@ vi.mock('@/components/schedules', () => ({
   RunHistoryTab: vi.fn(() => <div>RunHistoryTab</div>),
   ScheduleRunRemovalDialog: () => null,
   ScheduleTabMenu: vi.fn(() => <div>ScheduleTabMenu</div>),
+  ScheduleRepoSwitcher: ({ name }: { name: string }) => <div>{name}</div>,
 }))
 
 function createMockScheduleUrlState(overrides: Record<string, unknown> = {}) {

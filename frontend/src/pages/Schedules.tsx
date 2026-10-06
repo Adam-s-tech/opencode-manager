@@ -17,7 +17,7 @@ import {
 import { useRepoActivity } from '@/hooks/useRepoActivity'
 import { useScheduleTarget } from '@/hooks/useScheduleTarget'
 import { useScheduleUrlState } from '@/hooks/useScheduleUrlState'
-import { ScheduleJobDialog, ScheduleJobsTable, ScheduleListToolbar, JobDetailTab, RunHistoryTab, ScheduleRunRemovalDialog, ScheduleTabMenu } from '@/components/schedules'
+import { ScheduleJobDialog, ScheduleJobsTable, ScheduleListToolbar, JobDetailTab, RunHistoryTab, ScheduleRunRemovalDialog, ScheduleTabMenu, ScheduleRepoSwitcher } from '@/components/schedules'
 import { DELETE_SCHEDULE_DESCRIPTION, matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
 import type { ScheduleJobWithRepo } from '@/api/schedules'
 import { Header } from '@/components/ui/header'
@@ -261,7 +261,7 @@ export function Schedules() {
       <Header>
         <Header.BackButton to={backHref} />
         <div className="min-w-0 flex-1 px-3">
-          <Header.Title className="truncate">{scheduleTarget.name}</Header.Title>
+          <ScheduleRepoSwitcher repoId={repoId} name={scheduleTarget.name} />
           <p className="text-xs text-muted-foreground truncate">{scheduleTarget.subtitle}</p>
         </div>
         <div className="flex items-center gap-2">
