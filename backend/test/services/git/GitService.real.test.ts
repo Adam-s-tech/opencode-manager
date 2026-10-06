@@ -43,6 +43,7 @@ function scheduleJobInput(name: string, branch: string): ScheduleJobPersistenceI
     skillMetadata: null,
     permissionConfig: null,
     mcpServers: [],
+    workspaceMode: 'worktree',
     branch,
     nextRunAt: null,
   }

@@ -69,6 +69,7 @@ function createService(overrides: {
   } as unknown as OpenCodeClient
   const projectConfigService = { runWorktreeSetupForRepo } as unknown as ProjectConfigService
   const terminalService = { removeAll } as unknown as TerminalService
+  const removeScheduleWorktrees = vi.fn(async () => ({ removed: 1 }))
 
   return {
     service: new RepoWorkspaceService(
@@ -77,7 +78,9 @@ function createService(overrides: {
       gitAuthService,
       projectConfigService,
       terminalService,
+      { removeWorktrees: removeScheduleWorktrees },
     ),
+    removeScheduleWorktrees,
     worktreeCreate,
     worktreeRemove,
     runWorktreeSetupForRepo,
@@ -128,7 +131,7 @@ describe('RepoWorkspaceService', () => {
     it('throws a 400 when the directory is not a worktree sibling and touches nothing', async () => {
       const worktreeRemove = vi.fn(async () => undefined)
       const removeAll = vi.fn(async () => undefined)
-      mocks.getSiblingRepos.mockResolvedValue([{ fullPath: '/worktrees/other', worktreeStrategy: 'git' }])
+      mocks.getSiblingRepos.mockResolvedValue([{ fullPath: '/worktrees/other', worktreeSource: 'opencode' }])
       const { service } = createService({ worktreeRemove, removeAll })
 
       const error = await service.remove(REPO, '/worktrees/unknown').catch((caught: unknown) => caught)
@@ -142,7 +145,7 @@ describe('RepoWorkspaceService', () => {
     it('removes terminals for the matched sibling before removing the worktree', async () => {
       const worktreeRemove = vi.fn(async () => undefined)
       const removeAll = vi.fn(async () => undefined)
-      mocks.getSiblingRepos.mockResolvedValue([{ fullPath: '/worktrees/feature-x', worktreeStrategy: 'git' }])
+      mocks.getSiblingRepos.mockResolvedValue([{ fullPath: '/worktrees/feature-x', worktreeSource: 'opencode' }])
       const { service } = createService({ worktreeRemove, removeAll })
 
       await service.remove(REPO, '/worktrees/feature-x')
@@ -161,7 +164,7 @@ describe('RepoWorkspaceService', () => {
       const removeAll = vi.fn(async () => {
         throw new Error('pty cleanup failed')
       })
-      mocks.getSiblingRepos.mockResolvedValue([{ fullPath: '/worktrees/feature-x', worktreeStrategy: 'git' }])
+      mocks.getSiblingRepos.mockResolvedValue([{ fullPath: '/worktrees/feature-x', worktreeSource: 'opencode' }])
       const { service } = createService({ worktreeRemove, removeAll })
 
       await expect(service.remove(REPO, '/worktrees/feature-x')).resolves.toBeUndefined()
@@ -173,14 +176,56 @@ describe('RepoWorkspaceService', () => {
         force: true,
       })
     })
+    it('removes a schedule worktree through its schedule without touching terminals', async () => {
+      const worktreeRemove = vi.fn(async () => undefined)
+      const removeAll = vi.fn(async () => undefined)
+      mocks.getSiblingRepos.mockResolvedValue([{
+        fullPath: '/schedule-worktrees/job-7-shared',
+        worktreeSource: 'schedule',
+        schedule: { repoId: 3, jobId: 7, runId: null, inUse: false, name: 'Shared job' },
+      }])
+      const { service, removeScheduleWorktrees } = createService({ worktreeRemove, removeAll })
+
+      await service.remove(REPO, '/schedule-worktrees/job-7-shared')
+
+      expect(removeScheduleWorktrees).toHaveBeenCalledWith(3, 7, '/schedule-worktrees/job-7-shared')
+      expect(removeAll).not.toHaveBeenCalled()
+      expect(worktreeRemove).not.toHaveBeenCalled()
+    })
+
+    it('refuses to remove a schedule worktree a running run is using', async () => {
+      const removeAll = vi.fn(async () => undefined)
+      mocks.getSiblingRepos.mockResolvedValue([{
+        fullPath: '/schedule-worktrees/job-7-run-2',
+        worktreeSource: 'schedule',
+        schedule: { repoId: 1, jobId: 7, runId: 2, inUse: true, name: 'Run job' },
+      }])
+      const { service, removeScheduleWorktrees } = createService({ removeAll })
+
+      await expect(service.remove(REPO, '/schedule-worktrees/job-7-run-2')).rejects.toThrow('in use by a running scheduled run')
+      expect(removeAll).not.toHaveBeenCalled()
+      expect(removeScheduleWorktrees).not.toHaveBeenCalled()
+    })
+
+    it('reports a plain git worktree that git refuses to remove', async () => {
+      const worktreeRemove = vi.fn(async () => undefined)
+      mocks.getSiblingRepos.mockResolvedValue([{ fullPath: '/worktrees/manual', worktreeSource: 'git' }])
+      const { service } = createService({ worktreeRemove })
+
+      const error = await service.remove(REPO, '/worktrees/manual').catch((caught: unknown) => caught)
+
+      expect(error).toBeInstanceOf(RepoWorkspaceError)
+      expect((error as Error).message).toMatch(/^Could not remove worktree/)
+      expect(worktreeRemove).not.toHaveBeenCalled()
+    })
   })
 
   describe('removeRepoTerminals', () => {
     it('removes terminals for the repo directory and each worktree sibling', async () => {
       const removeAll = vi.fn(async () => undefined)
       mocks.getSiblingRepos.mockResolvedValue([
-        { fullPath: '/worktrees/a', worktreeStrategy: 'git' },
-        { fullPath: '/worktrees/b', worktreeStrategy: 'git' },
+        { fullPath: '/worktrees/a', worktreeSource: 'opencode' },
+        { fullPath: '/worktrees/b', worktreeSource: 'opencode' },
         { fullPath: '/repos/manager-worktree', isWorktree: true },
       ])
       const { service } = createService({ removeAll })

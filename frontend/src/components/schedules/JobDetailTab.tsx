@@ -6,9 +6,13 @@ import {
   formatScheduleSummary,
   formatTimestamp,
   getJobStatusTone,
+  formatWorkspaceMode,
   hasSkillMetadata,
 } from '@/components/schedules/schedule-utils'
-import { Bot, CalendarClock, Clock3, History, Loader2, Pencil, Play, Sparkles, Trash2 } from 'lucide-react'
+import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
+import { useRemoveScheduleWorktrees, useScheduleWorktrees } from '@/hooks/useSchedules'
+import { formatScheduleWorktreeLabel } from '@/lib/schedules/schedule-worktree'
+import { Bot, CalendarClock, Clock3, GitBranch, History, Loader2, Pencil, Play, Sparkles, Trash2 } from 'lucide-react'
 import { useScheduleModels } from '@/hooks/useScheduleModels'
 import { resolveScheduleModel } from '@/lib/schedules/schedule-model'
 
@@ -37,6 +41,9 @@ export function JobDetailTab({
 }: JobDetailTabProps) {
   const { availableModelKeys, configDefaultModel } = useScheduleModels(Boolean(selectedJob))
   const resolvedModel = resolveScheduleModel(selectedJob?.model, availableModelKeys, configDefaultModel)
+  const { data: worktrees = [] } = useScheduleWorktrees(selectedJob?.repoId, selectedJob?.id ?? null)
+  const removeWorktrees = useRemoveScheduleWorktrees()
+  const idleWorktreeCount = worktrees.filter((worktree) => !worktree.inUse).length
 
   if (!selectedJob) {
     return (
@@ -90,7 +97,7 @@ export function JobDetailTab({
         </div>
 
         <div className="p-3 sm:p-6">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-4">
               <section className="rounded-lg border border-border/60 bg-background/40 p-3 sm:p-4">
                 <div className="mb-3">
@@ -107,6 +114,50 @@ export function JobDetailTab({
                     <p className="text-sm text-muted-foreground">Stored for future scheduler integrations. The current MVP does not execute against these fields yet.</p>
                   </div>
                   <pre className="whitespace-pre-wrap break-words text-sm font-mono leading-6 text-foreground/90">{JSON.stringify(selectedJob.skillMetadata, null, 2)}</pre>
+                </section>
+              )}
+
+              {worktrees.length > 0 && (
+                <section className="rounded-lg border border-border/60 bg-background/40 p-3 sm:p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-medium flex items-center gap-2"><GitBranch className="h-4 w-4" /> Worktrees ({worktrees.length})</h3>
+                      <p className="text-sm text-muted-foreground">Worktrees this schedule has on disk. Removing one commits any pending changes to its branch first and keeps the branch.</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label="Remove all worktrees"
+                      onClick={() => removeWorktrees.mutate({ repoId: selectedJob.repoId, jobId: selectedJob.id })}
+                      disabled={removeWorktrees.isPending || idleWorktreeCount === 0}
+                    >
+                      {removeWorktrees.isPending ? <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 sm:mr-2" />}
+                      <span className="hidden sm:inline">Remove all</span>
+                    </Button>
+                  </div>
+                  <ul className="divide-y divide-border/60">
+                    {worktrees.map((worktree) => (
+                      <li key={worktree.worktreePath} className="flex items-center justify-between gap-2 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-sm">{worktree.branch}</p>
+                          <p className="truncate text-xs text-muted-foreground" title={worktree.worktreePath}>
+                            {formatScheduleWorktreeLabel(worktree.runId)}
+                            {worktree.inUse ? ' · in use' : ''} · {worktree.worktreePath}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Remove worktree ${worktree.branch}`}
+                          title={worktree.inUse ? 'In use by a running run' : 'Remove worktree'}
+                          onClick={() => removeWorktrees.mutate({ repoId: selectedJob.repoId, jobId: selectedJob.id, worktreePath: worktree.worktreePath })}
+                          disabled={worktree.inUse || removeWorktrees.isPending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
                 </section>
               )}
             </div>
@@ -131,6 +182,12 @@ export function JobDetailTab({
                   <p className="text-muted-foreground">Model</p>
                   <p className="font-medium break-all">{resolvedModel ?? 'Workspace default'}</p>
                 </div>
+                {selectedJob.repoId !== ASSISTANT_REPO_ID && (
+                  <div>
+                    <p className="text-muted-foreground">Workspace</p>
+                    <p className="font-medium">{formatWorkspaceMode(selectedJob.workspaceMode)}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground">Created</p>
                   <p className="font-medium">{formatTimestamp(selectedJob.createdAt)}</p>

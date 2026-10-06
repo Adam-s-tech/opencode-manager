@@ -18,6 +18,17 @@ import path from 'path'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
+const tempDirs: string[] = []
+
+function createTempDir(name?: string): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'repos-test-'))
+  tempDirs.push(root)
+  if (!name) return root
+  const dir = path.join(root, name)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 beforeEach(() => {
   mock.module('../services/project-id-resolver', () => ({
     resolveProjectId: (() => null) as any,
@@ -27,6 +38,9 @@ beforeEach(() => {
 
 afterEach(() => {
   mock.restore()
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 const stubGitAuthService = {
@@ -50,10 +64,10 @@ function createTestApp(
     listSchedules: () => [],
     updateSchedule: () => {},
     deleteSchedule: () => {},
-    prepareRepoDelete: () => {},
+    prepareRepoDelete: async () => {},
   } as any
   const projectConfigService = new ProjectConfigService(db, createGitService(stubGitAuthService), stubGitAuthService)
-  const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, stubGitAuthService, projectConfigService, terminalService)
+  const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, stubGitAuthService, projectConfigService, terminalService, scheduleService)
   app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient, terminalService, projectConfigService, repoWorkspaces))
   return app
 }
@@ -111,22 +125,23 @@ describe('GET /api/repos/:id/siblings', () => {
     }))
 
     createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+    const worktreeDir = createTempDir('plugin-workspace')
     const client = createStubOpenCodeClient()
     client.api.worktree.list = mock(async () => ([{
-      directory: '/tmp/plugin-workspace',
+      directory: worktreeDir,
       strategy: 'plugin-strategy',
     }])) as any
     app = createTestApp(db, client)
 
     const res = await app.request('/repos/1/siblings')
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<{ id: number; fullPath?: string; localPath?: string; worktreeStrategy?: string; currentBranch?: string }>
+    const data = await res.json() as Array<{ id: number; fullPath?: string; localPath?: string; worktreeSource?: string; currentBranch?: string }>
     expect(data).toHaveLength(2)
     expect(data[1]).toMatchObject({
       id: -1,
-      fullPath: '/tmp/plugin-workspace',
+      fullPath: worktreeDir,
       localPath: 'plugin-workspace',
-      worktreeStrategy: 'plugin-strategy',
+      worktreeSource: 'opencode',
     })
     expect(data[1]?.currentBranch).toBeUndefined()
   })
@@ -138,17 +153,18 @@ describe('GET /api/repos/:id/siblings', () => {
     }))
 
     createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+    const worktreeDir = createTempDir('duplicate-workspace')
     const client = createStubOpenCodeClient()
     client.api.worktree.list = mock(async () => ([
-      { directory: '/tmp/duplicate-workspace', strategy: 'git' },
-      { directory: '/tmp/duplicate-workspace/', strategy: 'git' },
+      { directory: worktreeDir, strategy: 'git' },
+      { directory: `${worktreeDir}/`, strategy: 'git' },
     ])) as any
     app = createTestApp(db, client)
 
     const res = await app.request('/repos/1/siblings')
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<{ worktreeStrategy?: string }>
-    expect(data.filter((entry) => entry.worktreeStrategy !== undefined)).toHaveLength(1)
+    const data = await res.json() as Array<{ worktreeSource?: string }>
+    expect(data.filter((entry) => entry.worktreeSource !== undefined)).toHaveLength(1)
   })
 
   it('excludes a worktree pointing at the repo directory so it cannot be deleted', async () => {
@@ -168,31 +184,33 @@ describe('GET /api/repos/:id/siblings', () => {
 
     const res = await app.request('/repos/1/siblings')
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<{ id: number; worktreeStrategy?: string }>
+    const data = await res.json() as Array<{ id: number; worktreeSource?: string }>
     expect(data).toHaveLength(1)
-    expect(data.some((d) => d.worktreeStrategy !== undefined)).toBe(false)
+    expect(data.some((d) => d.worktreeSource !== undefined)).toBe(false)
   })
 
   it('excludes a worktree that is a git main checkout so the main repo cannot be deleted', async () => {
+    const mainRepoDir = createTempDir('main-repo')
+    const featureDir = createTempDir('worktrees/feature-x')
     mock.module('../services/project-id-resolver', () => ({
       resolveProjectId: (() => Promise.resolve('commit-A')) as any,
       isGitMainCheckout: ((dir: string) =>
-        Promise.resolve(dir === '/Users/dev/main-repo')) as any,
+        Promise.resolve(dir === mainRepoDir)) as any,
     }))
 
     createRepo(db, { localPath: 'repo-wt', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
     const client = createStubOpenCodeClient()
     client.api.worktree.list = mock(async () => ([
-      { directory: '/Users/dev/main-repo', strategy: 'git' },
-      { directory: '/Users/dev/worktrees/feature-x', strategy: 'git' },
+      { directory: mainRepoDir, strategy: 'git' },
+      { directory: featureDir, strategy: 'git' },
     ])) as any
     app = createTestApp(db, client)
 
     const res = await app.request('/repos/1/siblings')
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<{ worktreeStrategy?: string; fullPath?: string }>
-    expect(data.some((d) => d.fullPath === '/Users/dev/main-repo')).toBe(false)
-    expect(data.some((d) => d.fullPath === '/Users/dev/worktrees/feature-x')).toBe(true)
+    const data = await res.json() as Array<{ worktreeSource?: string; fullPath?: string }>
+    expect(data.some((d) => d.fullPath === mainRepoDir)).toBe(false)
+    expect(data.some((d) => d.fullPath === featureDir)).toBe(true)
   })
 
   it('excludes repos with non-matching projectID', async () => {
@@ -283,21 +301,22 @@ describe('DELETE /api/repos/:id/workspaces', () => {
     }))
 
     createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+    const worktreeDir = createTempDir('worktree-one')
     const remove = mock(async () => undefined)
     const client = createStubOpenCodeClient()
-    client.api.worktree.list = mock(async () => ([{ directory: '/tmp/worktree-one', strategy: 'git' }])) as any
+    client.api.worktree.list = mock(async () => ([{ directory: worktreeDir, strategy: 'git' }])) as any
     client.api.worktree.remove = remove as any
     const app = createTestApp(db, client)
 
     const res = await app.request('/repos/1/workspaces', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ directory: '/tmp/worktree-one' }),
+      body: JSON.stringify({ directory: worktreeDir }),
     })
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ success: true })
-    expect(remove).toHaveBeenCalledWith({ projectID: 'commit-A', directory: '/tmp/worktree-one', force: true })
+    expect(remove).toHaveBeenCalledWith({ projectID: 'commit-A', directory: worktreeDir, force: true })
   })
 
   it('returns 400 for a non-numeric repo id', async () => {
@@ -401,8 +420,9 @@ describe('DELETE /api/repos/:id/workspaces', () => {
     }))
 
     createRepo(db, { localPath: 'repo-a', defaultBranch: 'main', cloneStatus: 'ready', clonedAt: Date.now(), isLocal: true })
+    const worktreeDir = createTempDir('worktree-one')
     const client = createStubOpenCodeClient()
-    client.api.worktree.list = mock(async () => ([{ directory: '/tmp/worktree-one', strategy: 'git' }])) as any
+    client.api.worktree.list = mock(async () => ([{ directory: worktreeDir, strategy: 'git' }])) as any
     client.api.worktree.remove = mock(async () => {
       throw Object.assign(new Error('cannot remove'), { name: 'WorktreeError', data: { message: 'cannot remove' } })
     }) as any
@@ -411,7 +431,7 @@ describe('DELETE /api/repos/:id/workspaces', () => {
     const res = await app.request('/repos/1/workspaces', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ directory: '/tmp/worktree-one' }),
+      body: JSON.stringify({ directory: worktreeDir }),
     })
 
     expect(res.status).toBe(409)

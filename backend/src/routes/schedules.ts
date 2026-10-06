@@ -1,8 +1,11 @@
 import { Hono } from 'hono'
 import {
   CreateScheduleJobRequestSchema,
+  RemoveScheduleWorktreesRequestSchema,
+  ScheduleRunWorktreesModeSchema,
   UpdateScheduleJobRequestSchema,
 } from '@opencode-manager/shared/schemas'
+import type { ScheduleRunWorktreesMode } from '@opencode-manager/shared/types'
 import { ScheduleService, ScheduleServiceError } from '../services/schedules'
 import { parseId, handleServiceError } from '../utils/route-helpers'
 
@@ -34,6 +37,14 @@ function parseRunIdFilter(value: string | undefined): number | undefined {
   }
 
   return parsed
+}
+
+function parseWorktreesMode(value: string | undefined): ScheduleRunWorktreesMode {
+  const result = ScheduleRunWorktreesModeSchema.safeParse(value)
+  if (!result.success) {
+    throw new ScheduleServiceError('Invalid worktrees mode', 400)
+  }
+  return result.data
 }
 
 export function createScheduleRoutes(scheduleService: ScheduleService) {
@@ -152,14 +163,37 @@ export function createScheduleRoutes(scheduleService: ScheduleService) {
     }
   })
 
-  app.delete('/:jobId', (c) => {
+  app.delete('/:jobId', async (c) => {
     try {
       const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
       const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
-      scheduleService.deleteJob(repoId, jobId)
+      await scheduleService.deleteJob(repoId, jobId)
       return c.json({ success: true })
     } catch (error) {
       return handleServiceError(c, error, 'Failed to delete schedule', ScheduleServiceError)
+    }
+  })
+
+  app.get('/:jobId/worktrees', (c) => {
+    try {
+      const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
+      const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
+      return c.json({ worktrees: scheduleService.listWorktrees(repoId, jobId) })
+    } catch (error) {
+      return handleServiceError(c, error, 'Failed to list schedule worktrees', ScheduleServiceError)
+    }
+  })
+
+  app.delete('/:jobId/worktrees', async (c) => {
+    try {
+      const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
+      const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
+      const body = await c.req.json().catch(() => ({}))
+      const input = RemoveScheduleWorktreesRequestSchema.parse(body)
+      const result = await scheduleService.removeWorktrees(repoId, jobId, input.worktreePath)
+      return c.json(result)
+    } catch (error) {
+      return handleServiceError(c, error, 'Failed to remove schedule worktrees', ScheduleServiceError)
     }
   })
 
@@ -212,7 +246,8 @@ export function createScheduleRoutes(scheduleService: ScheduleService) {
     try {
       const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
       const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
-      const result = await scheduleService.clearRunHistory(repoId, jobId)
+      const worktrees = parseWorktreesMode(c.req.query('worktrees'))
+      const result = await scheduleService.clearRunHistory(repoId, jobId, worktrees)
       return c.json(result)
     } catch (error) {
       return handleServiceError(c, error, 'Failed to clear schedule run history', ScheduleServiceError)
@@ -224,7 +259,8 @@ export function createScheduleRoutes(scheduleService: ScheduleService) {
       const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
       const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
       const runId = parseId(c.req.param('runId'), 'run id', ScheduleServiceError)
-      await scheduleService.deleteRun(repoId, jobId, runId)
+      const worktrees = parseWorktreesMode(c.req.query('worktrees'))
+      await scheduleService.deleteRun(repoId, jobId, runId, worktrees)
       return c.json({ success: true })
     } catch (error) {
       return handleServiceError(c, error, 'Failed to delete schedule run', ScheduleServiceError)

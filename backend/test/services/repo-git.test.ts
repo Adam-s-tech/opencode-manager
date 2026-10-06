@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -16,7 +16,6 @@ import type { GitAuthService } from '../../src/services/git-auth'
 import type { OpenCodeClient } from '../../src/services/opencode/client'
 import type { Repo } from '../../src/types/repo'
 
-type SiblingRepo = Repo & { currentBranch: string | undefined; worktreeStrategy?: string }
 
 const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'repo-git-'))
 process.env.WORKSPACE_PATH = workspaceRoot
@@ -923,7 +922,7 @@ describe('repo service real git', () => {
       expect(siblings.every((repo) => repo.currentBranch === 'main')).toBe(true)
     })
 
-    it('adds filtered workspace siblings from the OpenCode client', async () => {
+    it('lists OpenCode, schedule, and plain git worktrees as worktree siblings', async () => {
       const { getSiblingRepos } = await import('../../src/services/repo')
       const origin = path.join(workspaceRoot, uniqueName('sibling-ws-origin.git'))
       const work = path.join(workspaceRoot, uniqueName('sibling-ws-work'))
@@ -953,15 +952,27 @@ describe('repo service real git', () => {
       const projectId = (await resolveOpenCodeProjectId(repoA))!
       const extraDir = path.join(workspaceRoot, uniqueName('sibling-ws-extra'))
       const duplicateDir = path.join(workspaceRoot, uniqueName('sibling-ws-duplicate'))
-      const activeWorktree = path.join(workspaceRoot, uniqueName('sibling-ws-active'))
-      const activeWorkspace = path.join(workspaceRoot, uniqueName('sibling-ws-active-dir'))
+      const unownedDir = path.join(workspaceRoot, uniqueName('sibling-ws-unowned'))
       mkdirSync(extraDir, { recursive: true })
       mkdirSync(duplicateDir, { recursive: true })
-      mkdirSync(activeWorktree, { recursive: true })
-      mkdirSync(activeWorkspace, { recursive: true })
-      const scheduleDir = path.join(getScheduleWorktreesPath(), uniqueName('sibling-ws-schedule'))
-      db.prepare('INSERT INTO schedule_runs (job_id, repo_id, trigger_source, status, started_at, created_at, worktree_path) VALUES (?, ?, ?, ?, ?, ?, ?)').run(1, a.id, 'manual', 'running', Date.now(), Date.now(), activeWorktree)
-      db.prepare('INSERT INTO schedule_runs (job_id, repo_id, trigger_source, status, started_at, created_at, worktree_path) VALUES (?, ?, ?, ?, ?, ?, ?)').run(1, a.id, 'manual', 'running', Date.now(), Date.now(), activeWorkspace)
+      mkdirSync(unownedDir, { recursive: true })
+
+      const jobId = Number(db.prepare('INSERT INTO schedule_jobs (repo_id, name, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(a.id, 'nightly', 'check', Date.now(), Date.now()).lastInsertRowid)
+      const keptDir = path.join(getScheduleWorktreesPath(), `job-${jobId}-run-3`)
+      const sharedDir = path.join(getScheduleWorktreesPath(), `job-${jobId}-shared`)
+      const orphanDir = path.join(getScheduleWorktreesPath(), 'job-999999-run-1')
+      const manualDir = path.join(workspaceRoot, uniqueName('sibling-ws-manual'))
+      mkdirSync(getScheduleWorktreesPath(), { recursive: true })
+      git(['worktree', 'add', '-b', `schedule/${jobId}/run-3`, keptDir], repoA)
+      git(['worktree', 'add', '-b', `schedule/${jobId}/shared`, sharedDir], repoA)
+      git(['worktree', 'add', '-b', 'schedule/999999/run-1', orphanDir], repoA)
+      git(['worktree', 'add', '-b', 'manual-work', manualDir], repoA)
+      db.prepare('INSERT INTO schedule_runs (job_id, repo_id, trigger_source, status, started_at, created_at, worktree_path) VALUES (?, ?, ?, ?, ?, ?, ?)').run(jobId, a.id, 'manual', 'running', Date.now(), Date.now(), sharedDir)
+      const keptPath = realpathSync(keptDir)
+      const sharedPath = realpathSync(sharedDir)
+      const orphanPath = realpathSync(orphanDir)
+      const manualPath = realpathSync(manualDir)
+
       const client = {
         api: {
           location: {
@@ -974,22 +985,64 @@ describe('repo service real git', () => {
               { directory: duplicateDir, strategy: 'git' },
               { directory: repoA, strategy: 'git' },
               { directory: getReposPath(), strategy: 'git' },
-              { directory: scheduleDir, strategy: 'git' },
-              { directory: activeWorktree, strategy: 'git' },
-              { directory: activeWorkspace, strategy: 'git' },
+              { directory: unownedDir },
             ],
           },
         },
       } as unknown as OpenCodeClient
 
-      const siblings = await getSiblingRepos(db, a.id, {}, client) as SiblingRepo[]
+      const siblings = await getSiblingRepos(db, a.id, {}, client)
       const worktreeSiblings = siblings.filter((repo) => isWorktreeSibling(repo))
+      const findSibling = (directory: string) => worktreeSiblings.find((repo) => repo.fullPath === directory)
 
-      expect(worktreeSiblings.map((repo) => repo.fullPath)).toEqual([extraDir, duplicateDir])
-      expect(worktreeSiblings.every((repo) => repo.id === -1)).toBe(true)
-      expect(worktreeSiblings.every((repo) => repo.localPath === path.basename(repo.fullPath))).toBe(true)
-      expect(worktreeSiblings.every((repo) => repo.worktreeStrategy === 'git')).toBe(true)
-      expect(worktreeSiblings.every((repo) => repo.branch === undefined && repo.currentBranch === undefined)).toBe(true)
+      expect(worktreeSiblings.map((repo) => repo.fullPath).sort()).toEqual([extraDir, duplicateDir, keptPath, sharedPath, orphanPath, manualPath].sort())
+      expect(siblings.some((repo) => repo.fullPath === unownedDir && repo.worktreeSource === undefined)).toBe(true)
+      expect(worktreeSiblings.every((repo) => repo.id === -1 && repo.localPath === path.basename(repo.fullPath))).toBe(true)
+      expect(findSibling(extraDir)).toMatchObject({ worktreeSource: 'opencode', branch: undefined })
+      expect(findSibling(keptPath)).toMatchObject({ worktreeSource: 'schedule', branch: `schedule/${jobId}/run-3`, schedule: { repoId: a.id, jobId, runId: 3, inUse: false } })
+      expect(findSibling(sharedPath)).toMatchObject({ worktreeSource: 'schedule', schedule: { repoId: a.id, jobId, runId: null, inUse: true } })
+      expect(findSibling(orphanPath)).toMatchObject({ worktreeSource: 'git', branch: 'schedule/999999/run-1' })
+      expect(findSibling(orphanPath)?.schedule).toBeUndefined()
+      expect(findSibling(manualPath)).toMatchObject({ worktreeSource: 'git', currentBranch: 'manual-work' })
+    })
+
+    it('describes schedule worktrees by canonical path and shared-worktree in-use state', async () => {
+      const { createScheduleWorktreeDescriber } = await import('../../src/services/schedule-worktree-paths')
+      const repoA = path.join(reposPath, uniqueName('schedule-describer-a'))
+      mkdirSync(repoA, { recursive: true })
+      const a = createRepo(db, {
+        isLocal: true,
+        localPath: path.basename(repoA),
+        sourcePath: repoA,
+        branch: 'main',
+        defaultBranch: 'main',
+        cloneStatus: 'ready',
+        clonedAt: Date.now(),
+      })
+      const jobId = Number(db.prepare('INSERT INTO schedule_jobs (repo_id, name, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(a.id, 'nightly', 'check', Date.now(), Date.now()).lastInsertRowid)
+      const root = getScheduleWorktreesPath()
+      mkdirSync(root, { recursive: true })
+      const runDir = path.join(root, `job-${jobId}-run-1`)
+      const sharedDir = path.join(root, `job-${jobId}-shared`)
+      mkdirSync(runDir, { recursive: true })
+      mkdirSync(sharedDir, { recursive: true })
+      const linkRoot = path.join(workspaceRoot, uniqueName('schedule-describer-link'))
+      symlinkSync(root, linkRoot, 'dir')
+
+      const describeWorktree = createScheduleWorktreeDescriber(db)
+
+      const canonicalRun = describeWorktree(realpathSync(runDir))
+      expect(canonicalRun).toMatchObject({ repoId: a.id, jobId, runId: 1, inUse: false, name: 'nightly' })
+      expect(describeWorktree(path.join(linkRoot, `job-${jobId}-run-1`))).toEqual(canonicalRun)
+
+      const sharedBefore = describeWorktree(realpathSync(sharedDir))
+      expect(sharedBefore).toMatchObject({ repoId: a.id, jobId, runId: null, inUse: false, name: 'nightly' })
+
+      db.prepare('INSERT INTO schedule_runs (job_id, repo_id, trigger_source, status, started_at, created_at, worktree_path) VALUES (?, ?, ?, ?, ?, ?, ?)').run(jobId, a.id, 'manual', 'running', Date.now(), Date.now(), sharedDir)
+
+      const describeAfterRun = createScheduleWorktreeDescriber(db)
+      expect(describeAfterRun(realpathSync(sharedDir))).toMatchObject({ jobId, runId: null, inUse: true, name: 'nightly' })
+      expect(describeAfterRun(path.join(root, 'job-999999-run-1'))).toBeUndefined()
     })
 
     it('returns repo siblings when the OpenCode client fails', async () => {
@@ -1021,7 +1074,7 @@ describe('repo service real git', () => {
         },
       } as unknown as OpenCodeClient
 
-      const siblings = await getSiblingRepos(db, a.id, {}, client) as SiblingRepo[]
+      const siblings = await getSiblingRepos(db, a.id, {}, client)
 
       expect(siblings.some((repo) => repo.id === a.id)).toBe(true)
       expect(siblings.some((repo) => isWorktreeSibling(repo))).toBe(false)

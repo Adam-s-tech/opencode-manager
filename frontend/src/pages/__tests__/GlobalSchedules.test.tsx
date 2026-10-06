@@ -45,6 +45,7 @@ vi.mock('@/components/schedules', () => ({
   ScheduleRunDrawer: mocks.ScheduleRunDrawer,
   ScheduleListToolbar: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   PromptsTab: vi.fn(() => null),
+  ScheduleRepoSwitcher: ({ name }: { name: string }) => <div>{name}</div>,
 }))
 
 function makeRun(overrides: Record<string, unknown> = {}) {

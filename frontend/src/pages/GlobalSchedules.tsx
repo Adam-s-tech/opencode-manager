@@ -2,9 +2,9 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAllSchedules, useAllScheduleRuns, useCancelRepoScheduleRun, useUnreadScheduleRuns } from '@/hooks/useSchedules'
 import { useDeleteRepoSchedule, useRunRepoSchedule, useUpdateRepoSchedule, useCreateRepoSchedule } from '@/hooks/useSchedules'
-import { ScheduleJobDialog, PromptsTab, ScheduleJobsTable, ScheduleListToolbar, ScheduleRunDrawer, ScheduleRunsTable } from '@/components/schedules'
+import { ScheduleJobDialog, PromptsTab, ScheduleJobsTable, ScheduleListToolbar, ScheduleRunDrawer, ScheduleRunsTable, ScheduleRepoSwitcher } from '@/components/schedules'
 import type { CreateScheduleJobRequest } from '@opencode-manager/shared/types'
-import { matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
+import { DELETE_SCHEDULE_DESCRIPTION, matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
 import { Header } from '@/components/ui/header'
 import { Button } from '@/components/ui/button'
 import { ScheduleReportsBell } from '@/components/notifications/ScheduleReportsBell'
@@ -402,7 +402,10 @@ export function GlobalSchedules() {
     <div className="h-dvh max-h-dvh overflow-hidden bg-background flex flex-col">
       <Header>
         <Header.BackButton to="/" />
-        <Header.Title>Schedules</Header.Title>
+        <div className="min-w-0 flex-1 px-3">
+          <ScheduleRepoSwitcher name="All repos" />
+          <p className="text-xs text-muted-foreground truncate">Schedules</p>
+        </div>
         <div className="flex items-center gap-2">
           <Header.Actions>
             <ScheduleReportsBell />
@@ -779,7 +782,7 @@ export function GlobalSchedules() {
         onConfirm={handleDelete}
         onCancel={closeDialog}
         title="Delete Schedule"
-        description="This removes the job definition and all recorded run history for it."
+        description={DELETE_SCHEDULE_DESCRIPTION}
         isDeleting={deleteMutation.isPending}
       />
     </div>

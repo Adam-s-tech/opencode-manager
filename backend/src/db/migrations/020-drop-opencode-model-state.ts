@@ -49,8 +49,8 @@ function restoreModelStateFile(row: ModelStateRow): void {
 }
 
 const migration: Migration = {
-  version: 20,
-  name: 'drop-opencode-model-state',
+  id: '020-drop-opencode-model-state',
+  legacy: { version: 20, name: 'drop-opencode-model-state' },
 
   up(db) {
     const row = readDefaultRow(db)

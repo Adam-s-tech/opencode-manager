@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getRepo, workspaceLabel } from "@/api/repos";
-import { SessionList } from "@/components/session/SessionList";
+import { getRepo } from "@/api/repos";
+import { SessionList, type SessionListRenderArgs } from "@/components/session/SessionList";
 import { FileBrowserSheet } from "@/components/file-browser/FileBrowserSheet";
 import { Header } from "@/components/ui/header";
 import { RepoMcpDialog } from "@/components/repo/RepoMcpDialog";
@@ -18,11 +18,13 @@ import { useRepoActivity } from "@/hooks/useRepoActivity";
 import { useCreateRepoWorkspace, useDeleteRepoWorkspaces, useRepoSiblings } from "@/hooks/useRepoSiblings";
 import { useSSE } from "@/hooks/useSSE";
 import { useDialogParam } from "@/hooks/useDialogParam";
-import { useOpenTerminal, useTerminalDialogParam } from "@/hooks/useOpenTerminal";
+import { useOpenTerminal, useTerminalDialogParam, useTerminalDirectoryParam } from "@/hooks/useOpenTerminal";
 import { useWorktreeTab } from "@/hooks/useWorktreeTab";
 import { WorktreeTabs } from "@/components/repo/WorktreeTabs";
-import { WorkspaceManager } from "@/components/repo/WorkspaceManager";
+import { WorktreeSessionGroups } from "@/components/repo/WorktreeSessionGroups";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { GitBranch, Plus, Loader2, Layers, Columns3 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -30,7 +32,7 @@ import { ResetPermissionsDialog } from "@/components/repo/ResetPermissionsDialog
 import { PendingActionsGroup } from "@/components/notifications/PendingActionsGroup";
 import { getRepoDisplayName } from "@/lib/utils";
 import { notifyWorktreeSetup } from "@/lib/worktreeSetup";
-import { isWorktreeSibling } from "@opencode-manager/shared/utils";
+import { getRepoDirectoryNameError, isWorktreeSibling } from "@opencode-manager/shared/utils";
 
 export function RepoDetail() {
   const { id } = useParams<{ id: string }>();
@@ -46,10 +48,9 @@ export function RepoDetail() {
   const [resetPermissionsOpen, setResetPermissionsOpen] = useDialogParam('resetPermissions');
   const [multiRunOpen, setMultiRunOpen] = useDialogParam('multiRun');
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
-  const [workspaceSelectorOpen, setWorkspaceSelectorOpen] = useState(false);
-  const [activeWorkspaceDirectory, setActiveWorkspaceDirectory] = useState<string | undefined>();
   const { activeTab, setActiveTab } = useWorktreeTab();
   const openTerminal = useOpenTerminal();
+  const terminalDirectory = useTerminalDirectoryParam();
 
   const { data: repo, isLoading: repoLoading } = useQuery({
     queryKey: ["repo", repoId],
@@ -68,101 +69,109 @@ export function RepoDetail() {
     [siblings],
   );
 
-  const workspaceDirectories = useMemo(
-    () => workspaceSiblings.map((sibling) => sibling.fullPath).filter(Boolean),
+  const scheduleDirectorySet = useMemo(
+    () => new Set(
+      workspaceSiblings
+        .filter((sibling) => sibling.worktreeSource === 'schedule')
+        .map((sibling) => sibling.fullPath),
+    ),
     [workspaceSiblings],
   );
+
+  const nonScheduleWorkspaceDirectories = useMemo(
+    () => workspaceSiblings
+      .filter((sibling) => sibling.worktreeSource !== 'schedule')
+      .map((sibling) => sibling.fullPath)
+      .filter(Boolean),
+    [workspaceSiblings],
+  );
+
+  const [expandedScheduleDirectories, setExpandedScheduleDirectories] = useState<string[]>([]);
+
+  const activeScheduleDirectories = useMemo(
+    () => expandedScheduleDirectories.filter((directory) => scheduleDirectorySet.has(directory)),
+    [expandedScheduleDirectories, scheduleDirectorySet],
+  );
+
+  const handleExpandedScheduleDirectoriesChange = useCallback((directories: string[]) => {
+    setExpandedScheduleDirectories((current) =>
+      current.length === directories.length && current.every((directory, index) => directory === directories[index])
+        ? current
+        : directories,
+    );
+  }, []);
 
   const baseDirectory = repo?.fullPath;
   const subscriptionDirectories = useMemo(() => {
     const set = new Set<string>();
     if (baseDirectory) set.add(baseDirectory);
-    workspaceDirectories.forEach((dir) => set.add(dir));
+    nonScheduleWorkspaceDirectories.forEach((dir) => set.add(dir));
+    activeScheduleDirectories.forEach((dir) => set.add(dir));
     return Array.from(set);
-  }, [baseDirectory, workspaceDirectories]);
+  }, [baseDirectory, nonScheduleWorkspaceDirectories, activeScheduleDirectories]);
+
+  const showWorktrees = activeTab === 'workspaces';
+  const sessionListDirectories = useMemo(() => {
+    if (!showWorktrees) return baseDirectory ? [baseDirectory] : [];
+    return Array.from(new Set([...nonScheduleWorkspaceDirectories, ...activeScheduleDirectories]));
+  }, [showWorktrees, baseDirectory, nonScheduleWorkspaceDirectories, activeScheduleDirectories]);
 
   useEffect(() => {
-    if (workspaceDirectories.length === 0) {
-      setActiveWorkspaceDirectory(undefined);
-      return;
-    }
-
-    setActiveWorkspaceDirectory((current) => (
-      current && workspaceDirectories.includes(current) ? current : workspaceDirectories[0]
-    ));
-  }, [workspaceDirectories]);
-
-  const workspaceComposerDirectory = activeWorkspaceDirectory ?? workspaceDirectories[0];
-  const sessionListDirectories = activeTab === 'workspaces' ? workspaceDirectories : (baseDirectory ? [baseDirectory] : []);
-  const composerDirectory = activeTab === 'workspaces' ? workspaceComposerDirectory : baseDirectory;
-
-  const directoryLabels = useMemo(() => {
-    const labels: Record<string, string> = {};
-    workspaceSiblings.forEach((sibling) => {
-      if (sibling.fullPath) {
-        labels[sibling.fullPath] = workspaceLabel(sibling);
-      }
-    });
-    return labels;
-  }, [workspaceSiblings]);
-
-  const activeWorkspaceLabel = activeWorkspaceDirectory ? directoryLabels[activeWorkspaceDirectory] : undefined;
+    if (!showWorktrees) setExpandedScheduleDirectories([]);
+  }, [showWorktrees]);
 
   useSSE(subscriptionDirectories);
 
   const sessionUrl = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, inWorktree: boolean) => {
       const base = `/repos/${repoId}/sessions/${sessionId}`;
-      return activeTab === 'workspaces' ? `${base}?repoTab=workspaces` : base;
+      return inWorktree ? `${base}?repoTab=workspaces` : base;
     },
-    [repoId, activeTab],
+    [repoId],
   );
 
-  const createSessionMutation = useCreateSession(composerDirectory, (session) => {
-    navigate(sessionUrl(session.id));
-  });
+  const createSessionMutation = useCreateSession(baseDirectory);
 
-  const handleCreateSession = async (options?: {
-    agentSlug?: string;
-    promptSlug?: string;
-  }) => {
-    if (activeTab === 'workspaces' && !workspaceComposerDirectory) {
-      setCreateWorkspaceOpen(true);
-      return;
-    }
-
-    await createSessionMutation.mutateAsync({
-      agent: options?.agentSlug,
+  const handleCreateSession = (directory = baseDirectory) => {
+    createSessionMutation.mutate({ directory }, {
+      onSuccess: (session) => navigate(sessionUrl(session.id, directory !== baseDirectory)),
     });
   };
 
-  const handleCreateWorkspace = async () => {
-    const workspace = await createWorkspace.mutateAsync();
-    if (workspace.directory) {
-      setActiveWorkspaceDirectory(workspace.directory);
-    }
-    setCreateWorkspaceOpen(false);
-    notifyWorktreeSetup(workspace.worktreeSetup);
-    if (workspace.worktreeSetup?.status === 'started') {
-      const terminalId = workspace.worktreeSetup.terminal.id;
-      openTerminal(terminalId, { repoTab: 'workspaces' });
-      return;
-    }
-    setActiveTab('workspaces');
-  };
-
-  const handleOpenWorkspaceSelector = () => {
-    if (workspaceSiblings.length === 0) {
-      setCreateWorkspaceOpen(true);
-      return;
-    }
-    setActiveTab('workspaces');
-    setWorkspaceSelectorOpen(true);
+  const handleCreateWorkspace = (name: string) => {
+    createWorkspace.mutate(name ? { name } : {}, {
+      onSuccess: (workspace) => {
+        setCreateWorkspaceOpen(false);
+        notifyWorktreeSetup(workspace.worktreeSetup);
+        if (workspace.worktreeSetup?.status === 'started') {
+          const terminalId = workspace.worktreeSetup.terminal.id;
+          openTerminal(terminalId, { repoTab: 'workspaces', ...(workspace.directory ? { terminalDirectory: workspace.directory } : {}) });
+          return;
+        }
+        setActiveTab('workspaces');
+      },
+    });
   };
 
   const handleSelectSession = (sessionId: string) => {
-    navigate(sessionUrl(sessionId));
+    navigate(sessionUrl(sessionId, showWorktrees));
   };
+
+  const renderWorktreeGroups = ({ sessions, searchQuery, renderSessionCard }: SessionListRenderArgs) => (
+    <WorktreeSessionGroups
+      repoId={repoId}
+      worktrees={workspaceSiblings}
+      sessions={sessions}
+      searchQuery={searchQuery}
+      renderSessionCard={renderSessionCard}
+      onExpandedScheduleDirectoriesChange={handleExpandedScheduleDirectoriesChange}
+      onNewSession={handleCreateSession}
+      onOpenTerminal={(directory) => openTerminal(null, { repoTab: "workspaces", terminalDirectory: directory })}
+      onCreateWorktree={() => setCreateWorkspaceOpen(true)}
+      onDelete={(directories) => deleteWorkspaces.mutate(directories)}
+      isDeleting={deleteWorkspaces.isPending}
+    />
+  );
 
   if (repoLoading) {
     return (
@@ -218,7 +227,7 @@ export function RepoDetail() {
         </div>
         <Header.Actions>
           <div className="flex items-center gap-1">
-            <ProjectActionsMenu repoId={repoId} directory={composerDirectory} />
+            <ProjectActionsMenu repoId={repoId} directory={baseDirectory} />
             <PendingActionsGroup />
           </div>
           <Button
@@ -257,29 +266,17 @@ export function RepoDetail() {
         value={activeTab}
         onValueChange={setActiveTab}
         baseLabel={currentBranch}
-        activeWorkspaceLabel={activeWorkspaceLabel}
         onCreateWorkspace={() => setCreateWorkspaceOpen(true)}
-        onWorkspaceMenu={handleOpenWorkspaceSelector}
-      />
-
-      <WorkspaceManager
-        open={workspaceSelectorOpen}
-        onOpenChange={setWorkspaceSelectorOpen}
-        workspaces={workspaceSiblings}
-        activeWorkspaceDirectory={activeWorkspaceDirectory}
-        onActiveWorkspaceChange={setActiveWorkspaceDirectory}
-        onCreateWorkspace={() => setCreateWorkspaceOpen(true)}
-        onDelete={(directories) => deleteWorkspaces.mutate(directories)}
-        isDeleting={deleteWorkspaces.isPending}
       />
 
       <div className="flex-1 flex flex-col min-h-0">
-        {sessionListDirectories.length > 0 && (
+        {(showWorktrees || sessionListDirectories.length > 0) && (
           <SessionList
+            key={showWorktrees ? "worktrees" : "repo"}
             directories={sessionListDirectories}
-            directoryLabels={activeTab === 'workspaces' ? directoryLabels : undefined}
-            createDirectory={activeTab === 'workspaces' ? workspaceComposerDirectory : baseDirectory}
+            createDirectory={baseDirectory}
             onSelectSession={handleSelectSession}
+            renderSessions={showWorktrees ? renderWorktreeGroups : undefined}
           />
         )}
       </div>
@@ -303,12 +300,12 @@ export function RepoDetail() {
       <RepoMcpDialog
         open={mcpDialogOpen}
         onOpenChange={setMcpDialogOpen}
-        directory={composerDirectory}
+        directory={baseDirectory}
       />
 
       <RepoActionsDialog
         repoId={repoId}
-        directory={composerDirectory}
+        directory={baseDirectory}
         open={actionsDialogOpen}
         onOpenChange={setActionsDialogOpen}
       />
@@ -329,7 +326,7 @@ export function RepoDetail() {
 
       <TerminalPanel
         repoId={repoId}
-        directory={composerDirectory}
+        directory={terminalDirectory ?? baseDirectory}
         isOpen={terminalOpen}
         onClose={() => setTerminalOpen(false)}
       />
@@ -337,7 +334,7 @@ export function RepoDetail() {
       <PreviewPanel
         isOpen={previewOpen}
         onClose={() => setPreviewOpen(false)}
-        directory={composerDirectory}
+        directory={baseDirectory}
       />
 
       <ResetPermissionsDialog
@@ -360,47 +357,72 @@ export function RepoDetail() {
 interface CreateWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: () => Promise<void>;
+  onCreate: (name: string) => void;
   isCreating: boolean;
 }
 
 function CreateWorkspaceDialog({ open, onOpenChange, onCreate, isCreating }: CreateWorkspaceDialogProps) {
+  const [name, setName] = useState("");
+  const trimmedName = name.trim();
+  const nameError = trimmedName ? getRepoDirectoryNameError(trimmedName) : null;
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) setName("");
+    onOpenChange(next);
+  };
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    if (nameError || isCreating) return;
+    onCreate(trimmedName);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[420px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-primary" />
-            Create Workspace
-          </DialogTitle>
-          <DialogDescription>
-            Create an OpenCode worktree workspace for this repository.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
-          <div className="flex items-center gap-2 font-medium">
-            <GitBranch className="h-4 w-4 text-primary" />
-            Worktree
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              Create Worktree
+            </DialogTitle>
+            <DialogDescription>
+              OpenCode creates a git worktree of this repository from the current commit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="worktree-name">Name</Label>
+            <Input
+              id="worktree-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Generated if empty"
+              autoComplete="off"
+              autoFocus
+              disabled={isCreating}
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby="worktree-name-hint"
+            />
+            <p id="worktree-name-hint" className={`text-xs ${nameError ? "text-destructive" : "text-muted-foreground"}`}>
+              {nameError ?? "Used as the folder name and its label under Worktrees. If the folder already exists, a number is added."}
+            </p>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            OpenCode will create and manage a git worktree workspace.
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating}>
-            Cancel
-          </Button>
-          <Button onClick={() => { void onCreate(); }} disabled={isCreating} className="bg-primary hover:bg-primary-hover text-primary-foreground">
-            {isCreating ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Creating...
-              </>
-            ) : (
-              'Create Workspace'
-            )}
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isCreating}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isCreating || Boolean(nameError)} className="bg-primary hover:bg-primary-hover text-primary-foreground">
+              {isCreating ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                'Create Worktree'
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

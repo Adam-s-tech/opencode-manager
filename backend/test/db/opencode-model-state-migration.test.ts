@@ -23,7 +23,7 @@ interface ModelStateRow {
 }
 
 function migrateToV19(db: Database): void {
-  migrate(db, allMigrations.filter(migration => migration.version < 20))
+  migrate(db, allMigrations.filter(migration => (migration.legacy?.version ?? Infinity) < 20))
 }
 
 function insertRow(db: Database, state: ModelStateRow, updatedAt: number): void {

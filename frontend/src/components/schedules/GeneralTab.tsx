@@ -5,6 +5,9 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { TabsContent } from '@/components/ui/tabs'
+import { RadioOptionGroup } from '@/components/ui/radio-option-group'
+import { workspaceModeOptions } from '@/components/schedules/schedule-utils'
+import type { ScheduleWorkspaceMode } from '@opencode-manager/shared/types'
 import { Info } from 'lucide-react'
 
 type GeneralTabProps = {
@@ -23,6 +26,9 @@ type GeneralTabProps = {
   branch: string
   onBranchChange: (value: string) => void
   branchRepoId: number | undefined
+  workspaceMode: ScheduleWorkspaceMode
+  onWorkspaceModeChange: (value: ScheduleWorkspaceMode) => void
+  showWorkspaceMode: boolean
   showRepoSelector?: boolean
   isEditing: boolean
   repoId?: number
@@ -64,6 +70,9 @@ export function GeneralTab({
   branch,
   onBranchChange,
   branchRepoId,
+  workspaceMode,
+  onWorkspaceModeChange,
+  showWorkspaceMode,
   showRepoSelector,
   isEditing,
   repoId,
@@ -152,11 +161,22 @@ export function GeneralTab({
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          {showWorkspaceMode && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Workspace</p>
+              <RadioOptionGroup
+                name="schedule-workspace-mode"
+                value={workspaceMode}
+                onChange={onWorkspaceModeChange}
+                options={workspaceModeOptions}
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Label htmlFor="schedule-branch">Base branch</Label>
-              <InfoHint text="Scheduled runs execute in an isolated worktree branched off this base branch. Leave empty to use the repository's default branch." />
+              <InfoHint text="Runs start from origin/<branch> when it exists, so local commits that are not pushed are not included. A shared worktree continues from its own branch after the first run. Leave empty to use the repository's default branch." />
             </div>
             <BranchCombobox
               id="schedule-branch"

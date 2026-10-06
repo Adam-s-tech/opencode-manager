@@ -243,9 +243,16 @@ const terminalService = new TerminalService(
   () => getOpenCodeUpstreamBaseUrl(opencodeServerManager.getEffectiveServerHost()),
 )
 const projectConfigService = new ProjectConfigService(db, createGitService(gitAuthService), gitAuthService)
-const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, gitAuthService, projectConfigService, terminalService)
 const scheduleWorktreeManager = new ScheduleWorktreeManager(gitAuthService, db)
 const scheduleService = new ScheduleService(db, openCodeClient, scheduleWorktreeManager)
+scheduleService.setWorktreeRemovedHandler(async (directory) => {
+  try {
+    await terminalService.removeAll(directory)
+  } catch (error) {
+    logger.warn(`Failed to remove terminals for schedule worktree ${directory}:`, error)
+  }
+})
+const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, gitAuthService, projectConfigService, terminalService, scheduleService)
 const scheduleRunnerInstance = new ScheduleRunner(scheduleService)
 
 const notificationService = new NotificationService(db)

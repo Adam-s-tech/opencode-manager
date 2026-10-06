@@ -244,6 +244,23 @@ describe('SessionList', () => {
     expect(screen.getByText('Click here to start a new session')).toBeTruthy()
   })
 
+  it('hands an empty list to a custom session renderer instead of the create-session card', () => {
+    sessionsData.splice(0, sessionsData.length)
+    const renderSessions = vi.fn(() => <p>Custom layout</p>)
+
+    render(
+      <SessionList
+        directories={['/w/a']}
+        onSelectSession={vi.fn()}
+        renderSessions={renderSessions}
+      />,
+    )
+
+    expect(screen.getByText('Custom layout')).toBeTruthy()
+    expect(screen.queryByText('No sessions yet')).toBeNull()
+    expect(renderSessions).toHaveBeenCalledWith(expect.objectContaining({ sessions: [], searchQuery: '' }))
+  })
+
   it('shows loading state instead of create-session card when the first page is empty but more pages are pending', () => {
     sessionsData.splice(0, sessionsData.length)
     hasNextPageRef.current = true

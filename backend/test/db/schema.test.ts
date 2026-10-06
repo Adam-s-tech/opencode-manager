@@ -21,9 +21,9 @@ describe('initializeDatabase', () => {
   it('creates the database file, applies migrations, and seeds defaults', async () => {
     const db = initializeDatabase(dbPath)
 
-    const migrations = db.prepare('SELECT name FROM schema_migrations ORDER BY version ASC').all() as Array<{ name: string }>
-    expect(migrations.map(migration => migration.name)).toContain('base-schema')
-    expect(migrations.map(migration => migration.name)).toContain('drop-opencode-configs')
+    const migrations = db.prepare('SELECT id AS name FROM applied_migrations').all() as Array<{ name: string }>
+    expect(migrations.map(migration => migration.name)).toContain('001-base-schema')
+    expect(migrations.map(migration => migration.name)).toContain('019-drop-opencode-configs')
 
     const preferences = db.prepare('SELECT preferences FROM user_preferences WHERE user_id = ?').get('default') as { preferences: string }
     expect(preferences.preferences).toBe('{}')

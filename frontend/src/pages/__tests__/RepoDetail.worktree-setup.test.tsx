@@ -14,7 +14,8 @@ const mocks = vi.hoisted(() => ({
   useRepoActivity: vi.fn(),
   useSSE: vi.fn(),
   useCreateSession: vi.fn(),
-  createWorkspaceMutateAsync: vi.fn(),
+  createWorkspaceMutate: vi.fn(),
+  createWorkspaceResult: vi.fn(),
   showToastInfo: vi.fn(),
   showToastWarning: vi.fn(),
 }))
@@ -63,7 +64,6 @@ vi.mock('@/components/repo/ProjectActionsMenu', () => ({ ProjectActionsMenu: () 
 vi.mock('@/components/repo/RepoActionsDialog', () => ({ RepoActionsDialog: () => null }))
 vi.mock('@/components/repo/RepoSkillsDialog', () => ({ RepoSkillsDialog: () => null }))
 vi.mock('@/components/source-control', () => ({ SourceControlPanel: () => null }))
-vi.mock('@/components/repo/WorkspaceManager', () => ({ WorkspaceManager: () => null }))
 vi.mock('@/components/repo/ResetPermissionsDialog', () => ({ ResetPermissionsDialog: () => null }))
 vi.mock('@/components/notifications/PendingActionsGroup', () => ({ PendingActionsGroup: () => null }))
 
@@ -106,12 +106,15 @@ async function startWorkspaceCreation() {
   const user = userEvent.setup()
   renderRepoDetail()
   await user.click(await screen.findByRole('button', { name: 'New workspace' }))
-  await user.click(await screen.findByRole('button', { name: 'Create Workspace' }))
+  await user.click(await screen.findByRole('button', { name: 'Create Worktree' }))
 }
 
 describe('RepoDetail worktree setup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.createWorkspaceMutate.mockImplementation((_request: unknown, options: { onSuccess: (value: unknown) => void }) => {
+      options.onSuccess(mocks.createWorkspaceResult())
+    })
     mocks.getRepo.mockResolvedValue(baseRepo)
     mocks.useRepoSiblings.mockReturnValue({ data: siblingsData })
     mocks.useDeleteRepoWorkspaces.mockReturnValue({ mutate: vi.fn(), isPending: false })
@@ -120,10 +123,10 @@ describe('RepoDetail worktree setup', () => {
 
   it('switches to the new workspace terminal when setup starts from the repo tab', async () => {
     mocks.useCreateRepoWorkspace.mockReturnValue({
-      mutateAsync: mocks.createWorkspaceMutateAsync,
+      mutate: mocks.createWorkspaceMutate,
       isPending: false,
     })
-    mocks.createWorkspaceMutateAsync.mockResolvedValue({
+    mocks.createWorkspaceResult.mockReturnValue({
       directory: newWorkspaceDirectory,
       worktreeSetup: {
         status: 'started',
@@ -154,10 +157,10 @@ describe('RepoDetail worktree setup', () => {
 
   it('stays on the workspace tab without a terminal when setup does not start', async () => {
     mocks.useCreateRepoWorkspace.mockReturnValue({
-      mutateAsync: mocks.createWorkspaceMutateAsync,
+      mutate: mocks.createWorkspaceMutate,
       isPending: false,
     })
-    mocks.createWorkspaceMutateAsync.mockResolvedValue({
+    mocks.createWorkspaceResult.mockReturnValue({
       directory: newWorkspaceDirectory,
       worktreeSetup: { status: 'none' },
     })
@@ -168,9 +171,25 @@ describe('RepoDetail worktree setup', () => {
       expect(screen.getByTestId('location')).toHaveTextContent('repoTab=workspaces'),
     )
     expect(screen.getByTestId('location')).not.toHaveTextContent('dialog=terminal')
-    expect(screen.getByTestId('terminal-panel')).toHaveAttribute(
-      'data-directory',
-      newWorkspaceDirectory,
-    )
+    expect(screen.getByTestId('terminal-panel')).toHaveAttribute('data-open', 'false')
+  })
+
+  it('sends the typed worktree name and blocks names that are not a single folder', async () => {
+    mocks.useCreateRepoWorkspace.mockReturnValue({ mutate: mocks.createWorkspaceMutate, isPending: false })
+    mocks.createWorkspaceResult.mockReturnValue({ directory: newWorkspaceDirectory, worktreeSetup: { status: 'none' } })
+    const user = userEvent.setup()
+    renderRepoDetail()
+
+    await user.click(await screen.findByRole('button', { name: 'New workspace' }))
+    const nameInput = await screen.findByLabelText('Name')
+    await user.type(nameInput, '../escape')
+    expect(screen.getByRole('button', { name: 'Create Worktree' })).toBeDisabled()
+    expect(screen.getByText('Directory name cannot contain dot-dot path segments')).toBeInTheDocument()
+
+    await user.clear(nameInput)
+    await user.type(nameInput, 'feature-login')
+    await user.click(screen.getByRole('button', { name: 'Create Worktree' }))
+
+    expect(mocks.createWorkspaceMutate).toHaveBeenCalledWith({ name: 'feature-login' }, expect.anything())
   })
 })

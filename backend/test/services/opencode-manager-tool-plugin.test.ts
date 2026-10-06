@@ -301,6 +301,21 @@ describe('ocm-manager plugin', () => {
     }
   })
 
+  it('allows listing schedule worktrees but rejects deleting them', async () => {
+    const tool = await loadTool(configHome)
+
+    const fetchMock = jsonResponse({})
+    vi.stubGlobal('fetch', fetchMock)
+    await runTool(tool, { action: 'request', params: { method: 'GET', path: '/repos/1/schedules/2/worktrees' } })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const deleteMock = jsonResponse({})
+    vi.stubGlobal('fetch', deleteMock)
+    await expect(runTool(tool, { action: 'request', params: { method: 'DELETE', path: '/repos/1/schedules/2/worktrees' } }))
+      .rejects.toThrow(/is not an allowed OpenCode Manager route/)
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
   it('normalizes path traversal and rejects the resolved route without calling the API', async () => {
     const fetchMock = jsonResponse({})
     vi.stubGlobal('fetch', fetchMock)

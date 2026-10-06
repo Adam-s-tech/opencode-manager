@@ -5,6 +5,7 @@ import {
   SchedulePermissionConfigSchema,
   ScheduleRunSchema,
   ScheduleSkillMetadataSchema,
+  ScheduleWorkspaceModeSchema,
   type ScheduleJob,
   type ScheduleMcpServer,
   type ScheduleMode,
@@ -12,6 +13,7 @@ import {
   type ScheduleRun,
   type ScheduleRunStatus,
   type ScheduleRunTriggerSource,
+  type ScheduleWorkspaceMode,
 } from '@opencode-manager/shared/schemas'
 import { ASSISTANT_REPO_ID, ASSISTANT_REPO_NAME, ASSISTANT_REPO_PATH, getRepoDisplayName } from '@opencode-manager/shared/utils'
 import type { ScheduleJobPersistenceInput } from '../services/schedule-config'
@@ -33,6 +35,7 @@ interface ScheduleJobRow {
   permission_config: string | null
   mcp_servers: string | null
   branch: string | null
+  workspace_mode: ScheduleWorkspaceMode | null
   created_at: number
   updated_at: number
   last_run_at: number | null
@@ -100,6 +103,11 @@ function parseMcpServers(raw: string | null): ScheduleMcpServer[] {
   }
 }
 
+function normalizeWorkspaceMode(raw: string | null): ScheduleWorkspaceMode {
+  const result = ScheduleWorkspaceModeSchema.safeParse(raw)
+  return result.success ? result.data : 'worktree'
+}
+
 function rowToScheduleJob(row: ScheduleJobRow): ScheduleJob {
   return ScheduleJobSchema.parse({
     id: row.id,
@@ -118,6 +126,7 @@ function rowToScheduleJob(row: ScheduleJobRow): ScheduleJob {
     permissionConfig: parsePermissionConfig(row.permission_config),
     mcpServers: parseMcpServers(row.mcp_servers),
     branch: row.branch,
+    workspaceMode: normalizeWorkspaceMode(row.workspace_mode),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastRunAt: row.last_run_at,
@@ -199,9 +208,10 @@ export function createScheduleJob(db: Database, repoId: number, input: ScheduleJ
       permission_config,
       mcp_servers,
       branch,
+      workspace_mode,
       created_at, updated_at, last_run_at, next_run_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   const result = stmt.run(
@@ -220,6 +230,7 @@ export function createScheduleJob(db: Database, repoId: number, input: ScheduleJ
     serializePermissionConfig(input.permissionConfig),
     serializeMcpServers(input.mcpServers),
     input.branch,
+    input.workspaceMode,
     now,
     now,
     null,
@@ -244,7 +255,7 @@ export function updateScheduleJob(db: Database, repoId: number, jobId: number, i
   const stmt = db.prepare(`
     UPDATE schedule_jobs
     SET name = ?, description = ?, enabled = ?, schedule_mode = ?, interval_minutes = ?, cron_expression = ?, timezone = ?,
-        agent_slug = ?, prompt = ?, model = ?, skill_metadata = ?, permission_config = ?, mcp_servers = ?, branch = ?, updated_at = ?, next_run_at = ?
+        agent_slug = ?, prompt = ?, model = ?, skill_metadata = ?, permission_config = ?, mcp_servers = ?, branch = ?, workspace_mode = ?, updated_at = ?, next_run_at = ?
     WHERE repo_id = ? AND id = ?
   `)
 
@@ -263,6 +274,7 @@ export function updateScheduleJob(db: Database, repoId: number, jobId: number, i
     serializePermissionConfig(input.permissionConfig),
     serializeMcpServers(input.mcpServers),
     input.branch,
+    input.workspaceMode,
     now,
     input.nextRunAt,
     repoId,
@@ -298,11 +310,21 @@ export function listScheduleRunArtifactsByJob(db: Database, repoId: number, jobI
   }))
 }
 
-export function listActiveScheduleRunWorktreePaths(db: Database): string[] {
-  const rows = db
-    .prepare('SELECT worktree_path FROM schedule_runs WHERE worktree_path IS NOT NULL')
-    .all() as { worktree_path: string }[]
-  return rows.map((row) => row.worktree_path)
+export interface ScheduleJobWorktreeOwner {
+  id: number
+  repoId: number
+  name: string
+}
+
+export function listScheduleJobWorktreeOwners(db: Database): ScheduleJobWorktreeOwner[] {
+  const rows = db.prepare('SELECT id, repo_id, name FROM schedule_jobs').all() as Array<{ id: number; repo_id: number; name: string }>
+  return rows.map((row) => ({ id: row.id, repoId: row.repo_id, name: row.name }))
+}
+
+export function clearScheduleRunWorktreePath(db: Database, repoId: number, jobId: number, worktreePath: string): number {
+  return db
+    .prepare('UPDATE schedule_runs SET worktree_path = NULL WHERE repo_id = ? AND job_id = ? AND worktree_path = ?')
+    .run(repoId, jobId, worktreePath).changes
 }
 
 export function deleteScheduleRunById(db: Database, repoId: number, jobId: number, runId: number): boolean {

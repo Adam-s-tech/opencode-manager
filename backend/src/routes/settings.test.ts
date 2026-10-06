@@ -19,34 +19,17 @@ interface TestUserPreferenceRow {
   updated_at: number
 }
 
-interface TestMigrationRow {
-  version: number
-  name: string
-  applied_at: number
-}
-
 interface StatementResult {
-  get?: (..._params: unknown[]) => TestUserPreferenceRow | TestMigrationRow | { count: number } | { name: string } | { user_id: string; preferences: string } | undefined
+  get?: (..._params: unknown[]) => TestUserPreferenceRow | { count: number } | { name: string } | { user_id: string; preferences: string } | undefined
   run?: (..._params: unknown[]) => { changes: number }
   all?: () => Array<unknown>
 }
 
 class InMemoryDatabase {
   private userPreferences = new Map<string, TestUserPreferenceRow>()
-  private schemaMigrations = new Map<number, { name: string; applied_at: number }>()
 
   private normalizeSql(sql: string): string {
     return sql.trim().toLowerCase().replace(/\s+/g, ' ')
-  }
-
-  private getMigrationRows(): TestMigrationRow[] {
-    return [...this.schemaMigrations.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([version, value]) => ({
-        version,
-        name: value.name,
-        applied_at: value.applied_at,
-      }))
   }
 
   private setUserPreference(userId: string, preferences: string, updatedAt: number): void {
@@ -55,22 +38,6 @@ class InMemoryDatabase {
 
   private createStatement(sql: string): StatementResult {
     const normalizedSql = this.normalizeSql(sql)
-
-    if (normalizedSql === 'select version from schema_migrations order by version') {
-      return {
-        all: () => this.getMigrationRows(),
-      }
-    }
-
-    if (normalizedSql.startsWith('insert into schema_migrations')) {
-      return {
-        run: (...params: unknown[]) => {
-          const [version, name, appliedAt] = params as [number, string, number]
-          this.schemaMigrations.set(version, { name, applied_at: appliedAt })
-          return { changes: 1 }
-        },
-      }
-    }
 
     if (normalizedSql === 'select preferences, updated_at from user_preferences where user_id = ?') {
       return {
@@ -172,7 +139,6 @@ class InMemoryDatabase {
 
   close() {
     this.userPreferences.clear()
-    this.schemaMigrations.clear()
   }
 }
 

@@ -184,6 +184,14 @@ export function ScheduleJobsTable({
                     >
                       {job.name}
                     </button>
+                    {job.retainedWorktreeCount > 0 && (
+                      <span
+                        title="Worktrees this schedule has left on disk. Manage them from the job details."
+                        className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                      >
+                        {job.retainedWorktreeCount} worktree{job.retainedWorktreeCount === 1 ? '' : 's'}
+                      </span>
+                    )}
                   </span>
                   {job.description && <span className="truncate text-xs text-muted-foreground sm:max-w-[20rem]">{job.description}</span>}
                   <span className="truncate text-xs text-muted-foreground sm:hidden" title={scheduleTitle}>{mobileDetail}</span>

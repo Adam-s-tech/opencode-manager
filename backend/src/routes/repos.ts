@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { Database } from 'bun:sqlite'
 import type { DeleteRepoResult, Repo } from '@opencode-manager/shared/types'
-import { DiscoverReposRequestSchema, AssistantModeInitRequestSchema, UpdateRepoRequestSchema, DeleteRepoRequestSchema } from '@opencode-manager/shared/schemas'
+import { DiscoverReposRequestSchema, AssistantModeInitRequestSchema, UpdateRepoRequestSchema, CreateRepoWorkspaceRequestSchema, DeleteRepoRequestSchema } from '@opencode-manager/shared/schemas'
 import { listRepos, getRepoById, updateLastAccessed, getRepoGitCredentialId, setRepoGitCredentialId, updateRepoName } from '../db/queries'
 import * as repoService from '../services/repo'
 import * as archiveService from '../services/archive'
@@ -358,8 +358,13 @@ app.get('/', async (c) => {
       const repo = getRepoById(database, id)
       if (!repo || repo.cloneStatus !== 'ready') return c.json({ error: 'Repo not found' }, 404)
 
+      const parsed = CreateRepoWorkspaceRequestSchema.safeParse(await c.req.json().catch(() => ({})))
+      if (!parsed.success) {
+        return c.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request' }, 400)
+      }
+
       try {
-        return c.json(await repoWorkspaces.create(repo))
+        return c.json(await repoWorkspaces.create(repo, { name: parsed.data.name || undefined }))
       } catch (error: unknown) {
         if (isWorktreeError(error)) {
           return c.json({ error: error.data.message }, 409)
@@ -399,7 +404,7 @@ app.get('/', async (c) => {
       }
 
       const removeWorktree = async () => {
-        scheduleService.prepareRepoDelete(id)
+        await scheduleService.prepareRepoDelete(id)
         await repoWorkspaces.removeRepoTerminals(repo)
         await repoService.deleteRepoFiles(database, id)
       }

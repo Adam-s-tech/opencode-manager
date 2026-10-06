@@ -2,7 +2,11 @@ import type { Repo } from './types'
 import { FetchError, fetchWrapper, fetchWrapperVoid, fetchWrapperBlob } from './fetchWrapper'
 import { API_BASE_URL } from '@/config'
 import { saveFile } from '@/lib/download'
-import type { DiscoverReposResponse, AssistantModeStatus, AssistantModeInitRequest, DeleteRepoRequest, DeleteRepoResult, RepoGitIdentity, WorktreeSetupResult } from '@opencode-manager/shared/types'
+import type { CreateRepoWorkspaceRequest, DiscoverReposResponse, AssistantModeStatus, AssistantModeInitRequest, DeleteRepoRequest, DeleteRepoResult, RepoGitIdentity, WorktreeSetupResult } from '@opencode-manager/shared/types'
+import type { RepoSibling } from '@opencode-manager/shared/utils'
+import { formatScheduleWorktreeLabel } from '@/lib/schedules/schedule-worktree'
+
+export type { RepoSibling } from '@opencode-manager/shared/utils'
 
 export interface CreateRepoOptions {
   repoUrl?: string
@@ -38,13 +42,16 @@ export async function getRepo(id: number): Promise<Repo> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${id}`)
 }
 
-export type RepoSibling = Repo & {
-  currentBranch?: string
-  worktreeStrategy?: string
+export function workspaceLabel(workspace: RepoSibling): string {
+  return workspace.currentBranch || workspace.branch || workspace.localPath || 'worktree'
 }
 
-export function workspaceLabel(workspace: RepoSibling): string {
-  return workspace.currentBranch || workspace.branch || workspace.localPath || 'workspace'
+export function worktreeSourceLabel(worktree: RepoSibling): string | null {
+  if (worktree.schedule) {
+    return `Schedule · ${formatScheduleWorktreeLabel(worktree.schedule.runId)}`
+  }
+  if (worktree.worktreeSource === 'git') return 'Git'
+  return worktree.worktreeSource === 'opencode' ? 'OpenCode' : null
 }
 
 export interface RepoWorktree {
@@ -63,9 +70,11 @@ export async function deleteRepoWorkspace(repoId: number, directory: string): Pr
   })
 }
 
-export async function createRepoWorkspace(repoId: number): Promise<RepoWorktree & { worktreeSetup?: WorktreeSetupResult }> {
+export async function createRepoWorkspace(repoId: number, request: CreateRepoWorkspaceRequest = {}): Promise<RepoWorktree & { worktreeSetup?: WorktreeSetupResult }> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/workspaces`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
   })
 }
 

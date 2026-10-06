@@ -5,8 +5,8 @@ interface ColumnInfo {
 }
 
 const migration: Migration = {
-  version: 9,
-  name: 'repo-source-path',
+  id: '009-repo-source-path',
+  legacy: { version: 9, name: 'repo-source-path' },
 
   up(db) {
     const tableInfo = db.prepare('PRAGMA table_info(repos)').all() as ColumnInfo[]

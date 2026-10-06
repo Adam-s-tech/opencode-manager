@@ -71,7 +71,7 @@ export function RunDetailPanel({ repoId, activeRun, selectedRunLoading, onCancel
 
   const { sessionId } = activeRun
 
-  const opensNewRepoSession = Boolean(activeRun.runBranch) && activeRun.status !== 'running'
+  const opensNewRepoSession = Boolean(activeRun.runBranch) && !activeRun.worktreePath && activeRun.status !== 'running'
 
   const handleOpenSession = async () => {
     if (!opensNewRepoSession) {

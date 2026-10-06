@@ -26,7 +26,7 @@ describe('internal-schedules routes', () => {
     db = new Database(':memory:')
     migrate(db, allMigrations)
     const openCodeClient = createOpenCodeClient()
-    const stubWorktreeManager = { prepare: () => Promise.resolve(null), finalize: () => Promise.resolve({ commitHash: null }) } as unknown as ScheduleWorktreeManager
+    const stubWorktreeManager = { prepare: () => Promise.resolve(null), finalize: () => Promise.resolve({ commitHash: null }), listWorktrees: () => [] } as unknown as ScheduleWorktreeManager
     scheduleService = new ScheduleService(db, openCodeClient, stubWorktreeManager)
     notificationService = new NotificationService(db)
     settingsService = new SettingsService(db)

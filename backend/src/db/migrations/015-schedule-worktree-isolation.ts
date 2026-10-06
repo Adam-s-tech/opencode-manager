@@ -7,8 +7,8 @@ interface ColumnInfo {
 }
 
 const migration: Migration = {
-  version: 15,
-  name: 'schedule-worktree-isolation',
+  id: '015-schedule-worktree-isolation',
+  legacy: { version: 15, name: 'schedule-worktree-isolation' },
 
   up(db) {
     const jobColumns = db.prepare('PRAGMA table_info(schedule_jobs)').all() as ColumnInfo[]

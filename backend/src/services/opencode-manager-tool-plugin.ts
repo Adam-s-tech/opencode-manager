@@ -29,6 +29,7 @@ export const MANAGER_TOOL_ALLOWED_ROUTES = [
   'GET /repos/*/schedules/*',
   'PATCH /repos/*/schedules/*',
   'DELETE /repos/*/schedules/*',
+  'GET /repos/*/schedules/*/worktrees',
   'POST /repos/*/schedules/*/run',
   'GET /repos/*/schedules/*/runs',
   'DELETE /repos/*/schedules/*/runs',

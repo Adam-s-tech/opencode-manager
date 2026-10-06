@@ -6,6 +6,7 @@ import type {
   ScheduleMode,
   SchedulePermissionConfig,
   ScheduleSkillMetadata,
+  ScheduleWorkspaceMode,
   UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
 
@@ -26,6 +27,7 @@ export interface ScheduleJobPersistenceInput {
   permissionConfig: SchedulePermissionConfig | null
   mcpServers: ScheduleMcpServer[]
   branch: string | null
+  workspaceMode: ScheduleWorkspaceMode
   nextRunAt: number | null
 }
 
@@ -101,6 +103,7 @@ export function buildCreateSchedulePersistenceInput(input: CreateScheduleJobRequ
     model: input.model?.trim() || null,
     skillMetadata: input.skillMetadata,
     branch: input.branch?.trim() || null,
+    workspaceMode: input.workspaceMode ?? 'worktree',
   }
 
   const scheduleConfig = input.scheduleMode === 'cron'
@@ -162,6 +165,7 @@ export function buildUpdatedSchedulePersistenceInput(
     permissionConfig: input.permissionConfig === undefined ? existing.permissionConfig : (input.permissionConfig ?? null),
     mcpServers: input.mcpServers ?? existing.mcpServers,
     branch: input.branch === undefined ? existing.branch : (input.branch?.trim() || null),
+    workspaceMode: input.workspaceMode ?? existing.workspaceMode,
     nextRunAt,
   }
 }
