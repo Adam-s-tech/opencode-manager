@@ -9,6 +9,32 @@ export type ScheduleRunStatus = z.infer<typeof ScheduleRunStatusSchema>
 export const ScheduleModeSchema = z.enum(['interval', 'cron'])
 export type ScheduleMode = z.infer<typeof ScheduleModeSchema>
 
+/**
+ * Where a scheduled run executes. `worktree` gives every run a fresh worktree that is
+ * removed when the run ends, `kept-worktree` keeps each run's worktree afterwards,
+ * `shared-worktree` reuses one worktree and branch for every run of the schedule, and
+ * `repo` runs directly in the repository checkout without isolation.
+ */
+export const ScheduleWorkspaceModeSchema = z.enum(['worktree', 'kept-worktree', 'shared-worktree', 'repo'])
+export type ScheduleWorkspaceMode = z.infer<typeof ScheduleWorkspaceModeSchema>
+
+/**
+ * A schedule worktree that still exists on disk. `runId` is null for the schedule's
+ * shared worktree, and `inUse` is true while a running run is working in it.
+ */
+export const ScheduleWorktreeSchema = z.object({
+  worktreePath: z.string(),
+  branch: z.string(),
+  runId: z.number().nullable(),
+  inUse: z.boolean(),
+})
+export type ScheduleWorktree = z.infer<typeof ScheduleWorktreeSchema>
+
+export const RemoveScheduleWorktreesRequestSchema = z.object({
+  worktreePath: z.string().min(1).optional(),
+})
+export type RemoveScheduleWorktreesRequest = z.infer<typeof RemoveScheduleWorktreesRequestSchema>
+
 export const ScheduleSkillMetadataSchema = z.object({
   skillSlugs: z.array(z.string().min(1).max(100)).default([]),
   notes: z.string().max(2000).optional(),
@@ -153,6 +179,7 @@ export const ScheduleJobSchema = z.object({
   permissionConfig: SchedulePermissionConfigSchema.nullable(),
   mcpServers: ScheduleMcpServersSchema,
   branch: z.string().nullable(),
+  workspaceMode: ScheduleWorkspaceModeSchema,
   createdAt: z.number(),
   updatedAt: z.number(),
   lastRunAt: z.number().nullable(),
@@ -192,6 +219,7 @@ const ScheduleJobBaseRequestSchema = z.object({
   permissionConfig: SchedulePermissionConfigSchema.nullable().optional(),
   mcpServers: ScheduleMcpServersSchema.optional(),
   branch: z.string().min(1).max(200).nullable().optional(),
+  workspaceMode: ScheduleWorkspaceModeSchema.optional(),
 })
 
 export const CreateScheduleJobRequestSchema = z.discriminatedUnion('scheduleMode', [
@@ -222,6 +250,7 @@ export const UpdateScheduleJobRequestSchema = z.object({
   permissionConfig: SchedulePermissionConfigSchema.nullable().optional(),
   mcpServers: ScheduleMcpServersSchema.optional(),
   branch: z.string().min(1).max(200).nullable().optional(),
+  workspaceMode: ScheduleWorkspaceModeSchema.optional(),
 })
 export type UpdateScheduleJobRequest = z.infer<typeof UpdateScheduleJobRequestSchema>
 

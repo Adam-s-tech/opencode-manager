@@ -5,6 +5,7 @@ import type {
   ScheduleJob,
   ScheduleRun,
   ScheduleRunStatus,
+  ScheduleWorktree,
   UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
 
@@ -22,6 +23,7 @@ export interface ScheduleJobWithRepo extends ScheduleJob {
   repoPath: string
   repoUrl: string
   lastRun: ScheduleRunSummary | null
+  retainedWorktreeCount: number
 }
 
 export interface ScheduleRunWithContext extends ScheduleRun {
@@ -159,6 +161,18 @@ export async function cancelRepoScheduleRun(repoId: number, jobId: number, runId
 export async function clearRepoScheduleRuns(repoId: number, jobId: number): Promise<{ cleared: number }> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/runs`, {
     method: 'DELETE',
+  })
+}
+
+export async function listScheduleWorktrees(repoId: number, jobId: number): Promise<{ worktrees: ScheduleWorktree[] }> {
+  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/worktrees`)
+}
+
+export async function removeScheduleWorktrees(repoId: number, jobId: number, worktreePath?: string): Promise<{ removed: number }> {
+  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/worktrees`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(worktreePath ? { worktreePath } : {}),
   })
 }
 

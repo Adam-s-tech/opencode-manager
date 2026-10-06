@@ -6,7 +6,7 @@ import { getRepoById, getRepoByDirectory, updateRepoBranch, listRepos } from '..
 import { updateScheduleJobsBranch } from '../../db/schedules'
 import { isSSHUrl, getBranchNameError } from '@opencode-manager/shared/utils'
 import { GitOperationError, isNoUpstreamError, parseGitError } from '../../utils/git-errors'
-import { resolveMainCheckoutPath } from '../repo'
+import { listGitWorktrees, resolveMainCheckoutPath } from '../repo'
 import { MAX_COMMIT_PROMPT_DIFF_CHARS, type CommitMessageContext } from './commit-message-prompt'
 import type { Database } from 'bun:sqlite'
 import type { DeleteBranchResult, GitOperationKind, GitOperationState, GitStashEntry, IntegrateBranchRequest, IntegrateBranchResult, StashPushRequest } from '@opencode-manager/shared'
@@ -1058,30 +1058,8 @@ export class GitService {
     )
   }
 
-  private async listWorktreeCheckouts(repoPath: string, env: Record<string, string> | undefined): Promise<Array<{ path: string; branch: string | null }>> {
-    try {
-      const output = await executeCommand(['git', '-C', repoPath, 'worktree', 'list', '--porcelain'], { env, silent: true })
-      const checkouts: Array<{ path: string; branch: string | null }> = []
-      let current: { path: string; branch: string | null } | null = null
-
-      for (const line of output.split('\n')) {
-        if (line.startsWith('worktree ')) {
-          if (current) checkouts.push(current)
-          current = { path: line.slice('worktree '.length).trim(), branch: null }
-        } else if (line.startsWith('branch refs/heads/') && current) {
-          current.branch = line.slice('branch refs/heads/'.length).trim()
-        }
-      }
-      if (current) checkouts.push(current)
-
-      return checkouts
-    } catch {
-      return []
-    }
-  }
-
   private async findCheckoutPath(repoPath: string, branch: string, env: Record<string, string> | undefined): Promise<string | null> {
-    const checkouts = await this.listWorktreeCheckouts(repoPath, env)
+    const checkouts = await listGitWorktrees(repoPath, env)
     return checkouts.find((checkout) => checkout.branch === branch)?.path ?? null
   }
 

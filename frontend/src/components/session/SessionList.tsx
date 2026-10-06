@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo, useEffect, useRef } from "react";
+import { useCallback, useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import { useSessionsAcrossDirectories, useDeleteSession, useCreateSession } from "@/hooks/useOpenCode";
 import type { DeleteSessionTarget } from "@/hooks/useOpenCode";
 import type { Session } from "@/api/types";
@@ -19,6 +19,17 @@ interface SessionListProps {
   directoryLabels?: Record<string, string>;
   activeSessionID?: string;
   onSelectSession: (sessionID: string) => void;
+  renderSessions?: (args: SessionListRenderArgs) => ReactNode;
+}
+
+/**
+ * Lets a caller lay out the loaded root sessions itself, for example grouped by worktree.
+ * Search, paging, pinning, selection and delete stay owned by SessionList.
+ */
+export interface SessionListRenderArgs {
+  sessions: Session[];
+  searchQuery: string;
+  renderSessionCard: (session: Session) => ReactNode;
 }
 
 export const SessionList = ({
@@ -28,6 +39,7 @@ export const SessionList = ({
   directoryLabels,
   activeSessionID,
   onSelectSession,
+  renderSessions,
 }: SessionListProps) => {
   const directoriesList = useMemo(() => {
     const source = directories && directories.length > 0 ? directories : directory ? [directory] : [];
@@ -118,7 +130,7 @@ export const SessionList = ({
     if (hasNextPage || isFetchingNextPage) {
       return <div className="p-4 text-sm text-muted-foreground">Loading sessions...</div>;
     }
-    if (!searchQuery.trim()) {
+    if (!searchQuery.trim() && !renderSessions) {
       return (
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-4 min-h-0 [mask-image:linear-gradient(to_bottom,transparent,black_16px,black)]">
           <Card
@@ -285,7 +297,13 @@ export const SessionList = ({
         onScroll={handleSessionsScroll}
       >
         <div className="flex flex-col gap-4">
-          {filteredSessions.length === 0 && !isFetchingNextPage ? (
+          {renderSessions ? (
+            renderSessions({
+              sessions: filteredSessions,
+              searchQuery,
+              renderSessionCard: (session) => renderSessionCard(session, pinnedKeys.has(getSessionSelectionKey(session))),
+            })
+          ) : filteredSessions.length === 0 && !isFetchingNextPage ? (
             <div className="text-sm text-muted-foreground text-center py-4">
               No sessions found
             </div>

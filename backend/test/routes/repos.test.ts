@@ -110,7 +110,7 @@ const mockTerminalService = {
 
 function createTestRoutes(openCodeClient: ReturnType<typeof createStubOpenCodeClient> = createStubOpenCodeClient()): ReturnType<typeof createRepoRoutes> {
   const projectConfigService = new ProjectConfigService(mockDb, createGitService(mockGitAuthService), mockGitAuthService)
-  const repoWorkspaces = new RepoWorkspaceService(mockDb, openCodeClient, mockGitAuthService, projectConfigService, mockTerminalService)
+  const repoWorkspaces = new RepoWorkspaceService(mockDb, openCodeClient, mockGitAuthService, projectConfigService, mockTerminalService, mockScheduleService)
   return createRepoRoutes(mockDb, mockGitAuthService, mockScheduleService, openCodeClient, mockTerminalService, projectConfigService, repoWorkspaces)
 }
 
@@ -505,6 +505,39 @@ describe('Repo Routes', () => {
       expect(await res.json()).toEqual({ directory: '/tmp/wrk-test', worktreeSetup: { status: 'none' } })
     })
 
+    it('passes a requested worktree name to OpenCode', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+      const client = createStubOpenCodeClient()
+      const create = vi.fn(async () => ({ directory: '/tmp/feature-login' }))
+      client.api.worktree.create = create as never
+
+      const res = await createTestRoutes(client).request('/1/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: ' feature-login ' }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: 'feature-login' }))
+    })
+
+    it('rejects a worktree name that is not a single folder name', async () => {
+      vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
+      const client = createStubOpenCodeClient()
+      const create = vi.fn(async () => ({ directory: '/tmp/x' }))
+      client.api.worktree.create = create as never
+
+      const res = await createTestRoutes(client).request('/1/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: '../escape' }),
+      })
+
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: 'Directory name cannot contain dot-dot path segments' })
+      expect(create).not.toHaveBeenCalled()
+    })
+
     it('returns 200 with a failed worktree setup when the setup terminal cannot start', async () => {
       vi.mocked(db.getRepoById).mockReturnValue(createMockRepo({ id: 1, fullPath: '/tmp/repos/test-repo' }))
       vi.mocked(db.getRepoSetting).mockImplementation((_database, _repoId, key) =>
@@ -880,7 +913,7 @@ describe('Repo Routes', () => {
       vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
       vi.mocked(repoService.getSiblingRepos).mockResolvedValue([
         { ...createMockRepo({ id: 2, fullPath: '/tmp/repos/manager-worktree', isWorktree: true }), currentBranch: undefined },
-        { ...createMockRepo({ id: -1, fullPath: '/tmp/plugin-workspace' }), currentBranch: undefined, worktreeStrategy: 'git' },
+        { ...createMockRepo({ id: -1, fullPath: '/tmp/plugin-workspace' }), currentBranch: undefined, worktreeStrategy: 'git', worktreeSource: 'opencode' },
       ])
 
       const app = createTestRoutes()

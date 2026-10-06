@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { WorktreeTabs } from './WorktreeTabs'
 import type { RepoSibling } from '@/api/repos'
@@ -15,6 +15,7 @@ const makeWorkspaceSibling = (branch: string): RepoSibling => ({
   currentBranch: branch,
   branch,
   worktreeStrategy: 'git',
+  worktreeSource: 'opencode',
 })
 
 const onValueChange = vi.fn()
@@ -30,18 +31,18 @@ describe('WorktreeTabs', () => {
     )
     expect(screen.getAllByRole('tab')).toHaveLength(1)
     expect(screen.getByText('main')).toBeInTheDocument()
-    expect(screen.getByText('Workspace')).toBeInTheDocument()
+    expect(screen.getByText('Worktree')).toBeInTheDocument()
   })
 
-  it('renders Repo and Workspaces tabs when at least one workspace exists', () => {
+  it('renders Repo and Worktrees tabs when at least one workspace exists', () => {
     const workspaces = [makeWorkspaceSibling('feature-a')]
     render(<WorktreeTabs workspaces={workspaces} value="repo" onValueChange={onValueChange} baseLabel="main" />)
 
     const tabs = screen.getAllByRole('tab')
     expect(tabs).toHaveLength(2)
     expect(screen.getByText('main')).toBeInTheDocument()
-    expect(screen.getByText('Workspaces')).toBeInTheDocument()
-    expect(screen.getByText('(1)')).toBeInTheDocument()
+    expect(screen.getByText('Worktrees')).toBeInTheDocument()
+    expect(within(tabs[1]).getByText('1')).toBeInTheDocument()
   })
 
   it('marks the active tab', () => {
@@ -69,6 +70,6 @@ describe('WorktreeTabs', () => {
     ]
     render(<WorktreeTabs workspaces={workspaces} value="repo" onValueChange={onValueChange} baseLabel="main" />)
 
-    expect(screen.getByText('(3)')).toBeInTheDocument()
+    expect(within(screen.getAllByRole('tab')[1]).getByText('3')).toBeInTheDocument()
   })
 })

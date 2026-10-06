@@ -7,8 +7,8 @@ interface ColumnInfo {
 }
 
 const migration: Migration = {
-  version: 16,
-  name: 'schedule-permission-config',
+  id: '016-schedule-permission-config',
+  legacy: { version: 16, name: 'schedule-permission-config' },
 
   up(db) {
     const cols = db.prepare('PRAGMA table_info(schedule_jobs)').all() as ColumnInfo[]

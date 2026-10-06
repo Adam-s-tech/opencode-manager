@@ -267,6 +267,15 @@ describe('RunDetailPanel open session', () => {
     expect(apiMocks.createSessionWithContext).not.toHaveBeenCalled()
   })
 
+  it('opens the original session for a finished run whose worktree was kept', async () => {
+    renderPanel({ ...run, status: 'completed', sessionId: 'ses_run', worktreePath: '/abs/worktrees/job-1-run-1', runBranch: 'schedule/1/run-1' })
+
+    await clickOpenSession()
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/repos/5/sessions/ses_run'))
+    expect(apiMocks.createSessionWithContext).not.toHaveBeenCalled()
+  })
+
   it('opens a new repo session seeded with the full output and branch for a finished worktree run', async () => {
     apiMocks.createSessionWithContext.mockResolvedValue({ id: 'ses_new' })
     renderPanel({

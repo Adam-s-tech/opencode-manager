@@ -1,8 +1,8 @@
 import type { Migration } from '../migration-runner'
 
 const migration: Migration = {
-  version: 1,
-  name: 'base-schema',
+  id: '001-base-schema',
+  legacy: { version: 1, name: 'base-schema' },
 
   up(db) {
     db.run(`

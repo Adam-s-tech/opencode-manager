@@ -180,11 +180,13 @@ export const useCreateSession = (
       title?: string;
       agent?: string;
       model?: string;
+      directory?: string;
     }) => {
-      if (!directory) {
+      const targetDirectory = data.directory ?? directory;
+      if (!targetDirectory) {
         throw new Error('A directory is required to create a session');
       }
-      return createSession({ directory, ...data });
+      return createSession({ ...data, directory: targetDirectory });
     },
     onSuccess: (session) => {
       invalidateSessionListCaches(queryClient);

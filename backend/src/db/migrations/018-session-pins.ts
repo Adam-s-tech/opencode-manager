@@ -2,8 +2,8 @@ import type { Migration } from '../migration-runner'
 import { ensureSessionPinsTable } from '../session-pins'
 
 const migration: Migration = {
-  version: 18,
-  name: 'session-pins',
+  id: '018-session-pins',
+  legacy: { version: 18, name: 'session-pins' },
   up(db) {
     ensureSessionPinsTable(db)
   },

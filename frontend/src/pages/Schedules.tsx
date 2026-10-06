@@ -17,7 +17,7 @@ import { useRepoActivity } from '@/hooks/useRepoActivity'
 import { useScheduleTarget } from '@/hooks/useScheduleTarget'
 import { useScheduleUrlState } from '@/hooks/useScheduleUrlState'
 import { ScheduleJobDialog, ScheduleJobsTable, ScheduleListToolbar, JobDetailTab, RunHistoryTab, ScheduleTabMenu } from '@/components/schedules'
-import { matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
+import { DELETE_SCHEDULE_DESCRIPTION, matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
 import type { ScheduleJobWithRepo } from '@/api/schedules'
 import { Header } from '@/components/ui/header'
 import { Button } from '@/components/ui/button'
@@ -370,7 +370,7 @@ export function Schedules() {
         onConfirm={handleDelete}
         onCancel={() => closeDialog()}
         title="Delete Schedule"
-        description="This removes the job definition and all recorded run history for it."
+        description={DELETE_SCHEDULE_DESCRIPTION}
         isDeleting={deleteMutation.isPending}
       />
 

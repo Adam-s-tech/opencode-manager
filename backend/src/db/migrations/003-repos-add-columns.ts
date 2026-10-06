@@ -16,8 +16,8 @@ const COLUMNS = [
 ]
 
 const migration: Migration = {
-  version: 3,
-  name: 'repos-add-columns',
+  id: '003-repos-add-columns',
+  legacy: { version: 3, name: 'repos-add-columns' },
 
   up(db) {
     const tableInfo = db.prepare('PRAGMA table_info(repos)').all() as ColumnInfo[]

@@ -5,8 +5,8 @@ interface ColumnInfo {
 }
 
 const migration: Migration = {
-  version: 23,
-  name: 'schedule-mcp-servers',
+  id: '023-schedule-mcp-servers',
+  legacy: { version: 23, name: 'schedule-mcp-servers' },
 
   up(db) {
     const columns = db.prepare('PRAGMA table_info(schedule_jobs)').all() as ColumnInfo[]

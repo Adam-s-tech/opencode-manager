@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getScheduleRunById: vi.fn(),
   listEnabledScheduleJobs: vi.fn(),
   listRunningScheduleRuns: vi.fn(),
+  clearScheduleRunWorktreePath: vi.fn(),
   listScheduleJobIdsByRepo: vi.fn(),
   listScheduleJobsByRepo: vi.fn(),
   listScheduleRunsByJob: vi.fn(),
@@ -35,6 +36,8 @@ const mocks = vi.hoisted(() => ({
     prepare: vi.fn().mockResolvedValue(null),
     finalize: vi.fn().mockResolvedValue({ commitHash: null }),
     pruneRunArtifacts: vi.fn().mockResolvedValue(undefined),
+    listWorktrees: vi.fn().mockReturnValue([]),
+    releaseWorktree: vi.fn().mockResolvedValue(undefined),
   },
 }))
 
@@ -55,6 +58,7 @@ vi.mock('../../src/db/schedules', () => ({
   getScheduleRunById: mocks.getScheduleRunById,
   listEnabledScheduleJobs: mocks.listEnabledScheduleJobs,
   listRunningScheduleRuns: mocks.listRunningScheduleRuns,
+  clearScheduleRunWorktreePath: mocks.clearScheduleRunWorktreePath,
   listScheduleJobIdsByRepo: mocks.listScheduleJobIdsByRepo,
   listScheduleJobsByRepo: mocks.listScheduleJobsByRepo,
   listScheduleRunsByJob: mocks.listScheduleRunsByJob,
@@ -146,6 +150,7 @@ const job: ScheduleJob = {
   permissionConfig: null,
   mcpServers: [],
   branch: null,
+  workspaceMode: 'worktree',
   nextRunAt: Date.UTC(2026, 2, 9, 13, 0, 0),
   lastRunAt: Date.UTC(2026, 2, 9, 12, 0, 0),
   createdAt: Date.UTC(2026, 2, 8, 12, 0, 0),
@@ -910,31 +915,31 @@ describe('ScheduleService', () => {
     expect(stub.api.agent.list).toHaveBeenCalledTimes(1)
   })
 
-  it('throws when deleting or loading missing records', () => {
+  it('throws when deleting or loading missing records', async () => {
     const stub = createStubScheduleApi()
     const service = makeService(stub.api)
 
     mocks.deleteScheduleJob.mockReturnValue(false)
     mocks.getScheduleRunById.mockReturnValue(null)
 
-    expect(() => service.deleteJob(42, 7)).toThrow('Schedule not found')
+    await expect(service.deleteJob(42, 7)).rejects.toThrow('Schedule not found')
     expect(() => service.getRun(42, 7, 5)).toThrow('Run not found')
   })
 
-  it('blocks deleteJob when a running run exists in activeRuns', () => {
+  it('blocks deleteJob when a running run exists in activeRuns', async () => {
     const stub = createStubScheduleApi()
     const service = makeService(stub.api)
     Reflect.get(ScheduleService, 'activeRuns').set(7, { runId: 5, abort: new AbortController() })
 
-    expect(() => service.deleteJob(42, 7)).toThrow('Cannot delete a schedule while it is running. Cancel the run first.')
+    await expect(service.deleteJob(42, 7)).rejects.toThrow('Cannot delete a schedule while it is running. Cancel the run first.')
   })
 
-  it('blocks deleteJob when a running run exists in the database', () => {
+  it('blocks deleteJob when a running run exists in the database', async () => {
     const stub = createStubScheduleApi()
     const service = makeService(stub.api)
     mocks.getRunningScheduleRunByJob.mockReturnValue({ ...baseRun, status: 'running' })
 
-    expect(() => service.deleteJob(42, 7)).toThrow('Cannot delete a schedule while it is running. Cancel the run first.')
+    await expect(service.deleteJob(42, 7)).rejects.toThrow('Cannot delete a schedule while it is running. Cancel the run first.')
   })
 
   it('blocks prepareRepoDelete when a running run exists in activeRuns', () => {
@@ -961,14 +966,14 @@ describe('ScheduleService', () => {
     expect(onJobChange).not.toHaveBeenCalled()
   })
 
-  it('deleteJob succeeds when no runs are active', () => {
+  it('deleteJob succeeds when no runs are active', async () => {
     const stub = createStubScheduleApi()
     const service = makeService(stub.api)
     mocks.deleteScheduleJob.mockReturnValue(true)
     const onJobChange = vi.fn()
     service.setJobChangeHandler(onJobChange)
 
-    service.deleteJob(42, 7)
+    await service.deleteJob(42, 7)
 
     expect(mocks.deleteScheduleJob).toHaveBeenCalledWith(expect.anything(), 42, 7)
     expect(onJobChange).toHaveBeenCalledWith(null, 7)
@@ -2153,6 +2158,7 @@ describe('ScheduleRunner', () => {
       permissionConfig: null,
       mcpServers: [],
       branch: null,
+      workspaceMode: 'worktree',
       nextRunAt: Date.now(),
       lastRunAt: null,
       createdAt: Date.now(),
@@ -2191,6 +2197,7 @@ describe('ScheduleRunner', () => {
       permissionConfig: null,
       mcpServers: [],
       branch: null,
+      workspaceMode: 'worktree',
       nextRunAt: Date.now(),
       lastRunAt: null,
       createdAt: Date.now(),
@@ -2227,6 +2234,7 @@ describe('ScheduleRunner', () => {
       permissionConfig: null,
       mcpServers: [],
       branch: null,
+      workspaceMode: 'worktree',
       nextRunAt: Date.now(),
       lastRunAt: null,
       createdAt: Date.now(),
@@ -2262,6 +2270,7 @@ describe('ScheduleRunner', () => {
       permissionConfig: null,
       mcpServers: [],
       branch: null,
+      workspaceMode: 'worktree',
       nextRunAt: Date.now(),
       lastRunAt: null,
       createdAt: Date.now(),
@@ -2297,6 +2306,7 @@ describe('ScheduleRunner', () => {
       permissionConfig: null,
       mcpServers: [],
       branch: null,
+      workspaceMode: 'worktree',
       nextRunAt: Date.now(),
       lastRunAt: null,
       createdAt: Date.now(),
@@ -2346,7 +2356,7 @@ describe('ScheduleService run history cleanup', () => {
 
     const result = await makeService().clearRunHistory(42, 7)
 
-    expect(mocks.stubWorktreeManager.pruneRunArtifacts).toHaveBeenCalledWith(repo, [
+    expect(mocks.stubWorktreeManager.pruneRunArtifacts).toHaveBeenCalledWith(repo, 7, [
       { id: 3, status: 'completed', runBranch: 'schedule/7/run-3', worktreePath: null },
       { id: 1, status: 'failed', runBranch: null, worktreePath: null },
     ])
@@ -2372,10 +2382,43 @@ describe('ScheduleService run history cleanup', () => {
 
     await makeService().deleteRun(42, 7, 5)
 
-    expect(mocks.stubWorktreeManager.pruneRunArtifacts).toHaveBeenCalledWith(repo, [
+    expect(mocks.stubWorktreeManager.pruneRunArtifacts).toHaveBeenCalledWith(repo, 7, [
       { runBranch: 'schedule/7/run-5', worktreePath: '/wt/5' },
     ])
     expect(mocks.deleteScheduleRunById).toHaveBeenCalledWith({}, 42, 7, 5)
+  })
+
+  it('listWorktrees marks the shared worktree and running run worktrees as in use', () => {
+    mocks.listRunningScheduleRuns.mockReturnValue([{ ...baseRun, status: 'running', worktreePath: '/wt/job-7-run-9' }])
+    mocks.getRunningScheduleRunByJob.mockReturnValue({ ...baseRun, status: 'running' })
+    mocks.stubWorktreeManager.listWorktrees.mockReturnValue([
+      { jobId: 7, runId: 3, worktreePath: '/wt/job-7-run-3', branch: 'schedule/7/run-3' },
+      { jobId: 7, runId: null, worktreePath: '/wt/job-7-shared', branch: 'schedule/7/shared' },
+      { jobId: 7, runId: 9, worktreePath: '/wt/job-7-run-9', branch: 'schedule/7/run-9' },
+    ])
+
+    expect(makeService().listWorktrees(42, 7)).toEqual([
+      { worktreePath: '/wt/job-7-shared', branch: 'schedule/7/shared', runId: null, inUse: true },
+      { worktreePath: '/wt/job-7-run-9', branch: 'schedule/7/run-9', runId: 9, inUse: true },
+      { worktreePath: '/wt/job-7-run-3', branch: 'schedule/7/run-3', runId: 3, inUse: false },
+    ])
+  })
+
+  it('removeWorktrees releases idle worktrees and clears run references', async () => {
+    mocks.listRunningScheduleRuns.mockReturnValue([{ ...baseRun, status: 'running', worktreePath: '/wt/job-7-run-9' }])
+    mocks.getRunningScheduleRunByJob.mockReturnValue(null)
+    mocks.stubWorktreeManager.listWorktrees.mockReturnValue([
+      { jobId: 7, runId: 3, worktreePath: '/wt/job-7-run-3', branch: 'schedule/7/run-3' },
+      { jobId: 7, runId: 9, worktreePath: '/wt/job-7-run-9', branch: 'schedule/7/run-9' },
+    ])
+
+    await expect(makeService().removeWorktrees(42, 7)).resolves.toEqual({ removed: 1 })
+    expect(mocks.stubWorktreeManager.releaseWorktree).toHaveBeenCalledTimes(1)
+    expect(mocks.stubWorktreeManager.releaseWorktree).toHaveBeenCalledWith(repo, job, '/wt/job-7-run-3')
+    expect(mocks.clearScheduleRunWorktreePath).toHaveBeenCalledWith({}, 42, 7, '/wt/job-7-run-3')
+
+    await expect(makeService().removeWorktrees(42, 7, '/wt/job-7-run-9')).rejects.toThrow('in use by a running run')
+    await expect(makeService().removeWorktrees(42, 7, '/etc')).rejects.toThrow('Worktree not found')
   })
 
   it('deleteRun refuses to delete a run in progress', async () => {

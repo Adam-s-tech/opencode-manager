@@ -2,8 +2,8 @@ import type { Migration } from '../migration-runner'
 import { ensureSessionGoalsTable } from '../session-goals'
 
 const migration: Migration = {
-  version: 26,
-  name: 'session-goals',
+  id: '026-session-goals',
+  legacy: { version: 26, name: 'session-goals' },
   up(db) {
     ensureSessionGoalsTable(db)
   },

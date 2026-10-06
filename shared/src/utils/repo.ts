@@ -87,8 +87,24 @@ export function getBranchNameError(name: string): string | null {
   return null
 }
 
-export function isWorktreeSibling(sibling: { worktreeStrategy?: string }): boolean {
-  return sibling.worktreeStrategy !== undefined
+/**
+ * Who owns a repo worktree: OpenCode, a schedule, or nobody (a plain git worktree).
+ */
+export type RepoWorktreeSource = 'opencode' | 'schedule' | 'git'
+
+/**
+ * The schedule a worktree belongs to. `runId` is null for the schedule's shared worktree,
+ * and `inUse` is true while a running run works in it.
+ */
+export interface RepoWorktreeSchedule {
+  repoId: number
+  jobId: number
+  runId: number | null
+  inUse: boolean
+}
+
+export function isWorktreeSibling(sibling: { worktreeSource?: RepoWorktreeSource }): boolean {
+  return sibling.worktreeSource !== undefined
 }
 
 export function getRepoBaseDirectoryName(repo: { localPath: string; branch?: string; isWorktree?: boolean }): string {

@@ -1,8 +1,8 @@
 import type { Migration } from '../migration-runner'
 
 const migration: Migration = {
-  version: 13,
-  name: 'app-secrets',
+  id: '013-app-secrets',
+  legacy: { version: 13, name: 'app-secrets' },
   up(db) {
     db.run(`
       CREATE TABLE IF NOT EXISTS app_secrets (

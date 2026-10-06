@@ -7,8 +7,8 @@ interface ColumnInfo {
 }
 
 const migration: Migration = {
-  version: 17,
-  name: 'schedule-run-workspace-id',
+  id: '017-schedule-run-workspace-id',
+  legacy: { version: 17, name: 'schedule-run-workspace-id' },
 
   up(db) {
     const cols = db.prepare('PRAGMA table_info(schedule_runs)').all() as ColumnInfo[]

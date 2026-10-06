@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { CreateScheduleJobRequest, PromptTemplate, ScheduleJob, ScheduleMcpServer } from '@opencode-manager/shared/types'
+import type { CreateScheduleJobRequest, PromptTemplate, ScheduleJob, ScheduleMcpServer, ScheduleWorkspaceMode } from '@opencode-manager/shared/types'
 import { useScheduleModels } from '@/hooks/useScheduleModels'
 import { providerModelRef } from '@/api/providers'
 import { resolveScheduleModel } from '@/lib/schedules/schedule-model'
@@ -71,6 +71,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
   const initialSkillNotesRef = useRef<string | undefined>(undefined)
   const [mcpServers, setMcpServers] = useState<ScheduleMcpServer[]>([])
   const [branch, setBranch] = useState('')
+  const [workspaceMode, setWorkspaceMode] = useState<ScheduleWorkspaceMode>('worktree')
   const [allowExternalDirectory, setAllowExternalDirectory] = useState(false)
   const [allowQuestions, setAllowQuestions] = useState(false)
   const [bashDenyPatterns, setBashDenyPatterns] = useState<string[]>([...DEFAULT_DESTRUCTIVE_BASH_PATTERNS])
@@ -204,6 +205,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
     initialSkillNotesRef.current = initialSkillNotes
     setMcpServers(job?.mcpServers ?? [])
     setBranch(job?.branch ?? '')
+    setWorkspaceMode(job?.workspaceMode ?? 'worktree')
     setAllowExternalDirectory(job?.permissionConfig?.allowExternalDirectory ?? false)
     setAllowQuestions(job?.permissionConfig?.allowQuestions ?? false)
     setBashDenyPatterns(job?.permissionConfig?.bashDenyPatterns ?? [...DEFAULT_DESTRUCTIVE_BASH_PATTERNS])
@@ -252,6 +254,7 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
       model: resolvedModel ?? undefined,
       prompt: prompt.trim(),
       branch: branch.trim() || null,
+      workspaceMode,
       mcpServers,
       permissionConfig: {
         allowExternalDirectory,
@@ -331,6 +334,9 @@ export function ScheduleJobDialog({ open, onOpenChange, job, isSaving, onSubmit,
             branch={branch}
             onBranchChange={setBranch}
             branchRepoId={open && effectiveRepoId !== ASSISTANT_REPO_ID ? effectiveRepoId : undefined}
+            workspaceMode={workspaceMode}
+            onWorkspaceModeChange={setWorkspaceMode}
+            showWorkspaceMode={effectiveRepoId !== ASSISTANT_REPO_ID}
             showRepoSelector={showRepoSelector}
             isEditing={!!job}
             repoId={selectedRepoId}

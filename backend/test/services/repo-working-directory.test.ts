@@ -145,7 +145,7 @@ describe('getSiblingRepos branch resolution', () => {
 
     expect(siblings).toHaveLength(1)
     expect(siblings[0]?.currentBranch).toBeUndefined()
-    expect(executeCommand).not.toHaveBeenCalled()
+    expect(executeCommand.mock.calls.map(([args]) => args)).toEqual([['git', '-C', repo.fullPath, 'worktree', 'list', '--porcelain']])
   })
 
   it('resolves the branch when includeBranch is true', async () => {

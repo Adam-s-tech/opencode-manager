@@ -4,7 +4,7 @@ import { useAllSchedules, useAllScheduleRuns, useCancelRepoScheduleRun, useUnrea
 import { useDeleteRepoSchedule, useRunRepoSchedule, useUpdateRepoSchedule, useCreateRepoSchedule } from '@/hooks/useSchedules'
 import { ScheduleJobDialog, PromptsTab, ScheduleJobsTable, ScheduleListToolbar, ScheduleRunDrawer, ScheduleRunsTable } from '@/components/schedules'
 import type { CreateScheduleJobRequest } from '@opencode-manager/shared/types'
-import { matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
+import { DELETE_SCHEDULE_DESCRIPTION, matchesScheduleJobSearch, toUpdateScheduleRequest } from '@/components/schedules/schedule-utils'
 import { Header } from '@/components/ui/header'
 import { Button } from '@/components/ui/button'
 import { ScheduleReportsBell } from '@/components/notifications/ScheduleReportsBell'
@@ -779,7 +779,7 @@ export function GlobalSchedules() {
         onConfirm={handleDelete}
         onCancel={closeDialog}
         title="Delete Schedule"
-        description="This removes the job definition and all recorded run history for it."
+        description={DELETE_SCHEDULE_DESCRIPTION}
         isDeleting={deleteMutation.isPending}
       />
     </div>

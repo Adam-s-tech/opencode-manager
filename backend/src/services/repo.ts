@@ -7,7 +7,7 @@ import type { Database } from 'bun:sqlite'
 import type { Repo, CreateRepoInput } from '../types/repo'
 import { logger } from '../utils/logger'
 import { getReposPath, getScheduleWorktreesPath } from '@opencode-manager/shared/config/env'
-import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, SCP_STYLE_URL_PATTERN, ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
+import { normalizeRepoDirectoryName, sanitizeRepoDirectoryName, sanitizeBranchForDirectory, getRepoBaseDirectoryName, normalizeRepoUrlForCompare, isSSHUrl, normalizeSSHUrl, SCP_STYLE_URL_PATTERN, ASSISTANT_REPO_ID, type RepoWorktreeSchedule, type RepoWorktreeSource } from '@opencode-manager/shared/utils'
 import type { GitAuthService } from './git-auth'
 import { isGitHubHttpsUrl } from '../utils/git-auth'
 import path from 'path'
@@ -16,7 +16,8 @@ import { getErrorMessage } from '../utils/error-utils'
 import { sseAggregator } from './sse-aggregator'
 import { resolveProjectId, isGitMainCheckout } from './project-id-resolver'
 import { listRepos } from '../db/queries'
-import { listActiveScheduleRunWorktreePaths } from '../db/schedules'
+import { getScheduleJobRepoId, listRunningScheduleRuns } from '../db/schedules'
+import { parseScheduleWorktreeName } from './schedule-worktree-paths'
 import { SettingsService } from './settings'
 import { buildAssistantRepo } from './assistant-mode'
 import type { OpenCodeClient } from './opencode/client'
@@ -1228,13 +1229,20 @@ export async function resolveRepoWorkingDirectory(
   return findSiblingByDirectory(await loadSiblings(), directory)?.fullPath ?? null
 }
 
+export type RepoSibling = Repo & {
+  currentBranch: string | undefined
+  worktreeSource?: RepoWorktreeSource
+  worktreeStrategy?: string
+  schedule?: RepoWorktreeSchedule
+}
+
 export async function getSiblingRepos(
   database: Database,
   repoId: number,
   gitEnv: Record<string, string>,
   openCodeClient?: OpenCodeClient,
   options: { includeBranch?: boolean } = {},
-): Promise<Array<Repo & { currentBranch: string | undefined; worktreeStrategy?: string }>> {
+): Promise<RepoSibling[]> {
   const settingsService = new SettingsService(database)
   const settings = settingsService.getSettings()
   const allRepos = listRepos(database, settings.preferences.repoOrder)
@@ -1265,64 +1273,129 @@ export async function getSiblingRepos(
     })),
   )
 
-  if (!openCodeClient) return repoSiblings
+  const [openCodeWorktrees, gitWorktrees] = await Promise.all([
+    listOpenCodeWorktrees(openCodeClient, target.fullPath),
+    listGitWorktrees(target.fullPath, gitEnv),
+  ])
 
-  try {
-    const projectID = await resolveRepoProjectId(openCodeClient, target.fullPath)
-    const worktrees = await openCodeClient.api.worktree.list({ projectID })
+  const excludedDirectories = new Set([
+    ...repoSiblings.map((repo) => canonicalPathSync(path.resolve(repo.fullPath))),
+    canonicalPathSync(path.resolve(getReposPath())),
+  ])
+  const candidates = new Map<string, { directory: string; strategy?: string; branch?: string; inGit: boolean }>()
+  openCodeWorktrees.forEach((worktree) => {
+    const key = canonicalPathSync(path.resolve(worktree.directory))
+    if (!excludedDirectories.has(key) && !candidates.has(key) && existsSync(worktree.directory)) {
+      candidates.set(key, { directory: worktree.directory, strategy: worktree.strategy, inGit: false })
+    }
+  })
+  gitWorktrees.slice(1).forEach((worktree) => {
+    const key = canonicalPathSync(path.resolve(worktree.path))
+    if (excludedDirectories.has(key)) return
+    const existing = candidates.get(key)
+    if (existing) {
+      existing.branch = worktree.branch ?? undefined
+      existing.inGit = true
+      return
+    }
+    if (existsSync(worktree.path)) {
+      candidates.set(key, { directory: worktree.path, branch: worktree.branch ?? undefined, inGit: true })
+    }
+  })
 
-    const knownDirectories = new Set(repoSiblings.map((repo) => canonicalPathSync(path.resolve(repo.fullPath))))
-    const targetDirectory = canonicalPathSync(path.resolve(target.fullPath))
-    const reposRoot = canonicalPathSync(path.resolve(getReposPath()))
-    const scheduleWorktreeRoot = canonicalPathSync(path.resolve(getScheduleWorktreesPath()))
-    const activeRunDirectories = new Set(
-      listActiveScheduleRunWorktreePaths(database).map((p) => canonicalPathSync(path.resolve(p))),
-    )
+  const entries = Array.from(candidates.entries())
+  const mainChecks = await Promise.all(
+    entries.map(([, candidate]) => isGitMainCheckout(candidate.directory).catch(() => false)),
+  )
+  const describeSchedule = createScheduleWorktreeDescriber(database)
 
-    const candidates = worktrees.filter((worktree) => {
-      const directory = canonicalPathSync(path.resolve(worktree.directory))
-      if (directory === targetDirectory) return false
-      if (directory === reposRoot) return false
-      if (directory.startsWith(`${scheduleWorktreeRoot}${path.sep}`)) return false
-      if (activeRunDirectories.has(directory)) return false
-      if (knownDirectories.has(directory)) return false
-      return true
+  const worktreeSiblings = entries
+    .filter((_, index) => !mainChecks[index])
+    .map(([key, candidate]) => {
+      const schedule = describeSchedule(key)
+      const worktreeSource: RepoWorktreeSource | undefined = schedule
+        ? 'schedule'
+        : candidate.strategy ? 'opencode' : candidate.inGit ? 'git' : undefined
+      return {
+        id: -1,
+        repoUrl: target.repoUrl,
+        localPath: path.basename(candidate.directory),
+        fullPath: candidate.directory,
+        sourcePath: candidate.directory,
+        branch: candidate.branch,
+        defaultBranch: target.defaultBranch,
+        cloneStatus: 'ready' as const,
+        clonedAt: Date.now(),
+        isWorktree: true,
+        isLocal: true,
+        currentBranch: candidate.branch,
+        worktreeSource,
+        worktreeStrategy: candidate.strategy,
+        ...(schedule ? { schedule } : {}),
+      }
     })
 
-    const mainChecks = await Promise.all(
-      candidates.map((worktree) => isGitMainCheckout(worktree.directory).catch(() => false)),
-    )
+  return [...repoSiblings, ...worktreeSiblings]
+}
 
-    const uniqueWorktrees = new Map<string, typeof candidates[number]>()
-    candidates
-      .filter((_, index) => !mainChecks[index])
-      .forEach((worktree) => {
-        const directory = canonicalPathSync(path.resolve(worktree.directory))
-        if (!uniqueWorktrees.has(directory)) {
-          uniqueWorktrees.set(directory, worktree)
-        }
-      })
-
-    const worktreeSiblings = Array.from(uniqueWorktrees.values()).map((worktree) => ({
-      id: -1,
-      repoUrl: target.repoUrl,
-      localPath: path.basename(worktree.directory),
-      fullPath: worktree.directory,
-      sourcePath: worktree.directory,
-      branch: undefined,
-      defaultBranch: target.defaultBranch,
-      cloneStatus: 'ready' as const,
-      clonedAt: Date.now(),
-      isWorktree: true,
-      isLocal: true,
-      currentBranch: undefined,
-      worktreeStrategy: worktree.strategy,
-    }))
-
-    return [...repoSiblings, ...worktreeSiblings]
+async function listOpenCodeWorktrees(openCodeClient: OpenCodeClient | undefined, directory: string) {
+  if (!openCodeClient) return []
+  try {
+    const projectID = await resolveRepoProjectId(openCodeClient, directory)
+    return await openCodeClient.api.worktree.list({ projectID })
   } catch (error) {
     logger.warn('Failed to list OpenCode worktrees:', error)
-    return repoSiblings
+    return []
+  }
+}
+
+/**
+ * Lists a repository's git worktrees with their checked-out branch; the main worktree comes first.
+ */
+export async function listGitWorktrees(repoPath: string, env: Record<string, string> | undefined): Promise<Array<{ path: string; branch: string | null }>> {
+  try {
+    const output = await executeCommand(['git', '-C', repoPath, 'worktree', 'list', '--porcelain'], { env, silent: true })
+    const checkouts: Array<{ path: string; branch: string | null }> = []
+    let current: { path: string; branch: string | null } | null = null
+    for (const line of output.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        current = { path: line.slice('worktree '.length).trim(), branch: null }
+        checkouts.push(current)
+      } else if (line.startsWith('branch refs/heads/') && current) {
+        current.branch = line.slice('branch refs/heads/'.length).trim()
+      }
+    }
+    return checkouts
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Builds a lookup that says which schedule, if any, owns a canonical worktree directory:
+ * either a directory named for a schedule under the schedule worktree root, or the
+ * worktree a running run works in. Directories of deleted schedules are not owned.
+ */
+function createScheduleWorktreeDescriber(database: Database): (directory: string) => RepoWorktreeSchedule | undefined {
+  const scheduleRoot = canonicalPathSync(path.resolve(getScheduleWorktreesPath()))
+  const runningRuns = listRunningScheduleRuns(database)
+  const runningByDirectory = new Map(runningRuns.flatMap((run) => (
+    run.worktreePath ? [[canonicalPathSync(path.resolve(run.worktreePath)), run] as const] : []
+  )))
+
+  return (directory) => {
+    const running = runningByDirectory.get(directory)
+    const parsed = path.dirname(directory) === scheduleRoot ? parseScheduleWorktreeName(path.basename(directory)) : null
+    const jobId = parsed?.jobId ?? running?.jobId
+    if (jobId === undefined) return undefined
+    const repoId = running?.repoId ?? getScheduleJobRepoId(database, jobId)
+    if (repoId === null) return undefined
+    return {
+      repoId,
+      jobId,
+      runId: parsed ? parsed.runId : running?.id ?? null,
+      inUse: running !== undefined || (parsed?.runId === null && runningRuns.some((run) => run.jobId === jobId)),
+    }
   }
 }
 

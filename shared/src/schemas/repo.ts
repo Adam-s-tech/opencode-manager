@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { getRepoDirectoryNameError } from '../utils/repo'
 
 export const RepoStatusSchema = z.enum(['cloning', 'ready', 'error'])
 
@@ -52,6 +53,13 @@ export const DiscoverReposRequestSchema = z.object({
 
 export const UpdateRepoRequestSchema = z.object({
   name: z.string().trim().max(100).nullable(),
+})
+
+export const CreateRepoWorkspaceRequestSchema = z.object({
+  name: z.string().trim().optional().superRefine((name, ctx) => {
+    const error = name ? getRepoDirectoryNameError(name) : null
+    if (error) ctx.addIssue({ code: 'custom', message: error })
+  }),
 })
 
 export const DeleteRepoRequestSchema = z.object({

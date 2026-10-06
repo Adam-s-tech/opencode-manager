@@ -11,9 +11,11 @@ import {
   listAllScheduleRuns,
   listAllSchedules,
   listRepoScheduleRuns,
+  listScheduleWorktrees,
   listUnreadScheduleRuns,
   markAllScheduleRunsViewed,
   markScheduleRunViewed,
+  removeScheduleWorktrees,
   runRepoSchedule,
   updateRepoSchedule,
 } from '@/api/schedules'
@@ -228,6 +230,7 @@ export function useClearRepoScheduleRuns() {
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['repo-schedule-runs', variables.repoId, variables.jobId] })
       queryClient.invalidateQueries({ queryKey: ['all-schedule-runs'] })
+      queryClient.invalidateQueries({ queryKey: ['schedule-worktrees', variables.repoId, variables.jobId] })
       showToast.success(result.cleared > 0 ? `Cleared ${result.cleared} run${result.cleared === 1 ? '' : 's'}` : 'No runs to clear')
     },
     onError: (error: unknown) => {
@@ -246,10 +249,43 @@ export function useDeleteRepoScheduleRun() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['repo-schedule-runs', variables.repoId, variables.jobId] })
       queryClient.invalidateQueries({ queryKey: ['all-schedule-runs'] })
+      queryClient.invalidateQueries({ queryKey: ['schedule-worktrees', variables.repoId, variables.jobId] })
       showToast.success('Run deleted')
     },
     onError: (error: unknown) => {
       showToast.error(`Failed to delete run: ${error instanceof Error ? error.message : String(error)}`)
+    },
+  })
+}
+
+export function useScheduleWorktrees(repoId: number | undefined, jobId: number | null) {
+  return useQuery({
+    queryKey: ['schedule-worktrees', repoId, jobId],
+    queryFn: async () => {
+      const response = await listScheduleWorktrees(repoId!, jobId!)
+      return response.worktrees
+    },
+    enabled: repoId !== undefined && jobId !== null,
+    refetchInterval: jobId !== null ? 10000 : false,
+  })
+}
+
+export function useRemoveScheduleWorktrees() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ repoId, jobId, worktreePath }: { repoId: number; jobId: number; worktreePath?: string }) => {
+      return removeScheduleWorktrees(repoId, jobId, worktreePath)
+    },
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['schedule-worktrees', variables.repoId, variables.jobId] })
+      queryClient.invalidateQueries({ queryKey: ['repo-schedule-runs', variables.repoId, variables.jobId] })
+      queryClient.invalidateQueries({ queryKey: ['all-schedules'] })
+      queryClient.invalidateQueries({ queryKey: ['repo', 'siblings'] })
+      showToast.success(`Removed ${result.removed} worktree${result.removed === 1 ? '' : 's'}`)
+    },
+    onError: (error: unknown) => {
+      showToast.error(`Failed to remove worktree: ${error instanceof Error ? error.message : String(error)}`)
     },
   })
 }

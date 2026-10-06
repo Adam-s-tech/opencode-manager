@@ -5,8 +5,8 @@ interface ColumnInfo {
 }
 
 const migration: Migration = {
-  version: 24,
-  name: 'schedule-runs-viewed-at',
+  id: '024-schedule-runs-viewed-at',
+  legacy: { version: 24, name: 'schedule-runs-viewed-at' },
 
   up(db) {
     const columns = db.prepare('PRAGMA table_info(schedule_runs)').all() as ColumnInfo[]

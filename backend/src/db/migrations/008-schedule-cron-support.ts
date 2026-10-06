@@ -7,8 +7,8 @@ interface ColumnInfo {
 }
 
 const migration: Migration = {
-  version: 8,
-  name: 'schedule-cron-support',
+  id: '008-schedule-cron-support',
+  legacy: { version: 8, name: 'schedule-cron-support' },
 
   up(db) {
     const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schedule_jobs'").get()

@@ -683,7 +683,7 @@ describe('assistant-mode end-to-end', () => {
 
     const token = getOrCreateInternalToken(db)
 
-    const stubWorktreeManager = { prepare: () => Promise.resolve(null), finalize: () => Promise.resolve({ commitHash: null }) } as unknown as ScheduleWorktreeManager
+    const stubWorktreeManager = { prepare: () => Promise.resolve(null), finalize: () => Promise.resolve({ commitHash: null }), listWorktrees: () => [] } as unknown as ScheduleWorktreeManager
     const scheduleService = new ScheduleService(db, createOpenCodeClient(), stubWorktreeManager)
     const notificationService = new NotificationService(db)
     const settingsService = new SettingsService(db)

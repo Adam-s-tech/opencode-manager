@@ -6,9 +6,12 @@ import type { GitAuthService } from './git-auth'
 import type { OpenCodeClient } from './opencode/client'
 import type { ProjectConfigService } from './project-config'
 import type { TerminalService } from './terminal'
+import type { ScheduleService } from './schedules'
 import { findSiblingByDirectory, getSiblingRepos, RepoWorkspaceError, resolveRepoProjectId } from './repo'
+import { executeCommand } from '../utils/process'
+import { getErrorMessage } from '../utils/error-utils'
 
-/** Single owner of OpenCode workspace lifecycle side effects: worktree setup on create and terminal cleanup on remove. */
+/** Single owner of repo worktree lifecycle side effects: worktree setup on create, and terminal cleanup plus owner-specific removal on remove. */
 export class RepoWorkspaceService {
   constructor(
     private readonly database: Database,
@@ -16,6 +19,7 @@ export class RepoWorkspaceService {
     private readonly gitAuthService: GitAuthService,
     private readonly projectConfigService: ProjectConfigService,
     private readonly terminalService: TerminalService,
+    private readonly scheduleWorktrees: Pick<ScheduleService, 'removeWorktrees'>,
   ) {}
 
   async create(repo: Repo, options: { name?: string; ref?: string } = {}) {
@@ -29,11 +33,31 @@ export class RepoWorkspaceService {
     return { ...worktree, worktreeSetup }
   }
 
+  /**
+   * Removes a worktree of the repo the way its owner expects: OpenCode worktrees through
+   * OpenCode, schedule worktrees through the schedule (committing pending changes first),
+   * and plain git worktrees with `git worktree remove`, which refuses uncommitted changes.
+   */
   async remove(repo: Repo, directory: string): Promise<void> {
     const worktree = findSiblingByDirectory(await this.listWorktreeSiblings(repo.id), directory)
     if (!worktree) throw new RepoWorkspaceError('Not a deletable worktree of this repo', 400)
+    if (worktree.schedule?.inUse) throw new RepoWorkspaceError('This worktree is in use by a running scheduled run. Cancel the run first.', 400)
 
     await this.removeTerminals(worktree.fullPath)
+
+    if (worktree.schedule) {
+      await this.scheduleWorktrees.removeWorktrees(worktree.schedule.repoId, worktree.schedule.jobId, worktree.fullPath)
+      return
+    }
+
+    if (worktree.worktreeSource === 'git') {
+      await executeCommand(['git', '-C', repo.fullPath, 'worktree', 'remove', worktree.fullPath], { env: this.gitAuthService.getGitEnvironment(true) })
+        .catch((error: unknown) => {
+          throw new RepoWorkspaceError(`Could not remove worktree: ${getErrorMessage(error)}`, 400)
+        })
+      return
+    }
+
     const projectID = await resolveRepoProjectId(this.openCodeClient, repo.fullPath)
     await this.openCodeClient.api.worktree.remove({ projectID, directory: worktree.fullPath, force: true })
   }

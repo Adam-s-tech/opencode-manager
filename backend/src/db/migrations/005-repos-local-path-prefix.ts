@@ -2,8 +2,8 @@ import type { Migration } from '../migration-runner'
 import { logger } from '../../utils/logger'
 
 const migration: Migration = {
-  version: 5,
-  name: 'repos-local-path-prefix',
+  id: '005-repos-local-path-prefix',
+  legacy: { version: 5, name: 'repos-local-path-prefix' },
 
   up(db) {
     const repos = db.prepare("SELECT id, local_path FROM repos WHERE local_path LIKE 'repos/%'").all() as Array<{

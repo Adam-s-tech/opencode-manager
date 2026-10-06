@@ -116,6 +116,7 @@ describe('schedule database queries', () => {
       permissionConfig: null,
       mcpServers: [],
       branch: null,
+      workspaceMode: 'worktree',
       nextRunAt: Date.UTC(2026, 2, 9, 13, 0, 0),
     })
 
@@ -135,6 +136,7 @@ describe('schedule database queries', () => {
       null,
       null,
       null,
+      'worktree',
       expect.any(Number),
       expect.any(Number),
       null,
@@ -174,6 +176,7 @@ describe('schedule database queries', () => {
       permissionConfig: null,
       mcpServers: [],
       branch: null,
+      workspaceMode: 'worktree',
       nextRunAt: null,
     })
 
@@ -192,6 +195,7 @@ describe('schedule database queries', () => {
       null,
       null,
       null,
+      'worktree',
       expect.any(Number),
       null,
       42,
@@ -668,19 +672,12 @@ describe('schedule database queries', () => {
     ])
   })
 
-  it('listActiveScheduleRunWorktreePaths returns only non-null worktree paths', () => {
-    const stmt = {
-      all: vi.fn().mockReturnValue([
-        { worktree_path: '/wt/2' },
-        { worktree_path: '/wt/9' },
-      ]),
-    }
+  it('getScheduleJobRepoId returns the owning repo or null for an unknown job', () => {
+    const stmt = { get: vi.fn().mockReturnValueOnce({ repo_id: 42 }).mockReturnValueOnce(undefined) }
     mockDb.prepare.mockReturnValue(stmt)
 
-    const paths = schedulesDb.listActiveScheduleRunWorktreePaths(mockDb)
-
-    expect(mockDb.prepare).toHaveBeenCalledWith('SELECT worktree_path FROM schedule_runs WHERE worktree_path IS NOT NULL')
-    expect(paths).toEqual(['/wt/2', '/wt/9'])
+    expect(schedulesDb.getScheduleJobRepoId(mockDb, 7)).toBe(42)
+    expect(schedulesDb.getScheduleJobRepoId(mockDb, 8)).toBeNull()
   })
 
   it('deleteScheduleRunById deletes a single run row', () => {

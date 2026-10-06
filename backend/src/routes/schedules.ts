@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import {
   CreateScheduleJobRequestSchema,
+  RemoveScheduleWorktreesRequestSchema,
   UpdateScheduleJobRequestSchema,
 } from '@opencode-manager/shared/schemas'
 import { ScheduleService, ScheduleServiceError } from '../services/schedules'
@@ -152,14 +153,37 @@ export function createScheduleRoutes(scheduleService: ScheduleService) {
     }
   })
 
-  app.delete('/:jobId', (c) => {
+  app.delete('/:jobId', async (c) => {
     try {
       const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
       const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
-      scheduleService.deleteJob(repoId, jobId)
+      await scheduleService.deleteJob(repoId, jobId)
       return c.json({ success: true })
     } catch (error) {
       return handleServiceError(c, error, 'Failed to delete schedule', ScheduleServiceError)
+    }
+  })
+
+  app.get('/:jobId/worktrees', (c) => {
+    try {
+      const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
+      const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
+      return c.json({ worktrees: scheduleService.listWorktrees(repoId, jobId) })
+    } catch (error) {
+      return handleServiceError(c, error, 'Failed to list schedule worktrees', ScheduleServiceError)
+    }
+  })
+
+  app.delete('/:jobId/worktrees', async (c) => {
+    try {
+      const repoId = parseId(c.req.param('id'), 'repo id', ScheduleServiceError)
+      const jobId = parseId(c.req.param('jobId'), 'schedule id', ScheduleServiceError)
+      const body = await c.req.json().catch(() => ({}))
+      const input = RemoveScheduleWorktreesRequestSchema.parse(body)
+      const result = await scheduleService.removeWorktrees(repoId, jobId, input.worktreePath)
+      return c.json(result)
+    } catch (error) {
+      return handleServiceError(c, error, 'Failed to remove schedule worktrees', ScheduleServiceError)
     }
   })
 

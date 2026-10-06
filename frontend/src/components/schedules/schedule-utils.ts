@@ -1,6 +1,7 @@
 import cronstrue from 'cronstrue'
 import { formatDistanceToNow } from 'date-fns'
-import type { CreateScheduleJobRequest, ScheduleJob, ScheduleRun, UpdateScheduleJobRequest } from '@opencode-manager/shared/types'
+import type { CreateScheduleJobRequest, ScheduleJob, ScheduleRun, ScheduleWorkspaceMode, UpdateScheduleJobRequest } from '@opencode-manager/shared/types'
+import type { RadioOption } from '@/components/ui/radio-option-group'
 
 export const intervalOptions = [
   { label: '15m', value: 15 },
@@ -38,6 +39,33 @@ export const weekdayOptions = [
 ] as const
 
 export type SchedulePreset = typeof schedulePresetOptions[number]['value']
+
+export const workspaceModeOptions: Array<RadioOption<ScheduleWorkspaceMode>> = [
+  {
+    value: 'worktree',
+    label: 'Fresh worktree, cleaned up',
+    description: 'Each run gets its own worktree. Changes are committed to a run branch and the worktree is removed when the run ends.',
+  },
+  {
+    value: 'kept-worktree',
+    label: 'Fresh worktree, kept',
+    description: 'Each run gets its own worktree, which stays on disk afterwards so you can continue in it. Kept worktrees are listed on the job details.',
+  },
+  {
+    value: 'shared-worktree',
+    label: 'Shared worktree',
+    description: 'Every run reuses one worktree and branch, so work builds up from run to run.',
+  },
+  {
+    value: 'repo',
+    label: 'Repository checkout',
+    description: 'Runs directly in the repository working directory. Nothing is isolated, committed, or cleaned up.',
+  },
+]
+
+export function formatWorkspaceMode(mode: ScheduleWorkspaceMode): string {
+  return workspaceModeOptions.find((option) => option.value === mode)?.label ?? mode
+}
 
 export function getLocalTimeZone(): string {
   try {
@@ -351,3 +379,5 @@ export function matchesScheduleJobSearch(job: ScheduleJob & { repoName?: string 
   if (!term) return true
   return [job.name, job.description, job.repoName].some((field) => field?.toLowerCase().includes(term))
 }
+
+export const DELETE_SCHEDULE_DESCRIPTION = 'This removes the job definition and all recorded run history for it. Any kept or shared worktrees are removed after their pending changes are committed to their branches; the branches are kept.'

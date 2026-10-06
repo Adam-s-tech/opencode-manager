@@ -45,8 +45,8 @@ function archiveConfigs(rows: Array<{ config_name: string; config_content: strin
 }
 
 const migration: Migration = {
-  version: 19,
-  name: 'drop-opencode-configs',
+  id: '019-drop-opencode-configs',
+  legacy: { version: 19, name: 'drop-opencode-configs' },
 
   up(db) {
     const rows = db.prepare('SELECT config_name, config_content, is_default FROM opencode_configs').all() as Array<{ config_name: string; config_content: string; is_default: number | null }>

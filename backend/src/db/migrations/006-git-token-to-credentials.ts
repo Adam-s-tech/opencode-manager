@@ -2,8 +2,8 @@ import type { Migration } from '../migration-runner'
 import { logger } from '../../utils/logger'
 
 const migration: Migration = {
-  version: 6,
-  name: 'git-token-to-credentials',
+  id: '006-git-token-to-credentials',
+  legacy: { version: 6, name: 'git-token-to-credentials' },
 
   up(db) {
     const rows = db.prepare('SELECT user_id, preferences FROM user_preferences').all() as Array<{

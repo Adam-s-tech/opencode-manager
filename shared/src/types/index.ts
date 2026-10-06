@@ -18,6 +18,7 @@ import {
   DiscoverReposRequestSchema,
   DiscoverReposResponseSchema,
   UpdateRepoRequestSchema,
+  CreateRepoWorkspaceRequestSchema,
   DeleteRepoRequestSchema,
   DeleteRepoResultSchema,
   RepoStatusSchema,
@@ -89,6 +90,7 @@ export type DiscoverReposRequest = z.infer<typeof DiscoverReposRequestSchema>
 export type DiscoverReposResponse = z.infer<typeof DiscoverReposResponseSchema>
 export type RepoStatus = z.infer<typeof RepoStatusSchema>
 export type UpdateRepoRequest = z.infer<typeof UpdateRepoRequestSchema>
+export type CreateRepoWorkspaceRequest = z.infer<typeof CreateRepoWorkspaceRequestSchema>
 export type DeleteRepoRequest = z.infer<typeof DeleteRepoRequestSchema>
 export type DeleteRepoResult = z.infer<typeof DeleteRepoResultSchema>
 export type AssistantModeStatus = z.infer<typeof AssistantModeStatusSchema>
@@ -152,6 +154,9 @@ export type {
 
 export type {
   ScheduleMode,
+  ScheduleWorkspaceMode,
+  ScheduleWorktree,
+  RemoveScheduleWorktreesRequest,
   SchedulePermissionConfig,
   ScheduleRunTriggerSource,
   ScheduleRunStatus,

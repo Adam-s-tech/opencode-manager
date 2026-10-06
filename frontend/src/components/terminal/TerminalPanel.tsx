@@ -28,7 +28,7 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPa
   const isMobile = useMobile()
   const { searchParams, updateParams } = useUrlParams()
   const openPreview = useOpenPreview()
-  const { data, isLoading, isSuccess, isFetching, refetch } = useTerminals(repoId, directory, {
+  const { data, isLoading, isSuccess, isFetching, refetch, error } = useTerminals(repoId, directory, {
     enabled: isOpen && !!directory,
     refetchInterval: isOpen ? 5000 : false,
   })
@@ -186,7 +186,7 @@ export function TerminalPanel({ repoId, directory, isOpen, onClose }: TerminalPa
         <div className="relative flex-1 min-h-0 bg-background">
           {terminals.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {isLoading || isCreating ? 'Starting terminal...' : 'No terminals'}
+              {error && !isCreating ? `Could not load terminals: ${error.message}` : isLoading || isCreating ? 'Starting terminal...' : 'No terminals'}
             </div>
           ) : (
             <Suspense

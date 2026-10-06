@@ -1,8 +1,8 @@
 import type { Migration } from '../migration-runner'
 
 const migration: Migration = {
-  version: 4,
-  name: 'repos-indexes',
+  id: '004-repos-indexes',
+  legacy: { version: 4, name: 'repos-indexes' },
 
   up(db) {
     db.run(`

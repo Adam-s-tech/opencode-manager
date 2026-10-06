@@ -1,8 +1,8 @@
 import type { Migration } from '../migration-runner'
 
 const migration: Migration = {
-  version: 12,
-  name: 'opencode-model-state',
+  id: '012-opencode-model-state',
+  legacy: { version: 12, name: 'opencode-model-state' },
   up(db) {
     db.run(`
       CREATE TABLE IF NOT EXISTS opencode_model_state (

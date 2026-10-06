@@ -123,6 +123,7 @@ const baseJob: ScheduleJob = {
   permissionConfig: null,
   mcpServers: [],
   branch: null,
+  workspaceMode: 'worktree',
   nextRunAt: Date.UTC(2026, 2, 9, 13, 0, 0),
   lastRunAt: Date.UTC(2026, 2, 9, 12, 0, 0),
   createdAt: Date.UTC(2026, 2, 8, 12, 0, 0),

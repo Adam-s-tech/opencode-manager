@@ -2,8 +2,8 @@ import type { Migration } from '../migration-runner'
 import { ensureSessionPermissionModesTable } from '../session-permission-modes'
 
 const migration: Migration = {
-  version: 25,
-  name: 'session-permission-modes',
+  id: '025-session-permission-modes',
+  legacy: { version: 25, name: 'session-permission-modes' },
   up(db) {
     ensureSessionPermissionModesTable(db)
   },

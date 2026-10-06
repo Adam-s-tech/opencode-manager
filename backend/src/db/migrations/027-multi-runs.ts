@@ -2,8 +2,8 @@ import type { Migration } from '../migration-runner'
 import { ensureMultiRunTables } from '../multi-runs'
 
 const migration: Migration = {
-  version: 27,
-  name: 'multi-runs',
+  id: '027-multi-runs',
+  legacy: { version: 27, name: 'multi-runs' },
   up(db) {
     ensureMultiRunTables(db)
   },

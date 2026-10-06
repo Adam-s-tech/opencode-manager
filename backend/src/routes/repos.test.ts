@@ -53,7 +53,7 @@ function createTestApp(
     prepareRepoDelete: () => {},
   } as any
   const projectConfigService = new ProjectConfigService(db, createGitService(stubGitAuthService), stubGitAuthService)
-  const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, stubGitAuthService, projectConfigService, terminalService)
+  const repoWorkspaces = new RepoWorkspaceService(db, openCodeClient, stubGitAuthService, projectConfigService, terminalService, scheduleService)
   app.route('/repos', createRepoRoutes(db, stubGitAuthService, scheduleService, openCodeClient, terminalService, projectConfigService, repoWorkspaces))
   return app
 }

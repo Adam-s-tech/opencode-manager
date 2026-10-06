@@ -22,7 +22,7 @@ const originalHome = process.env.HOME
 const originalImportConfigPath = process.env.OPENCODE_IMPORT_CONFIG_PATH
 
 function migrateToV18(db: Database): void {
-  migrate(db, allMigrations.filter(migration => migration.version < 19))
+  migrate(db, allMigrations.filter(migration => (migration.legacy?.version ?? Infinity) < 19))
 }
 
 function insertConfig(db: Database, name: string, content: string, isDefault: boolean): void {

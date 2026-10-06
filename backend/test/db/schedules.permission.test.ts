@@ -35,6 +35,7 @@ describe('schedule permission config persistence', () => {
     permissionConfig: null,
     mcpServers: [],
     branch: null,
+    workspaceMode: 'worktree',
     nextRunAt: Date.now() + 3600000,
     ...overrides,
   })
