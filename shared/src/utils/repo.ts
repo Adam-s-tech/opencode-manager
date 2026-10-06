@@ -1,3 +1,5 @@
+import type { Repo } from '../types'
+
 export const ASSISTANT_REPO_ID = 0
 export const ASSISTANT_REPO_NAME = 'Assistant'
 export const ASSISTANT_REPO_PATH = 'assistant'
@@ -94,13 +96,24 @@ export type RepoWorktreeSource = 'opencode' | 'schedule' | 'git'
 
 /**
  * The schedule a worktree belongs to. `runId` is null for the schedule's shared worktree,
- * and `inUse` is true while a running run works in it.
+ * `inUse` is true while a running run works in it, and `name` is the schedule's display name.
  */
 export interface RepoWorktreeSchedule {
   repoId: number
   jobId: number
   runId: number | null
   inUse: boolean
+  name: string
+}
+
+/**
+ * A repository visible from another repository in the same project: the repo itself, a plain
+ * git or OpenCode worktree, or a schedule worktree.
+ */
+export type RepoSibling = Repo & {
+  currentBranch?: string
+  worktreeSource?: RepoWorktreeSource
+  schedule?: RepoWorktreeSchedule
 }
 
 export function isWorktreeSibling(sibling: { worktreeSource?: RepoWorktreeSource }): boolean {

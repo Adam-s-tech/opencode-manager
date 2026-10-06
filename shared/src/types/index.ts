@@ -155,6 +155,7 @@ export type {
 export type {
   ScheduleMode,
   ScheduleWorkspaceMode,
+  ScheduleRunWorktreesMode,
   ScheduleWorktree,
   RemoveScheduleWorktreesRequest,
   SchedulePermissionConfig,

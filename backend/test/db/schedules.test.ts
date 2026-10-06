@@ -432,6 +432,17 @@ describe('schedule database queries', () => {
     expect(job).toBeNull()
   })
 
+  it('maps a legacy repo workspace mode to worktree', () => {
+    const stmt = {
+      get: vi.fn().mockReturnValue(makeJobRow({ workspace_mode: 'repo' })),
+    }
+    mockDb.prepare.mockReturnValue(stmt)
+
+    const job = schedulesDb.getScheduleJobById(mockDb, 42, 7)
+
+    expect(job?.workspaceMode).toBe('worktree')
+  })
+
   it('deletes a schedule job successfully', () => {
     const stmt = {
       run: vi.fn().mockReturnValue({ changes: 1 }),
@@ -672,12 +683,11 @@ describe('schedule database queries', () => {
     ])
   })
 
-  it('getScheduleJobRepoId returns the owning repo or null for an unknown job', () => {
-    const stmt = { get: vi.fn().mockReturnValueOnce({ repo_id: 42 }).mockReturnValueOnce(undefined) }
+  it('listScheduleJobWorktreeOwners returns id, repoId and name for every job', () => {
+    const stmt = { all: vi.fn().mockReturnValue([{ id: 7, repo_id: 42, name: 'nightly' }]) }
     mockDb.prepare.mockReturnValue(stmt)
 
-    expect(schedulesDb.getScheduleJobRepoId(mockDb, 7)).toBe(42)
-    expect(schedulesDb.getScheduleJobRepoId(mockDb, 8)).toBeNull()
+    expect(schedulesDb.listScheduleJobWorktreeOwners(mockDb)).toEqual([{ id: 7, repoId: 42, name: 'nightly' }])
   })
 
   it('deleteScheduleRunById deletes a single run row', () => {

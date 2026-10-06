@@ -56,11 +56,6 @@ export const workspaceModeOptions: Array<RadioOption<ScheduleWorkspaceMode>> = [
     label: 'Shared worktree',
     description: 'Every run reuses one worktree and branch, so work builds up from run to run.',
   },
-  {
-    value: 'repo',
-    label: 'Repository checkout',
-    description: 'Runs directly in the repository working directory. Nothing is isolated, committed, or cleaned up.',
-  },
 ]
 
 export function formatWorkspaceMode(mode: ScheduleWorkspaceMode): string {

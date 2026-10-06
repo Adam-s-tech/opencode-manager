@@ -13,8 +13,8 @@ interface WorktreeSessionGroupsProps {
   worktrees: RepoSibling[]
   sessions: Session[]
   searchQuery: string
-  scheduleNames: Record<number, string>
   renderSessionCard: (session: Session) => ReactNode
+  onExpandedScheduleDirectoriesChange?: (directories: string[]) => void
   onNewSession: (directory: string) => void
   onOpenTerminal: (directory: string) => void
   onCreateWorktree: () => void
@@ -31,7 +31,7 @@ interface WorktreeGroup {
 
 type GroupEntry =
   | { kind: 'worktree'; key: string; group: WorktreeGroup; lastActive: number }
-  | { kind: 'schedule'; key: string; jobId: number; groups: WorktreeGroup[]; lastActive: number }
+  | { kind: 'schedule'; key: string; jobId: number; name: string; groups: WorktreeGroup[]; lastActive: number }
 
 const OWNER_FILTERS: Array<{ value: OwnerFilter; label: string }> = [
   { value: 'all', label: 'All' },
@@ -57,8 +57,8 @@ export function WorktreeSessionGroups({
   worktrees,
   sessions,
   searchQuery,
-  scheduleNames,
   renderSessionCard,
+  onExpandedScheduleDirectoriesChange,
   onNewSession,
   onOpenTerminal,
   onCreateWorktree,
@@ -67,8 +67,20 @@ export function WorktreeSessionGroups({
 }: WorktreeSessionGroupsProps) {
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>('all')
   const [collapsed, setCollapsed] = useCollapsedGroups(repoId)
+  const [expandedSchedule, setExpandedSchedule] = useState<Set<string>>(new Set())
   const [pendingDelete, setPendingDelete] = useState<{ directories: string[]; label: string } | null>(null)
   const isSearching = searchQuery.trim().length > 0
+
+  const scheduleWorktreeDirectories = useMemo(
+    () => worktrees.filter(isScheduleWorktree).map((worktree) => worktree.fullPath),
+    [worktrees],
+  )
+
+  useEffect(() => {
+    onExpandedScheduleDirectoriesChange?.(
+      scheduleWorktreeDirectories.filter((directory) => expandedSchedule.has(directory)),
+    )
+  }, [expandedSchedule, scheduleWorktreeDirectories, onExpandedScheduleDirectoriesChange])
 
   const ownerCounts = useMemo(() => {
     const counts: Record<OwnerFilter, number> = { all: worktrees.length, opencode: 0, schedule: 0, git: 0 }
@@ -92,10 +104,46 @@ export function WorktreeSessionGroups({
     })
   }
 
-  const allKeys = entries.flatMap((entry) => (
-    entry.kind === 'schedule' ? [entry.key, ...entry.groups.map((group) => groupKey(group.directory))] : [entry.key]
+  const isGroupOpen = (group: WorktreeGroup) => (
+    isScheduleWorktree(group.worktree)
+      ? expandedSchedule.has(group.directory)
+      : !collapsed.has(groupKey(group.directory))
+  )
+
+  const toggleGroup = (group: WorktreeGroup) => {
+    if (isScheduleWorktree(group.worktree)) {
+      setExpandedSchedule((current) => {
+        const next = new Set(current)
+        if (next.has(group.directory)) next.delete(group.directory)
+        else next.add(group.directory)
+        return next
+      })
+      return
+    }
+    toggle(groupKey(group.directory))
+  }
+
+  const scheduleGroupDirectories = entries.flatMap((entry) => (
+    entry.kind === 'schedule' ? entry.groups.map((group) => group.directory) : []
   ))
-  const allCollapsed = allKeys.length > 0 && allKeys.every((key) => collapsed.has(key))
+  const allCollapsed = entries.length > 0 && entries.every((entry) => {
+    if (collapsed.has(entry.key)) return true
+    if (entry.kind === 'schedule') return entry.groups.every((group) => !expandedSchedule.has(group.directory))
+    return false
+  })
+  const toggleAll = () => {
+    if (allCollapsed) {
+      setCollapsed((current) => {
+        const next = new Set(current)
+        entries.forEach((entry) => next.delete(entry.key))
+        return next
+      })
+      setExpandedSchedule(new Set(scheduleGroupDirectories))
+      return
+    }
+    setCollapsed(new Set(entries.map((entry) => entry.key)))
+    setExpandedSchedule(new Set())
+  }
 
   if (worktrees.length === 0) {
     return (
@@ -112,7 +160,7 @@ export function WorktreeSessionGroups({
 
   const renderWorktree = (group: WorktreeGroup, nested: boolean) => {
     const key = groupKey(group.directory)
-    const isOpen = !collapsed.has(key)
+    const isOpen = isGroupOpen(group)
     const label = workspaceLabel(group.worktree)
     const source = group.worktree.worktreeSource
     const sourceLabel = worktreeSourceLabel(group.worktree)
@@ -122,7 +170,7 @@ export function WorktreeSessionGroups({
         <div className="flex items-center gap-1 px-2 py-1.5">
           <button
             type="button"
-            onClick={() => toggle(key)}
+            onClick={() => toggleGroup(group)}
             aria-expanded={isOpen}
             className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-1 text-left hover:bg-accent/50"
           >
@@ -210,7 +258,7 @@ export function WorktreeSessionGroups({
           </button>
         ))}
         <div className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(allKeys))}>
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={toggleAll}>
             {allCollapsed ? 'Expand all' : 'Collapse all'}
           </Button>
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={onCreateWorktree}>
@@ -227,7 +275,7 @@ export function WorktreeSessionGroups({
       ) : entries.map((entry) => {
         if (entry.kind === 'worktree') return renderWorktree(entry.group, false)
         const isOpen = !collapsed.has(entry.key)
-        const name = scheduleNames[entry.jobId] ?? `Schedule #${entry.jobId}`
+        const name = entry.name
         const removable = worktrees
           .filter((worktree) => worktree.schedule?.jobId === entry.jobId && !worktree.schedule.inUse)
           .map((worktree) => worktree.fullPath)
@@ -285,6 +333,10 @@ function groupKey(directory: string): string {
   return `worktree:${directory}`
 }
 
+function isScheduleWorktree(worktree: RepoSibling): boolean {
+  return worktree.worktreeSource === 'schedule'
+}
+
 function buildGroupEntries(
   worktrees: RepoSibling[],
   sessions: Session[],
@@ -314,19 +366,26 @@ function buildGroupEntries(
   const scheduleEntries = new Map<number, Extract<GroupEntry, { kind: 'schedule' }>>()
   const entries: GroupEntry[] = []
   groups.forEach((group) => {
-    const jobId = group.worktree.schedule?.jobId
-    if (jobId === undefined) {
+    const schedule = group.worktree.schedule
+    if (!schedule) {
       entries.push({ kind: 'worktree', key: groupKey(group.directory), group, lastActive: group.lastActive })
       return
     }
-    const existing = scheduleEntries.get(jobId)
+    const existing = scheduleEntries.get(schedule.jobId)
     if (existing) {
       existing.groups.push(group)
       existing.lastActive = Math.max(existing.lastActive, group.lastActive)
       return
     }
-    const entry: Extract<GroupEntry, { kind: 'schedule' }> = { kind: 'schedule', key: `schedule:${jobId}`, jobId, groups: [group], lastActive: group.lastActive }
-    scheduleEntries.set(jobId, entry)
+    const entry: Extract<GroupEntry, { kind: 'schedule' }> = {
+      kind: 'schedule',
+      key: `schedule:${schedule.jobId}`,
+      jobId: schedule.jobId,
+      name: schedule.name,
+      groups: [group],
+      lastActive: group.lastActive,
+    }
+    scheduleEntries.set(schedule.jobId, entry)
     entries.push(entry)
   })
 

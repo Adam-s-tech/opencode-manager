@@ -64,7 +64,6 @@ vi.mock('@/components/repo/ProjectActionsMenu', () => ({ ProjectActionsMenu: () 
 vi.mock('@/components/repo/RepoActionsDialog', () => ({ RepoActionsDialog: () => null }))
 vi.mock('@/components/repo/RepoSkillsDialog', () => ({ RepoSkillsDialog: () => null }))
 vi.mock('@/components/source-control', () => ({ SourceControlPanel: () => null }))
-vi.mock('@/hooks/useSchedules', () => ({ useAllSchedules: () => ({ data: [] }) }))
 vi.mock('@/components/repo/ResetPermissionsDialog', () => ({ ResetPermissionsDialog: () => null }))
 vi.mock('@/components/notifications/PendingActionsGroup', () => ({ PendingActionsGroup: () => null }))
 

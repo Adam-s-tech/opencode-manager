@@ -913,7 +913,7 @@ describe('Repo Routes', () => {
       vi.mocked(repoService.deleteRepoFiles).mockResolvedValue(undefined)
       vi.mocked(repoService.getSiblingRepos).mockResolvedValue([
         { ...createMockRepo({ id: 2, fullPath: '/tmp/repos/manager-worktree', isWorktree: true }), currentBranch: undefined },
-        { ...createMockRepo({ id: -1, fullPath: '/tmp/plugin-workspace' }), currentBranch: undefined, worktreeStrategy: 'git', worktreeSource: 'opencode' },
+        { ...createMockRepo({ id: -1, fullPath: '/tmp/plugin-workspace' }), currentBranch: undefined, worktreeSource: 'opencode' },
       ])
 
       const app = createTestRoutes()

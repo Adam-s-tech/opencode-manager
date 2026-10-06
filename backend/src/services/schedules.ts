@@ -7,6 +7,7 @@ import {
   type ScheduleJob,
   type ScheduleRun,
   type ScheduleRunTriggerSource,
+  type ScheduleRunWorktreesMode,
   type ScheduleWorktree,
   type UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
@@ -59,6 +60,7 @@ import { getErrorMessage } from '../utils/error-utils'
 import { logger } from '../utils/logger'
 import { canonicalPathSync } from '../utils/fs-safe'
 import { buildAssistantRepo } from './assistant-mode'
+import { createScheduleWorktreeDescriber } from './schedule-worktree-paths'
 import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 
 class ScheduleServiceError extends Error {
@@ -71,6 +73,8 @@ class ScheduleServiceError extends Error {
 }
 
 const SESSION_STOPPED_ERROR = 'The session stopped without producing an assistant response. This usually means OpenCode restarted mid-run or the session was interrupted. Open the linked session to inspect any partial output and rerun if needed.'
+
+const DELETION_RESERVATION_RUN_ID = -1
 
 interface SessionSignal {
   errorText: string | null
@@ -227,6 +231,7 @@ export class ScheduleService {
   private static pendingCancels = new Map<number, PendingCancel>()
   private static activeTeardowns = new Set<string>()
   private onJobChange: ((job: ScheduleJob | null, jobId: number) => void) | null = null
+  private onWorktreeRemoved: ((directory: string) => Promise<void>) | null = null
 
   constructor(
     private readonly db: Database,
@@ -236,6 +241,10 @@ export class ScheduleService {
 
   setJobChangeHandler(handler: ((job: ScheduleJob | null, jobId: number) => void) | null): void {
     this.onJobChange = handler
+  }
+
+  setWorktreeRemovedHandler(handler: ((directory: string) => Promise<void>) | null): void {
+    this.onWorktreeRemoved = handler
   }
 
   private static abortActiveRun(jobId: number, runId: number): void {
@@ -325,11 +334,13 @@ export class ScheduleService {
   }
 
   listAllJobsWithRepos(): Array<ScheduleJobWithRepo & { retainedWorktreeCount: number }> {
-    const runningPaths = this.listRunningWorktreePaths()
+    const describeSchedule = createScheduleWorktreeDescriber(this.db)
     const counts = new Map<number, number>()
     for (const entry of this.worktreeManager.listWorktrees()) {
-      if (runningPaths.has(entry.worktreePath)) continue
-      counts.set(entry.jobId, (counts.get(entry.jobId) ?? 0) + 1)
+      const described = describeSchedule(canonicalPathSync(path.resolve(entry.worktreePath)))
+      if (described?.inUse === false) {
+        counts.set(entry.jobId, (counts.get(entry.jobId) ?? 0) + 1)
+      }
     }
     return listAllScheduleJobsWithRepos(this.db).map((job) => ({ ...job, retainedWorktreeCount: counts.get(job.id) ?? 0 }))
   }
@@ -340,16 +351,18 @@ export class ScheduleService {
    */
   listWorktrees(repoId: number, jobId: number): ScheduleWorktree[] {
     this.assertJob(repoId, jobId)
-    const runningPaths = this.listRunningWorktreePaths()
-    const jobRunning = ScheduleService.activeRuns.has(jobId) || getRunningScheduleRunByJob(this.db, repoId, jobId) !== null
+    const describeSchedule = createScheduleWorktreeDescriber(this.db)
 
     return this.worktreeManager.listWorktrees(jobId)
-      .map((entry) => ({
-        worktreePath: entry.worktreePath,
-        branch: entry.branch,
-        runId: entry.runId,
-        inUse: runningPaths.has(entry.worktreePath) || (entry.runId === null && jobRunning),
-      }))
+      .map((entry) => {
+        const described = describeSchedule(canonicalPathSync(path.resolve(entry.worktreePath)))
+        return {
+          worktreePath: entry.worktreePath,
+          branch: entry.branch,
+          runId: entry.runId,
+          inUse: described?.inUse ?? false,
+        }
+      })
       .sort((left, right) => (right.runId ?? Number.MAX_SAFE_INTEGER) - (left.runId ?? Number.MAX_SAFE_INTEGER))
   }
 
@@ -383,13 +396,12 @@ export class ScheduleService {
         throw new ScheduleServiceError(`Failed to remove worktree ${target.worktreePath}: ${getErrorMessage(error)}`, 500)
       }
       clearScheduleRunWorktreePath(this.db, repoId, jobId, target.worktreePath)
+      if (this.onWorktreeRemoved) {
+        await this.onWorktreeRemoved(target.worktreePath)
+      }
     }
 
     return { removed: targets.length }
-  }
-
-  private listRunningWorktreePaths(): Set<string> {
-    return new Set(listRunningScheduleRuns(this.db).flatMap((run) => (run.worktreePath ? [run.worktreePath] : [])))
   }
 
   listAllRuns(options: ListAllRunsOptions = {}): ScheduleRunWithContext[] {
@@ -460,6 +472,14 @@ export class ScheduleService {
     if (input.agentSlug !== undefined) {
       await this.assertAgentAvailable(repo.fullPath, input.agentSlug?.trim() || null)
     }
+
+    if (input.workspaceMode !== undefined && input.workspaceMode !== existing.workspaceMode) {
+      const running = ScheduleService.activeRuns.has(jobId) || getRunningScheduleRunByJob(this.db, repoId, jobId) !== null
+      if (running) {
+        throw new ScheduleServiceError('Cannot change where runs execute while a run is in progress.', 409)
+      }
+    }
+
     let job: ScheduleJob | null
 
     try {
@@ -477,7 +497,7 @@ export class ScheduleService {
 
   async deleteJob(repoId: number, jobId: number): Promise<void> {
     this.assertRepo(repoId)
-    this.assertJob(repoId, jobId)
+    const job = this.assertJob(repoId, jobId)
 
     if (ScheduleService.activeRuns.has(jobId)) {
       throw new ScheduleServiceError('Cannot delete a schedule while it is running. Cancel the run first.', 409)
@@ -488,17 +508,27 @@ export class ScheduleService {
       throw new ScheduleServiceError('Cannot delete a schedule while it is running. Cancel the run first.', 409)
     }
 
-    await this.removeWorktrees(repoId, jobId)
-
-    const deleted = deleteScheduleJob(this.db, repoId, jobId)
-    if (!deleted) {
-      throw new ScheduleServiceError('Schedule not found', 404)
-    }
     this.onJobChange?.(null, jobId)
+    ScheduleService.activeRuns.set(jobId, { runId: DELETION_RESERVATION_RUN_ID, abort: new AbortController() })
+
+    try {
+      await this.removeWorktrees(repoId, jobId)
+
+      const deleted = deleteScheduleJob(this.db, repoId, jobId)
+      if (!deleted) {
+        throw new ScheduleServiceError('Schedule not found', 404)
+      }
+    } catch (error) {
+      this.onJobChange?.(job, jobId)
+      throw error
+    } finally {
+      ScheduleService.releaseActiveRun(jobId, DELETION_RESERVATION_RUN_ID)
+    }
   }
 
-  prepareRepoDelete(repoId: number): void {
+  async prepareRepoDelete(repoId: number): Promise<void> {
     const jobIds = listScheduleJobIdsByRepo(this.db, repoId)
+
     for (const jobId of jobIds) {
       if (ScheduleService.activeRuns.has(jobId)) {
         throw new ScheduleServiceError('Cannot delete a repo while a schedule run is in progress. Cancel the run first.', 409)
@@ -508,8 +538,11 @@ export class ScheduleService {
       if (runningRun) {
         throw new ScheduleServiceError('Cannot delete a repo while a schedule run is in progress. Cancel the run first.', 409)
       }
+    }
 
+    for (const jobId of jobIds) {
       this.onJobChange?.(null, jobId)
+      await this.removeWorktrees(repoId, jobId)
     }
   }
 
@@ -543,36 +576,40 @@ export class ScheduleService {
   /**
    * Clears a job's run history: deletes every finished run's row plus its git
    * run branch and any leftover worktree. A run currently in progress is left
-   * untouched (its row and live worktree are skipped).
+   * untouched (its row and live worktree are skipped). `worktrees` controls
+   * whether a worktree still on disk is committed and kept (`commit`) or
+   * discarded along with its branch (`discard`).
    */
-  async clearRunHistory(repoId: number, jobId: number): Promise<{ cleared: number }> {
+  async clearRunHistory(repoId: number, jobId: number, worktrees: ScheduleRunWorktreesMode = 'commit'): Promise<{ cleared: number }> {
     const repo = this.assertRepo(repoId)
-    this.assertJob(repoId, jobId)
+    const job = this.assertJob(repoId, jobId)
 
     const removable = listScheduleRunArtifactsByJob(this.db, repoId, jobId).filter((run) => run.status !== 'running')
     if (removable.length === 0) {
       return { cleared: 0 }
     }
 
-    await this.worktreeManager.pruneRunArtifacts(repo, jobId, removable)
+    await this.worktreeManager.pruneRunArtifacts(repo, job, removable, worktrees)
     const cleared = deleteScheduleRunsByIds(this.db, repoId, jobId, removable.map((run) => run.id))
     return { cleared }
   }
 
   /**
    * Deletes a single finished run plus its git run branch and any leftover
-   * worktree. A run in progress must be cancelled first.
+   * worktree. A run in progress must be cancelled first. `worktrees` controls
+   * whether a worktree still on disk is committed and kept (`commit`) or
+   * discarded along with its branch (`discard`).
    */
-  async deleteRun(repoId: number, jobId: number, runId: number): Promise<void> {
+  async deleteRun(repoId: number, jobId: number, runId: number, worktrees: ScheduleRunWorktreesMode = 'commit'): Promise<void> {
     const repo = this.assertRepo(repoId)
-    this.assertJob(repoId, jobId)
+    const job = this.assertJob(repoId, jobId)
     const run = this.getRun(repoId, jobId, runId)
 
     if (run.status === 'running') {
       throw new ScheduleServiceError('Cannot delete a run while it is in progress. Cancel it first.', 409)
     }
 
-    await this.worktreeManager.pruneRunArtifacts(repo, jobId, [{ runBranch: run.runBranch, worktreePath: run.worktreePath }])
+    await this.worktreeManager.pruneRunArtifacts(repo, job, [{ runBranch: run.runBranch, worktreePath: run.worktreePath }], worktrees)
     const deleted = deleteScheduleRunById(this.db, repoId, jobId, runId)
     if (!deleted) {
       throw new ScheduleServiceError('Run not found', 404)

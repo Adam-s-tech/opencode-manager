@@ -3,19 +3,18 @@ import path from 'path'
 import type { Database } from 'bun:sqlite'
 import { getScheduleWorktreesPath } from '@opencode-manager/shared/config/env'
 import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
-import type { ScheduleWorkspaceMode } from '@opencode-manager/shared/types'
+import type { ScheduleRunWorktreesMode, ScheduleWorkspaceMode } from '@opencode-manager/shared/types'
 import type { Repo } from '../types/repo'
 import type { GitAuthService } from './git-auth'
 import { isSSHUrl } from '@opencode-manager/shared/utils'
 import { executeCommand } from '../utils/process'
-import { resolveDefaultBranch, createWorktreeSafely, removeWorktree } from './repo'
+import { resolveDefaultBranch, createWorktreeSafely, listGitWorktrees, removeWorktree } from './repo'
 import { logger } from '../utils/logger'
-import { mkdirSyncSafe } from '../utils/fs-safe'
+import { canonicalPathSync, mkdirSyncSafe } from '../utils/fs-safe'
 import {
-  getRunScheduleBranch,
-  getRunScheduleWorktreePath,
-  getSharedScheduleBranch,
-  getSharedScheduleWorktreePath,
+  getScheduleWorktreeBranch,
+  getScheduleWorktreePath,
+  isSharedScheduleWorktreePath,
   parseScheduleWorktreeName,
 } from './schedule-worktree-paths'
 
@@ -33,10 +32,6 @@ export interface ScheduleWorktreeEntry {
   runId: number | null
   worktreePath: string
   branch: string
-}
-
-function isSharedWorktreePath(worktreePath: string): boolean {
-  return path.basename(worktreePath).endsWith('-shared')
 }
 
 /**
@@ -57,16 +52,17 @@ export class ScheduleWorktreeManager {
   ) {}
 
   /**
-   * Prepares the directory a run works in. Returns null when the run works in the
-   * repository checkout itself. A shared worktree that already exists is reused as-is;
-   * otherwise a worktree is created, continuing the shared branch when it already exists.
+   * Prepares the directory a run works in. Returns null when there is no worktree to
+   * prepare (the assistant repo or a directory that is not a git checkout). A shared
+   * worktree that already exists and is clean is reused as-is; otherwise a worktree is
+   * created, continuing the shared branch when it already exists.
    */
   async prepare(
     repo: Repo,
     job: { id: number; branch: string | null; workspaceMode: ScheduleWorkspaceMode },
     runId: number,
   ): Promise<ScheduleWorktreeContext | null> {
-    if (repo.id === ASSISTANT_REPO_ID || job.workspaceMode === 'repo') return null
+    if (repo.id === ASSISTANT_REPO_ID) return null
 
     try {
       await executeCommand(['git', '-C', repo.fullPath, 'rev-parse', '--is-inside-work-tree'], { silent: true })
@@ -75,8 +71,9 @@ export class ScheduleWorktreeManager {
     }
 
     const shared = job.workspaceMode === 'shared-worktree'
-    const runBranch = shared ? getSharedScheduleBranch(job.id) : getRunScheduleBranch(job.id, runId)
-    const worktreePath = shared ? getSharedScheduleWorktreePath(job.id) : getRunScheduleWorktreePath(job.id, runId)
+    const worktreeRunId = shared ? null : runId
+    const runBranch = getScheduleWorktreeBranch(job.id, worktreeRunId)
+    const worktreePath = getScheduleWorktreePath(job.id, worktreeRunId)
 
     let sshSetup = false
     if (repo.repoUrl && isSSHUrl(repo.repoUrl)) {
@@ -88,6 +85,10 @@ export class ScheduleWorktreeManager {
       const env = await this.buildGitEnv(repo, sshSetup, true)
 
       if (shared && await this.isUsableWorktree(worktreePath, env)) {
+        const status = await executeCommand(['git', '-C', worktreePath, 'status', '--porcelain'], { env }).catch(() => '')
+        if (status.trim()) {
+          throw new Error(`Shared worktree ${worktreePath} has uncommitted changes made outside a scheduled run. Commit or discard them before the next run.`)
+        }
         return { directory: worktreePath, worktreePath, runBranch }
       }
 
@@ -102,6 +103,8 @@ export class ScheduleWorktreeManager {
       if (existsSync(worktreePath)) {
         await removeWorktree(repo.fullPath, worktreePath, env)
       }
+
+      await this.assertRunBranchAvailable(repo.fullPath, runBranch, worktreePath, env)
 
       mkdirSyncSafe(path.dirname(worktreePath))
       await createWorktreeSafely(repo.fullPath, worktreePath, runBranch, env, baseRef)
@@ -132,7 +135,7 @@ export class ScheduleWorktreeManager {
       return { commitHash: null }
     }
 
-    const retain = isSharedWorktreePath(run.worktreePath) || job.workspaceMode === 'kept-worktree'
+    const retain = isSharedScheduleWorktreePath(run.worktreePath) || job.workspaceMode === 'kept-worktree'
     let sshSetup = false
     let env: Record<string, string> | undefined
     let commitHash: string | null = null
@@ -211,7 +214,7 @@ export class ScheduleWorktreeManager {
         jobId: parsed.jobId,
         runId: parsed.runId,
         worktreePath: path.join(getScheduleWorktreesPath(), name),
-        branch: parsed.runId === null ? getSharedScheduleBranch(parsed.jobId) : getRunScheduleBranch(parsed.jobId, parsed.runId),
+        branch: getScheduleWorktreeBranch(parsed.jobId, parsed.runId),
       }]
     })
   }
@@ -220,34 +223,62 @@ export class ScheduleWorktreeManager {
    * Removes leftover worktrees and deletes the run branches for a set of
    * finished runs. Used when clearing run history. The job's shared worktree and
    * branch are never touched, since they belong to the schedule rather than a run.
-   * Branch and worktree removal are local git operations, so no SSH setup is needed;
-   * failures are swallowed per artifact so one bad entry does not block the rest.
+   * In `commit` mode a run worktree still on disk is released through
+   * `releaseWorktree`, so its pending changes are committed and its branch kept;
+   * branches whose worktree is already gone are deleted. In `discard` mode the
+   * worktrees are force-removed and every run branch deleted. Branch and worktree
+   * removal are local git operations, so no SSH setup is needed; failures are
+   * swallowed per artifact so one bad entry does not block the rest.
    */
   async pruneRunArtifacts(
     repo: Repo,
-    jobId: number,
+    job: { id: number; name: string },
     artifacts: { runBranch: string | null; worktreePath: string | null }[],
+    mode: ScheduleRunWorktreesMode = 'commit',
   ): Promise<void> {
-    const sharedPath = getSharedScheduleWorktreePath(jobId)
-    const sharedBranch = getSharedScheduleBranch(jobId)
-    const worktreePaths = artifacts
-      .map((a) => a.worktreePath)
-      .filter((p): p is string => p !== null && p !== sharedPath)
+    const sharedPath = getScheduleWorktreePath(job.id, null)
+    const sharedBranch = getScheduleWorktreeBranch(job.id, null)
+    const runWorktrees = artifacts
+      .map((artifact) => artifact.worktreePath)
+      .filter((worktreePath): worktreePath is string => worktreePath !== null && worktreePath !== sharedPath)
     const branches = artifacts
-      .map((a) => a.runBranch)
-      .filter((b): b is string => b !== null && b.length > 0 && b !== sharedBranch)
+      .map((artifact) => artifact.runBranch)
+      .filter((branch): branch is string => branch !== null && branch.length > 0 && branch !== sharedBranch)
 
-    if (worktreePaths.length === 0 && branches.length === 0) return
+    if (runWorktrees.length === 0 && branches.length === 0) return
 
     const env = await this.buildGitEnv(repo, false, true)
 
-    await Promise.all(
-      worktreePaths.map((worktreePath) => removeWorktree(repo.fullPath, worktreePath, env).catch(() => undefined)),
-    )
-
-    if (branches.length > 0) {
-      await executeCommand(['git', '-C', repo.fullPath, 'branch', '-D', ...branches], { env }).catch(() => {})
+    if (mode === 'discard') {
+      await Promise.all(runWorktrees.map((worktreePath) => removeWorktree(repo.fullPath, worktreePath, env).catch(() => undefined)))
+      await this.deleteBranches(repo.fullPath, branches, env)
+      return
     }
+
+    const branchByWorktree = new Map(artifacts.flatMap((artifact) => (
+      artifact.worktreePath !== null && artifact.runBranch !== null
+        ? [[artifact.worktreePath, artifact.runBranch] as const]
+        : []
+    )))
+    const retainedBranches = new Set<string>()
+
+    await Promise.all(runWorktrees.map(async (worktreePath) => {
+      if (!existsSync(worktreePath)) return
+      const branch = branchByWorktree.get(worktreePath)
+      if (branch) retainedBranches.add(branch)
+      try {
+        await this.releaseWorktree(repo, job, worktreePath)
+      } catch (error) {
+        logger.error(`Failed to release schedule worktree ${worktreePath}:`, error)
+      }
+    }))
+
+    await this.deleteBranches(repo.fullPath, branches.filter((branch) => !retainedBranches.has(branch)), env)
+  }
+
+  private async deleteBranches(repoPath: string, branches: string[], env: Record<string, string>): Promise<void> {
+    if (branches.length === 0) return
+    await executeCommand(['git', '-C', repoPath, 'branch', '-D', ...branches], { env }).catch(() => {})
   }
 
   private async commitPendingChanges(
@@ -271,6 +302,20 @@ export class ScheduleWorktreeManager {
       return true
     } catch {
       return false
+    }
+  }
+
+  /**
+   * Refuses to create a worktree on a branch another checkout already has, which git
+   * would otherwise reject with an opaque error.
+   */
+  private async assertRunBranchAvailable(repoPath: string, runBranch: string, worktreePath: string, env: Record<string, string>): Promise<void> {
+    const targetPath = canonicalPathSync(path.resolve(worktreePath))
+    const conflicting = (await listGitWorktrees(repoPath, env)).find((worktree) =>
+      worktree.branch === runBranch && canonicalPathSync(path.resolve(worktree.path)) !== targetPath,
+    )
+    if (conflicting) {
+      throw new Error(`Branch ${runBranch} is checked out in ${conflicting.path}. Switch that checkout to another branch so the schedule can run.`)
     }
   }
 

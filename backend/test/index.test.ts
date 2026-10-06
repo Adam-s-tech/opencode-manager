@@ -63,6 +63,7 @@ const scheduleRunnerMock = vi.hoisted(() => ({
 vi.mock('../src/services/schedules', () => ({
   ScheduleService: vi.fn().mockImplementation(() => ({
     getActiveRunSessions: vi.fn().mockResolvedValue([]),
+    setWorktreeRemovedHandler: vi.fn(),
   })),
   ScheduleRunner: vi.fn().mockImplementation(() => scheduleRunnerMock),
 }))

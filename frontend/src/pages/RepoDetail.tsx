@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getRepo } from "@/api/repos";
@@ -22,7 +22,6 @@ import { useOpenTerminal, useTerminalDialogParam, useTerminalDirectoryParam } fr
 import { useWorktreeTab } from "@/hooks/useWorktreeTab";
 import { WorktreeTabs } from "@/components/repo/WorktreeTabs";
 import { WorktreeSessionGroups } from "@/components/repo/WorktreeSessionGroups";
-import { useAllSchedules } from "@/hooks/useSchedules";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,30 +69,56 @@ export function RepoDetail() {
     [siblings],
   );
 
-  const workspaceDirectories = useMemo(
-    () => workspaceSiblings.map((sibling) => sibling.fullPath).filter(Boolean),
+  const scheduleDirectorySet = useMemo(
+    () => new Set(
+      workspaceSiblings
+        .filter((sibling) => sibling.worktreeSource === 'schedule')
+        .map((sibling) => sibling.fullPath),
+    ),
     [workspaceSiblings],
   );
 
-  const { data: allSchedules } = useAllSchedules();
-  const scheduleNames = useMemo(() => {
-    const names: Record<number, string> = {};
-    (allSchedules ?? []).forEach((job) => {
-      if (job.repoId === repoId) names[job.id] = job.name;
-    });
-    return names;
-  }, [allSchedules, repoId]);
+  const nonScheduleWorkspaceDirectories = useMemo(
+    () => workspaceSiblings
+      .filter((sibling) => sibling.worktreeSource !== 'schedule')
+      .map((sibling) => sibling.fullPath)
+      .filter(Boolean),
+    [workspaceSiblings],
+  );
+
+  const [expandedScheduleDirectories, setExpandedScheduleDirectories] = useState<string[]>([]);
+
+  const activeScheduleDirectories = useMemo(
+    () => expandedScheduleDirectories.filter((directory) => scheduleDirectorySet.has(directory)),
+    [expandedScheduleDirectories, scheduleDirectorySet],
+  );
+
+  const handleExpandedScheduleDirectoriesChange = useCallback((directories: string[]) => {
+    setExpandedScheduleDirectories((current) =>
+      current.length === directories.length && current.every((directory, index) => directory === directories[index])
+        ? current
+        : directories,
+    );
+  }, []);
 
   const baseDirectory = repo?.fullPath;
   const subscriptionDirectories = useMemo(() => {
     const set = new Set<string>();
     if (baseDirectory) set.add(baseDirectory);
-    workspaceDirectories.forEach((dir) => set.add(dir));
+    nonScheduleWorkspaceDirectories.forEach((dir) => set.add(dir));
+    activeScheduleDirectories.forEach((dir) => set.add(dir));
     return Array.from(set);
-  }, [baseDirectory, workspaceDirectories]);
+  }, [baseDirectory, nonScheduleWorkspaceDirectories, activeScheduleDirectories]);
 
   const showWorktrees = activeTab === 'workspaces';
-  const sessionListDirectories = showWorktrees ? workspaceDirectories : (baseDirectory ? [baseDirectory] : []);
+  const sessionListDirectories = useMemo(() => {
+    if (!showWorktrees) return baseDirectory ? [baseDirectory] : [];
+    return Array.from(new Set([...nonScheduleWorkspaceDirectories, ...activeScheduleDirectories]));
+  }, [showWorktrees, baseDirectory, nonScheduleWorkspaceDirectories, activeScheduleDirectories]);
+
+  useEffect(() => {
+    if (!showWorktrees) setExpandedScheduleDirectories([]);
+  }, [showWorktrees]);
 
   useSSE(subscriptionDirectories);
 
@@ -138,8 +163,8 @@ export function RepoDetail() {
       worktrees={workspaceSiblings}
       sessions={sessions}
       searchQuery={searchQuery}
-      scheduleNames={scheduleNames}
       renderSessionCard={renderSessionCard}
+      onExpandedScheduleDirectoriesChange={handleExpandedScheduleDirectoriesChange}
       onNewSession={handleCreateSession}
       onOpenTerminal={(directory) => openTerminal(null, { repoTab: "workspaces", terminalDirectory: directory })}
       onCreateWorktree={() => setCreateWorkspaceOpen(true)}

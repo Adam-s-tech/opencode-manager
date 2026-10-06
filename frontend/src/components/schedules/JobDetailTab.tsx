@@ -11,6 +11,7 @@ import {
 } from '@/components/schedules/schedule-utils'
 import { ASSISTANT_REPO_ID } from '@opencode-manager/shared/utils'
 import { useRemoveScheduleWorktrees, useScheduleWorktrees } from '@/hooks/useSchedules'
+import { formatScheduleWorktreeLabel } from '@/lib/schedules/schedule-worktree'
 import { Bot, CalendarClock, Clock3, GitBranch, History, Loader2, Pencil, Play, Sparkles, Trash2 } from 'lucide-react'
 import { useScheduleModels } from '@/hooks/useScheduleModels'
 import { resolveScheduleModel } from '@/lib/schedules/schedule-model'
@@ -139,7 +140,7 @@ export function JobDetailTab({
                         <div className="min-w-0">
                           <p className="truncate font-mono text-sm">{worktree.branch}</p>
                           <p className="truncate text-xs text-muted-foreground" title={worktree.worktreePath}>
-                            {worktree.runId === null ? 'Shared worktree' : `Run #${worktree.runId}`}
+                            {formatScheduleWorktreeLabel(worktree.runId)}
                             {worktree.inUse ? ' · in use' : ''} · {worktree.worktreePath}
                           </p>
                         </div>

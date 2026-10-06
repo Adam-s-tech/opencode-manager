@@ -274,7 +274,7 @@ describe('ScheduleWorktreeManager', () => {
     await removeWorktree(baseRepoPath, ctx!.worktreePath)
   })
 
-  it('pruneRunArtifacts removes the worktree directory and deletes the run branch', async () => {
+  it('pruneRunArtifacts removes the worktree directory and deletes the run branch in discard mode', async () => {
     const manager = await createManager()
     const repo = testRepo()
     const job = { id: 90, branch: null, workspaceMode: 'worktree' as const }
@@ -287,7 +287,7 @@ describe('ScheduleWorktreeManager', () => {
     const runBranch = ctx!.runBranch
     expect(existsSync(worktreePath)).toBe(true)
 
-    await manager.pruneRunArtifacts(repo, 90, [{ runBranch, worktreePath }])
+    await manager.pruneRunArtifacts(repo, { id: 90, name: 'Prune job' }, [{ runBranch, worktreePath }], 'discard')
 
     expect(existsSync(worktreePath)).toBe(false)
     const branchList = execSync(`git -C "${baseRepoPath}" branch --list "${runBranch}"`, {
@@ -296,12 +296,61 @@ describe('ScheduleWorktreeManager', () => {
     expect(branchList).toBe('')
   })
 
-  it('prepare returns null in repo mode so the run works in the checkout', async () => {
+  it('pruneRunArtifacts commits a kept worktree and keeps its branch in commit mode', async () => {
     const manager = await createManager()
-    const ctx = await manager.prepare(testRepo(), { id: 30, branch: null, workspaceMode: 'repo' }, 1)
+    const repo = testRepo()
+    const job = { id: 91, branch: null, name: 'Commit prune', workspaceMode: 'kept-worktree' as const }
+    const runId = 910
 
-    expect(ctx).toBeNull()
-    expect(manager.listWorktrees(30)).toEqual([])
+    const ctx = await manager.prepare(repo, job, runId)
+    expect(ctx).not.toBeNull()
+    writeFileSync(path.join(ctx!.worktreePath, 'pending.md'), 'pending work')
+
+    await manager.pruneRunArtifacts(repo, { id: 91, name: 'Commit prune' }, [{ runBranch: ctx!.runBranch, worktreePath: ctx!.worktreePath }], 'commit')
+
+    expect(existsSync(ctx!.worktreePath)).toBe(false)
+    const branchList = execSync(`git -C "${baseRepoPath}" branch --list "${ctx!.runBranch}"`, {
+      encoding: 'utf-8',
+    }).trim()
+    expect(branchList).not.toBe('')
+    const log = execSync(`git -C "${baseRepoPath}" log "${ctx!.runBranch}" --oneline`, { encoding: 'utf-8' })
+    expect(log).toContain('Schedule worktree removed: Commit prune')
+  })
+
+  it('pruneRunArtifacts deletes the branch of a run whose worktree is already gone in commit mode', async () => {
+    const manager = await createManager()
+    const repo = testRepo()
+    const job = { id: 92, branch: null, workspaceMode: 'kept-worktree' as const }
+    const runId = 920
+
+    const ctx = await manager.prepare(repo, job, runId)
+    const { removeWorktree } = await import('../../src/services/repo')
+    await removeWorktree(baseRepoPath, ctx!.worktreePath)
+    expect(existsSync(ctx!.worktreePath)).toBe(false)
+
+    await manager.pruneRunArtifacts(repo, { id: 92, name: 'Gone prune' }, [{ runBranch: ctx!.runBranch, worktreePath: ctx!.worktreePath }], 'commit')
+
+    const branchList = execSync(`git -C "${baseRepoPath}" branch --list "${ctx!.runBranch}"`, {
+      encoding: 'utf-8',
+    }).trim()
+    expect(branchList).toBe('')
+  })
+
+  it('prepare refuses when the run branch is checked out in another worktree', async () => {
+    const manager = await createManager()
+    const repo = testRepo()
+    const otherPath = path.join(tmpDir, 'other-checkout')
+    const runBranch = 'schedule/40/run-1'
+    execSync(`git -C "${baseRepoPath}" worktree add -b "${runBranch}" "${otherPath}" main`, { env })
+
+    try {
+      const error = await manager.prepare(repo, { id: 40, branch: null, workspaceMode: 'worktree' }, 1).catch((caught: unknown) => caught)
+      expect((error as Error).message).toContain(`Branch ${runBranch} is checked out in`)
+      expect((error as Error).message).toContain('Switch that checkout to another branch so the schedule can run.')
+    } finally {
+      execSync(`git -C "${baseRepoPath}" worktree remove --force "${otherPath}"`, { env })
+      execSync(`git -C "${baseRepoPath}" branch -D "${runBranch}"`, { env })
+    }
   })
 
   it('finalize commits but keeps the worktree on its branch in kept-worktree mode', async () => {
@@ -336,21 +385,34 @@ describe('ScheduleWorktreeManager', () => {
     await manager.finalize(repo, job, { id: 1, worktreePath: sharedPath, runBranch: 'schedule/32/shared', triggerSource: 'manual' })
     expect(existsSync(sharedPath)).toBe(true)
 
-    writeFileSync(path.join(sharedPath, 'uncommitted.md'), 'pending')
     const second = await manager.prepare(repo, job, 2)
     expect(second!.worktreePath).toBe(sharedPath)
-    expect(existsSync(path.join(sharedPath, 'uncommitted.md'))).toBe(true)
 
     await manager.releaseWorktree(repo, job, sharedPath)
     expect(existsSync(sharedPath)).toBe(false)
 
     const third = await manager.prepare(repo, job, 3)
     expect(existsSync(path.join(third!.worktreePath, 'first.md'))).toBe(true)
-    expect(existsSync(path.join(third!.worktreePath, 'uncommitted.md'))).toBe(true)
 
-    await manager.pruneRunArtifacts(repo, 32, [{ runBranch: 'schedule/32/shared', worktreePath: sharedPath }])
+    await manager.pruneRunArtifacts(repo, { id: 32, name: 'Shared job' }, [{ runBranch: 'schedule/32/shared', worktreePath: sharedPath }])
     expect(existsSync(sharedPath)).toBe(true)
     expect(execSync(`git -C "${baseRepoPath}" branch --list schedule/32/shared`, { encoding: 'utf-8' }).trim()).not.toBe('')
+
+    await manager.releaseWorktree(repo, job, sharedPath)
+  })
+
+  it('refuses to reuse a shared worktree with uncommitted changes made outside a run', async () => {
+    const manager = await createManager()
+    const repo = testRepo()
+    const job = { id: 33, branch: null, name: 'Dirty shared', prompt: '', workspaceMode: 'shared-worktree' as const }
+    const sharedPath = path.join(scheduleWorktreesRoot, 'job-33-shared')
+
+    await manager.prepare(repo, job, 1)
+    writeFileSync(path.join(sharedPath, 'outside.md'), 'outside edit')
+
+    await expect(manager.prepare(repo, job, 2)).rejects.toThrow(
+      `Shared worktree ${sharedPath} has uncommitted changes made outside a scheduled run.`,
+    )
 
     await manager.releaseWorktree(repo, job, sharedPath)
   })

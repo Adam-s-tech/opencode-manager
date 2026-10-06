@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   useCancelRepoScheduleRun: vi.fn(),
   useClearRepoScheduleRuns: vi.fn(),
   useDeleteRepoScheduleRun: vi.fn(),
+  useScheduleWorktrees: vi.fn(),
   useRepoActivity: vi.fn(),
   useScheduleUrlState: vi.fn(),
 }))
@@ -41,6 +42,7 @@ vi.mock('@/hooks/useSchedules', () => ({
   useCancelRepoScheduleRun: mocks.useCancelRepoScheduleRun,
   useClearRepoScheduleRuns: mocks.useClearRepoScheduleRuns,
   useDeleteRepoScheduleRun: mocks.useDeleteRepoScheduleRun,
+  useScheduleWorktrees: mocks.useScheduleWorktrees,
 }))
 
 vi.mock('@/hooks/useRepoActivity', () => ({
@@ -73,6 +75,7 @@ vi.mock('@/components/schedules', () => ({
     </div>
   )),
   RunHistoryTab: vi.fn(() => <div>RunHistoryTab</div>),
+  ScheduleRunRemovalDialog: () => null,
   ScheduleTabMenu: vi.fn(() => <div>ScheduleTabMenu</div>),
 }))
 
@@ -135,6 +138,7 @@ describe('Schedules', () => {
     mocks.useCancelRepoScheduleRun.mockReturnValue({ mutate: vi.fn(), isPending: false })
     mocks.useClearRepoScheduleRuns.mockReturnValue({ mutate: vi.fn(), isPending: false })
     mocks.useDeleteRepoScheduleRun.mockReturnValue({ mutate: vi.fn(), isPending: false })
+    mocks.useScheduleWorktrees.mockReturnValue({ data: [], isLoading: false })
   })
 
   describe('assistant schedule target (repoId=0)', () => {

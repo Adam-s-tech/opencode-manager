@@ -11,12 +11,19 @@ export type ScheduleMode = z.infer<typeof ScheduleModeSchema>
 
 /**
  * Where a scheduled run executes. `worktree` gives every run a fresh worktree that is
- * removed when the run ends, `kept-worktree` keeps each run's worktree afterwards,
- * `shared-worktree` reuses one worktree and branch for every run of the schedule, and
- * `repo` runs directly in the repository checkout without isolation.
+ * removed when the run ends, `kept-worktree` keeps each run's worktree afterwards, and
+ * `shared-worktree` reuses one worktree and branch for every run of the schedule.
  */
-export const ScheduleWorkspaceModeSchema = z.enum(['worktree', 'kept-worktree', 'shared-worktree', 'repo'])
+export const ScheduleWorkspaceModeSchema = z.enum(['worktree', 'kept-worktree', 'shared-worktree'])
 export type ScheduleWorkspaceMode = z.infer<typeof ScheduleWorkspaceModeSchema>
+
+/**
+ * What clearing run history does with the run worktrees that still exist on disk.
+ * `commit` commits their pending changes to their branches and keeps those branches;
+ * `discard` force-removes the worktrees and deletes their branches.
+ */
+export const ScheduleRunWorktreesModeSchema = z.enum(['commit', 'discard']).default('commit')
+export type ScheduleRunWorktreesMode = z.infer<typeof ScheduleRunWorktreesModeSchema>
 
 /**
  * A schedule worktree that still exists on disk. `runId` is null for the schedule's

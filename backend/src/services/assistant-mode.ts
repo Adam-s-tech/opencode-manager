@@ -400,7 +400,7 @@ Create a new schedule job.
 
 Body matches \`CreateScheduleJobRequest\` schema (discriminated union with \`scheduleMode: 'interval' | 'cron'\`).
 
-Optional \`workspaceMode\` sets where runs execute: \`worktree\` (default, a fresh worktree removed after each run), \`kept-worktree\` (a fresh worktree kept after each run), \`shared-worktree\` (one worktree and branch reused by every run), or \`repo\` (the repository checkout itself). Kept and shared worktrees are listed with \`GET /repos/:repoId/schedules/:jobId/worktrees\` and removed with \`DELETE /repos/:repoId/schedules/:jobId/worktrees\` (optional body \`{ "worktreePath": "..." }\`; omit it to remove every idle worktree). Pending changes are committed to the worktree's branch before removal.
+Optional \`workspaceMode\` sets where runs execute: \`worktree\` (default, a fresh worktree removed after each run), \`kept-worktree\` (a fresh worktree kept after each run), or \`shared-worktree\` (one worktree and branch reused by every run). Kept and shared worktrees are listed with \`GET /repos/:repoId/schedules/:jobId/worktrees\`. Removing schedule worktrees is done by the user in the Manager UI.
 
 \`\`\`json
 {

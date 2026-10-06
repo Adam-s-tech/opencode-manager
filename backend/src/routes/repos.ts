@@ -404,7 +404,7 @@ app.get('/', async (c) => {
       }
 
       const removeWorktree = async () => {
-        scheduleService.prepareRepoDelete(id)
+        await scheduleService.prepareRepoDelete(id)
         await repoWorkspaces.removeRepoTerminals(repo)
         await repoService.deleteRepoFiles(database, id)
       }

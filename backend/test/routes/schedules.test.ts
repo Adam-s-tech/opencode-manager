@@ -12,6 +12,8 @@ const scheduleService = {
   listRuns: vi.fn(),
   getRun: vi.fn(),
   cancelRun: vi.fn(),
+  clearRunHistory: vi.fn(),
+  deleteRun: vi.fn(),
   listAllEnabledJobs: vi.fn(),
   listAllJobsWithRepos: vi.fn(),
   listAllRuns: vi.fn(),
@@ -362,5 +364,43 @@ describe('Schedule Routes', () => {
     expect(response.status).toBe(400)
     expect(body.error).toBe('Invalid run id')
     expect(scheduleService.markRunViewed).not.toHaveBeenCalled()
+  })
+
+  it('clears run history with the default commit worktrees mode', async () => {
+    scheduleService.clearRunHistory.mockResolvedValue({ cleared: 2 })
+
+    const response = await app.request('/repos/42/schedules/7/runs', { method: 'DELETE' })
+    const body = await response.json() as { cleared: number }
+
+    expect(response.status).toBe(200)
+    expect(body.cleared).toBe(2)
+    expect(scheduleService.clearRunHistory).toHaveBeenCalledWith(42, 7, 'commit')
+  })
+
+  it('passes the discard worktrees mode to clearRunHistory', async () => {
+    scheduleService.clearRunHistory.mockResolvedValue({ cleared: 1 })
+
+    const response = await app.request('/repos/42/schedules/7/runs?worktrees=discard', { method: 'DELETE' })
+
+    expect(response.status).toBe(200)
+    expect(scheduleService.clearRunHistory).toHaveBeenCalledWith(42, 7, 'discard')
+  })
+
+  it('rejects an invalid worktrees mode when clearing run history', async () => {
+    const response = await app.request('/repos/42/schedules/7/runs?worktrees=nope', { method: 'DELETE' })
+    const body = await response.json() as { error: string }
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Invalid worktrees mode')
+    expect(scheduleService.clearRunHistory).not.toHaveBeenCalled()
+  })
+
+  it('deletes a run with the requested worktrees mode', async () => {
+    scheduleService.deleteRun.mockResolvedValue(undefined)
+
+    const response = await app.request('/repos/42/schedules/7/runs/5?worktrees=discard', { method: 'DELETE' })
+
+    expect(response.status).toBe(200)
+    expect(scheduleService.deleteRun).toHaveBeenCalledWith(42, 7, 5, 'discard')
   })
 })

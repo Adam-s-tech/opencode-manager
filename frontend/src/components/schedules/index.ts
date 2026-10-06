@@ -1,6 +1,7 @@
 export { ScheduleJobsTable } from './ScheduleJobsTable'
 export { JobDetailTab } from './JobDetailTab'
 export { RunHistoryTab } from './RunHistoryTab'
+export { ScheduleRunRemovalDialog } from './ScheduleRunRemovalDialog'
 export { ScheduleRunDrawer } from './ScheduleRunDrawer'
 export { ScheduleRunsTable } from './ScheduleRunsTable'
 export { RunDetailPanel } from './RunDetailPanel'

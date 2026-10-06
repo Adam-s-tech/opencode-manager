@@ -5,6 +5,7 @@ import {
   SchedulePermissionConfigSchema,
   ScheduleRunSchema,
   ScheduleSkillMetadataSchema,
+  ScheduleWorkspaceModeSchema,
   type ScheduleJob,
   type ScheduleMcpServer,
   type ScheduleMode,
@@ -102,6 +103,11 @@ function parseMcpServers(raw: string | null): ScheduleMcpServer[] {
   }
 }
 
+function normalizeWorkspaceMode(raw: string | null): ScheduleWorkspaceMode {
+  const result = ScheduleWorkspaceModeSchema.safeParse(raw)
+  return result.success ? result.data : 'worktree'
+}
+
 function rowToScheduleJob(row: ScheduleJobRow): ScheduleJob {
   return ScheduleJobSchema.parse({
     id: row.id,
@@ -120,7 +126,7 @@ function rowToScheduleJob(row: ScheduleJobRow): ScheduleJob {
     permissionConfig: parsePermissionConfig(row.permission_config),
     mcpServers: parseMcpServers(row.mcp_servers),
     branch: row.branch,
-    workspaceMode: row.workspace_mode ?? 'worktree',
+    workspaceMode: normalizeWorkspaceMode(row.workspace_mode),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastRunAt: row.last_run_at,
@@ -304,9 +310,15 @@ export function listScheduleRunArtifactsByJob(db: Database, repoId: number, jobI
   }))
 }
 
-export function getScheduleJobRepoId(db: Database, jobId: number): number | null {
-  const row = db.prepare('SELECT repo_id FROM schedule_jobs WHERE id = ?').get(jobId) as { repo_id: number } | undefined
-  return row?.repo_id ?? null
+export interface ScheduleJobWorktreeOwner {
+  id: number
+  repoId: number
+  name: string
+}
+
+export function listScheduleJobWorktreeOwners(db: Database): ScheduleJobWorktreeOwner[] {
+  const rows = db.prepare('SELECT id, repo_id, name FROM schedule_jobs').all() as Array<{ id: number; repo_id: number; name: string }>
+  return rows.map((row) => ({ id: row.id, repoId: row.repo_id, name: row.name }))
 }
 
 export function clearScheduleRunWorktreePath(db: Database, repoId: number, jobId: number, worktreePath: string): number {

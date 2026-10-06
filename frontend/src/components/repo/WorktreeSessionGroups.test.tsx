@@ -15,7 +15,6 @@ const makeWorktree = (overrides: Partial<RepoSibling> & Pick<RepoSibling, 'fullP
   isWorktree: true,
   currentBranch: overrides.currentBranch,
   worktreeSource: overrides.worktreeSource,
-  worktreeStrategy: 'git',
   ...overrides,
 })
 
@@ -29,14 +28,14 @@ const sharedScheduleWorktree = makeWorktree({
   fullPath: '/s/job-14-shared',
   currentBranch: 'schedule/14/shared',
   worktreeSource: 'schedule',
-  schedule: { repoId: 1, jobId: 14, runId: null, inUse: true },
+  schedule: { repoId: 1, jobId: 14, runId: null, inUse: true, name: 'Nightly' },
 })
 
 const runScheduleWorktree = makeWorktree({
   fullPath: '/s/job-14-run-340',
   currentBranch: 'schedule/14/run-340',
   worktreeSource: 'schedule',
-  schedule: { repoId: 1, jobId: 14, runId: 340, inUse: false },
+  schedule: { repoId: 1, jobId: 14, runId: 340, inUse: false, name: 'Nightly' },
 })
 
 const manualWorktree = makeWorktree({
@@ -74,6 +73,7 @@ function renderGroups(overrides: {
   worktrees?: RepoSibling[]
   sessions?: Session[]
   searchQuery?: string
+  onExpandedScheduleDirectoriesChange?: (directories: string[]) => void
 } = {}) {
   return render(
     <WorktreeSessionGroups
@@ -81,8 +81,8 @@ function renderGroups(overrides: {
       worktrees={overrides.worktrees ?? allWorktrees}
       sessions={overrides.sessions ?? [featureSession]}
       searchQuery={overrides.searchQuery ?? ''}
-      scheduleNames={{ 14: 'Dependency audit' }}
       renderSessionCard={(session) => <div key={session.id}>{session.title}</div>}
+      onExpandedScheduleDirectoriesChange={overrides.onExpandedScheduleDirectoriesChange}
       onNewSession={onNewSession}
       onOpenTerminal={onOpenTerminal}
       onCreateWorktree={onCreateWorktree}
@@ -100,9 +100,9 @@ describe('WorktreeSessionGroups', () => {
     expect(screen.getByText('Auth work')).toBeInTheDocument()
     expect(screen.getByText('1 session')).toBeInTheDocument()
 
-    expect(screen.getByText('Dependency audit')).toBeInTheDocument()
-    expect(screen.getByText('Schedule · shared')).toBeInTheDocument()
-    expect(screen.getByText('Schedule · run #340')).toBeInTheDocument()
+    expect(screen.getByText('Nightly')).toBeInTheDocument()
+    expect(screen.getByText('Schedule · Shared worktree')).toBeInTheDocument()
+    expect(screen.getByText('Schedule · Run #340')).toBeInTheDocument()
     expect(screen.getByText('in use')).toBeInTheDocument()
 
     expect(screen.getByText('Git')).toBeInTheDocument()
@@ -157,7 +157,7 @@ describe('WorktreeSessionGroups', () => {
 
     expect(screen.getByText('manual')).toBeInTheDocument()
     expect(screen.queryByText('feature/auth')).not.toBeInTheDocument()
-    expect(screen.queryByText('Dependency audit')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nightly')).not.toBeInTheDocument()
   })
 
   it('collapses a worktree and persists the collapsed state across remount', async () => {
@@ -172,12 +172,23 @@ describe('WorktreeSessionGroups', () => {
     expect(screen.queryByText('Auth work')).not.toBeInTheDocument()
   })
 
+  it('reports a schedule worktree directory only after its group is expanded', async () => {
+    const onExpandedScheduleDirectoriesChange = vi.fn()
+    renderGroups({ onExpandedScheduleDirectoriesChange })
+
+    expect(onExpandedScheduleDirectoriesChange).toHaveBeenLastCalledWith([])
+
+    await userEvent.click(screen.getByRole('button', { expanded: false, name: /schedule\/14\/shared/ }))
+
+    expect(onExpandedScheduleDirectoriesChange).toHaveBeenLastCalledWith(['/s/job-14-shared'])
+  })
+
   it('hides empty worktrees while searching and renders the empty state when there are none', async () => {
     const { unmount } = renderGroups({ searchQuery: 'auth' })
 
     expect(screen.getByText('feature/auth')).toBeInTheDocument()
     expect(screen.queryByText('manual')).not.toBeInTheDocument()
-    expect(screen.queryByText('Dependency audit')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nightly')).not.toBeInTheDocument()
 
     unmount()
     renderGroups({ worktrees: [], sessions: [] })

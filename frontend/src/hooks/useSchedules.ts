@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CreateScheduleJobRequest, UpdateScheduleJobRequest } from '@opencode-manager/shared/types'
+import type { CreateScheduleJobRequest, ScheduleRunWorktreesMode, UpdateScheduleJobRequest } from '@opencode-manager/shared/types'
 import {
   cancelRepoScheduleRun,
   clearRepoScheduleRuns,
@@ -224,8 +224,8 @@ export function useClearRepoScheduleRuns() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ repoId, jobId }: { repoId: number; jobId: number }) => {
-      return clearRepoScheduleRuns(repoId, jobId)
+    mutationFn: async ({ repoId, jobId, worktrees }: { repoId: number; jobId: number; worktrees?: ScheduleRunWorktreesMode }) => {
+      return clearRepoScheduleRuns(repoId, jobId, worktrees)
     },
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['repo-schedule-runs', variables.repoId, variables.jobId] })
@@ -243,8 +243,8 @@ export function useDeleteRepoScheduleRun() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ repoId, jobId, runId }: { repoId: number; jobId: number; runId: number }) => {
-      return deleteRepoScheduleRun(repoId, jobId, runId)
+    mutationFn: ({ repoId, jobId, runId, worktrees }: { repoId: number; jobId: number; runId: number; worktrees?: ScheduleRunWorktreesMode }) => {
+      return deleteRepoScheduleRun(repoId, jobId, runId, worktrees)
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['repo-schedule-runs', variables.repoId, variables.jobId] })
@@ -275,7 +275,7 @@ export function useRemoveScheduleWorktrees() {
 
   return useMutation({
     mutationFn: ({ repoId, jobId, worktreePath }: { repoId: number; jobId: number; worktreePath?: string }) => {
-      return removeScheduleWorktrees(repoId, jobId, worktreePath)
+      return removeScheduleWorktrees(repoId, jobId, worktreePath ? { worktreePath } : {})
     },
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['schedule-worktrees', variables.repoId, variables.jobId] })

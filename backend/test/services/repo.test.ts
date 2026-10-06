@@ -5,7 +5,7 @@ import { getReposPath } from '@opencode-manager/shared/config/env'
 import type { GitAuthService } from '../../src/services/git-auth'
 import type { OpenCodeClient } from '../../src/services/opencode/client'
 import type { Repo } from '../../src/types/repo'
-import type { RepoSibling } from '../../src/services/repo'
+import type { RepoSibling } from '@opencode-manager/shared/utils'
 import { migrate } from '../../src/db/migration-runner'
 import { allMigrations } from '../../src/db/migrations'
 
@@ -536,7 +536,7 @@ describe('getSiblingRepos worktree API', () => {
       id: -1,
       fullPath: '/worktrees/feature-x',
       localPath: 'feature-x',
-      worktreeStrategy: 'git',
+      worktreeSource: 'opencode',
     })
     expect(siblings[1]?.branch).toBeUndefined()
     expect(siblings[1]?.currentBranch).toBeUndefined()
@@ -565,6 +565,7 @@ describe('getSiblingRepos worktree API', () => {
   it('marks an active schedule run worktree as an in-use schedule worktree', async () => {
     const { getSiblingRepos } = await import('../../src/services/repo')
     const activePath = '/worktrees/active-run'
+    db.prepare('INSERT INTO schedule_jobs (repo_id, name, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(1, 'nightly', 'check', Date.now(), Date.now())
     db.prepare('INSERT INTO schedule_runs (job_id, repo_id, trigger_source, status, started_at, created_at, worktree_path) VALUES (?, ?, ?, ?, ?, ?, ?)').run(1, 1, 'manual', 'running', Date.now(), Date.now(), activePath)
     const client = createClient([
       { directory: activePath, strategy: 'git' },
@@ -574,7 +575,7 @@ describe('getSiblingRepos worktree API', () => {
     const siblings = await getSiblingRepos(db, 1, {}, client) as SiblingRepo[]
 
     expect(siblings).toHaveLength(3)
-    expect(siblings[1]).toMatchObject({ fullPath: activePath, worktreeSource: 'schedule', schedule: { repoId: 1, jobId: 1, runId: 1, inUse: true } })
+    expect(siblings[1]).toMatchObject({ fullPath: activePath, worktreeSource: 'schedule', schedule: { repoId: 1, jobId: 1, runId: 1, inUse: true, name: 'nightly' } })
     expect(siblings[2]).toMatchObject({ fullPath: '/worktrees/feature-x', worktreeSource: 'opencode' })
   })
 

@@ -173,23 +173,21 @@ export function GeneralTab({
               />
             </div>
           )}
-          {workspaceMode !== 'repo' && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="schedule-branch">Base branch</Label>
-                <InfoHint text="New run worktrees branch off this base branch. A shared worktree only uses it when it is first created. Leave empty to use the repository's default branch." />
-              </div>
-              <BranchCombobox
-                id="schedule-branch"
-                repoId={branchRepoId}
-                value={branch}
-                onValueChange={onBranchChange}
-                placeholder="Defaults to default branch"
-                remotes="bare"
-                clearable
-              />
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="schedule-branch">Base branch</Label>
+              <InfoHint text="Runs start from origin/<branch> when it exists, so local commits that are not pushed are not included. A shared worktree continues from its own branch after the first run. Leave empty to use the repository's default branch." />
             </div>
-          )}
+            <BranchCombobox
+              id="schedule-branch"
+              repoId={branchRepoId}
+              value={branch}
+              onValueChange={onBranchChange}
+              placeholder="Defaults to default branch"
+              remotes="bare"
+              clearable
+            />
+          </div>
         </div>
 
         <div className="space-y-2">

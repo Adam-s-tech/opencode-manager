@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -998,12 +998,51 @@ describe('repo service real git', () => {
       expect(worktreeSiblings.map((repo) => repo.fullPath).sort()).toEqual([extraDir, duplicateDir, keptPath, sharedPath, orphanPath, manualPath].sort())
       expect(siblings.some((repo) => repo.fullPath === unownedDir && repo.worktreeSource === undefined)).toBe(true)
       expect(worktreeSiblings.every((repo) => repo.id === -1 && repo.localPath === path.basename(repo.fullPath))).toBe(true)
-      expect(findSibling(extraDir)).toMatchObject({ worktreeSource: 'opencode', worktreeStrategy: 'git', branch: undefined })
+      expect(findSibling(extraDir)).toMatchObject({ worktreeSource: 'opencode', branch: undefined })
       expect(findSibling(keptPath)).toMatchObject({ worktreeSource: 'schedule', branch: `schedule/${jobId}/run-3`, schedule: { repoId: a.id, jobId, runId: 3, inUse: false } })
       expect(findSibling(sharedPath)).toMatchObject({ worktreeSource: 'schedule', schedule: { repoId: a.id, jobId, runId: null, inUse: true } })
       expect(findSibling(orphanPath)).toMatchObject({ worktreeSource: 'git', branch: 'schedule/999999/run-1' })
       expect(findSibling(orphanPath)?.schedule).toBeUndefined()
       expect(findSibling(manualPath)).toMatchObject({ worktreeSource: 'git', currentBranch: 'manual-work' })
+    })
+
+    it('describes schedule worktrees by canonical path and shared-worktree in-use state', async () => {
+      const { createScheduleWorktreeDescriber } = await import('../../src/services/schedule-worktree-paths')
+      const repoA = path.join(reposPath, uniqueName('schedule-describer-a'))
+      mkdirSync(repoA, { recursive: true })
+      const a = createRepo(db, {
+        isLocal: true,
+        localPath: path.basename(repoA),
+        sourcePath: repoA,
+        branch: 'main',
+        defaultBranch: 'main',
+        cloneStatus: 'ready',
+        clonedAt: Date.now(),
+      })
+      const jobId = Number(db.prepare('INSERT INTO schedule_jobs (repo_id, name, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(a.id, 'nightly', 'check', Date.now(), Date.now()).lastInsertRowid)
+      const root = getScheduleWorktreesPath()
+      mkdirSync(root, { recursive: true })
+      const runDir = path.join(root, `job-${jobId}-run-1`)
+      const sharedDir = path.join(root, `job-${jobId}-shared`)
+      mkdirSync(runDir, { recursive: true })
+      mkdirSync(sharedDir, { recursive: true })
+      const linkRoot = path.join(workspaceRoot, uniqueName('schedule-describer-link'))
+      symlinkSync(root, linkRoot, 'dir')
+
+      const describeWorktree = createScheduleWorktreeDescriber(db)
+
+      const canonicalRun = describeWorktree(realpathSync(runDir))
+      expect(canonicalRun).toMatchObject({ repoId: a.id, jobId, runId: 1, inUse: false, name: 'nightly' })
+      expect(describeWorktree(path.join(linkRoot, `job-${jobId}-run-1`))).toEqual(canonicalRun)
+
+      const sharedBefore = describeWorktree(realpathSync(sharedDir))
+      expect(sharedBefore).toMatchObject({ repoId: a.id, jobId, runId: null, inUse: false, name: 'nightly' })
+
+      db.prepare('INSERT INTO schedule_runs (job_id, repo_id, trigger_source, status, started_at, created_at, worktree_path) VALUES (?, ?, ?, ?, ?, ?, ?)').run(jobId, a.id, 'manual', 'running', Date.now(), Date.now(), sharedDir)
+
+      const describeAfterRun = createScheduleWorktreeDescriber(db)
+      expect(describeAfterRun(realpathSync(sharedDir))).toMatchObject({ jobId, runId: null, inUse: true, name: 'nightly' })
+      expect(describeAfterRun(path.join(root, 'job-999999-run-1'))).toBeUndefined()
     })
 
     it('returns repo siblings when the OpenCode client fails', async () => {

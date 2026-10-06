@@ -16,7 +16,6 @@ interface SessionListProps {
   directory?: string;
   directories?: string[];
   createDirectory?: string;
-  directoryLabels?: Record<string, string>;
   activeSessionID?: string;
   onSelectSession: (sessionID: string) => void;
   renderSessions?: (args: SessionListRenderArgs) => ReactNode;
@@ -36,7 +35,6 @@ export const SessionList = ({
   directory,
   directories,
   createDirectory,
-  directoryLabels,
   activeSessionID,
   onSelectSession,
   renderSessions,
@@ -220,7 +218,6 @@ export const SessionList = ({
         isSelected={selectedSessions.has(key)}
         isActive={activeSessionID === session.id}
         manageMode={manageMode}
-        workspaceLabel={directoryLabels?.[session.location.directory]}
         isPinned={isPinned}
         onSelect={onSelectSession}
         onToggleSelection={(selected) => toggleSessionSelection(session, selected)}

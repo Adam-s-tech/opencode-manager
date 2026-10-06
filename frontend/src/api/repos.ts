@@ -3,7 +3,10 @@ import { FetchError, fetchWrapper, fetchWrapperVoid, fetchWrapperBlob } from './
 import { API_BASE_URL } from '@/config'
 import { saveFile } from '@/lib/download'
 import type { CreateRepoWorkspaceRequest, DiscoverReposResponse, AssistantModeStatus, AssistantModeInitRequest, DeleteRepoRequest, DeleteRepoResult, RepoGitIdentity, WorktreeSetupResult } from '@opencode-manager/shared/types'
-import type { RepoWorktreeSchedule, RepoWorktreeSource } from '@opencode-manager/shared/utils'
+import type { RepoSibling } from '@opencode-manager/shared/utils'
+import { formatScheduleWorktreeLabel } from '@/lib/schedules/schedule-worktree'
+
+export type { RepoSibling } from '@opencode-manager/shared/utils'
 
 export interface CreateRepoOptions {
   repoUrl?: string
@@ -39,20 +42,13 @@ export async function getRepo(id: number): Promise<Repo> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${id}`)
 }
 
-export type RepoSibling = Repo & {
-  currentBranch?: string
-  worktreeSource?: RepoWorktreeSource
-  worktreeStrategy?: string
-  schedule?: RepoWorktreeSchedule
-}
-
 export function workspaceLabel(workspace: RepoSibling): string {
   return workspace.currentBranch || workspace.branch || workspace.localPath || 'worktree'
 }
 
 export function worktreeSourceLabel(worktree: RepoSibling): string | null {
   if (worktree.schedule) {
-    return worktree.schedule.runId === null ? 'Schedule · shared' : `Schedule · run #${worktree.schedule.runId}`
+    return `Schedule · ${formatScheduleWorktreeLabel(worktree.schedule.runId)}`
   }
   if (worktree.worktreeSource === 'git') return 'Git'
   return worktree.worktreeSource === 'opencode' ? 'OpenCode' : null

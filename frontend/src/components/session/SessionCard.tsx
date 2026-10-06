@@ -14,7 +14,6 @@ interface SessionCardProps {
   isSelected: boolean;
   isActive: boolean;
   manageMode: boolean;
-  workspaceLabel?: string;
   isPinned?: boolean;
   onTogglePin?: () => void;
   onSelect: (sessionID: string) => void;
@@ -27,7 +26,6 @@ export const SessionCard = ({
   isSelected,
   isActive,
   manageMode,
-  workspaceLabel,
   isPinned,
   onTogglePin,
   onSelect,
@@ -117,9 +115,6 @@ export const SessionCard = ({
                         addSuffix: true,
                       })}
                     </span>
-                    {workspaceLabel ? (
-                      <span className="text-primary truncate max-w-[140px]">{workspaceLabel}</span>
-                    ) : null}
                   </div>
                 </div>
               </div>
@@ -139,9 +134,6 @@ export const SessionCard = ({
                         addSuffix: true,
                       })}
                     </span>
-                    {workspaceLabel ? (
-                      <span className="text-primary truncate max-w-[120px]">{workspaceLabel}</span>
-                    ) : null}
                     <SessionStatusIndicator sessionID={session.id} size="sm" />
                   </div>
                 </div>

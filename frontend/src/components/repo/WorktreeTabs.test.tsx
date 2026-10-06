@@ -14,7 +14,6 @@ const makeWorkspaceSibling = (branch: string): RepoSibling => ({
   isWorktree: true,
   currentBranch: branch,
   branch,
-  worktreeStrategy: 'git',
   worktreeSource: 'opencode',
 })
 

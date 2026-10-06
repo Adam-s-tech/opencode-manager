@@ -2,9 +2,11 @@ import { fetchWrapper, fetchWrapperVoid } from './fetchWrapper'
 import { API_BASE_URL } from '@/config'
 import type {
   CreateScheduleJobRequest,
+  RemoveScheduleWorktreesRequest,
   ScheduleJob,
   ScheduleRun,
   ScheduleRunStatus,
+  ScheduleRunWorktreesMode,
   ScheduleWorktree,
   UpdateScheduleJobRequest,
 } from '@opencode-manager/shared/types'
@@ -158,8 +160,9 @@ export async function cancelRepoScheduleRun(repoId: number, jobId: number, runId
   })
 }
 
-export async function clearRepoScheduleRuns(repoId: number, jobId: number): Promise<{ cleared: number }> {
-  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/runs`, {
+export async function clearRepoScheduleRuns(repoId: number, jobId: number, worktrees?: ScheduleRunWorktreesMode): Promise<{ cleared: number }> {
+  const qs = worktrees ? `?worktrees=${worktrees}` : ''
+  return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/runs${qs}`, {
     method: 'DELETE',
   })
 }
@@ -168,16 +171,17 @@ export async function listScheduleWorktrees(repoId: number, jobId: number): Prom
   return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/worktrees`)
 }
 
-export async function removeScheduleWorktrees(repoId: number, jobId: number, worktreePath?: string): Promise<{ removed: number }> {
+export async function removeScheduleWorktrees(repoId: number, jobId: number, request: RemoveScheduleWorktreesRequest = {}): Promise<{ removed: number }> {
   return fetchWrapper(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/worktrees`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(worktreePath ? { worktreePath } : {}),
+    body: JSON.stringify(request),
   })
 }
 
-export async function deleteRepoScheduleRun(repoId: number, jobId: number, runId: number): Promise<void> {
-  return fetchWrapperVoid(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/runs/${runId}`, {
+export async function deleteRepoScheduleRun(repoId: number, jobId: number, runId: number, worktrees?: ScheduleRunWorktreesMode): Promise<void> {
+  const qs = worktrees ? `?worktrees=${worktrees}` : ''
+  return fetchWrapperVoid(`${API_BASE_URL}/api/repos/${repoId}/schedules/${jobId}/runs/${runId}${qs}`, {
     method: 'DELETE',
   })
 }
